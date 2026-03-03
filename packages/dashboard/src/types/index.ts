@@ -1,20 +1,30 @@
 export interface Signal {
   id: string;
   timestamp: string;
+  market_condition_id: string;
+  market_slug: string;
   market_title: string;
   odds_before: number;
   odds_now: number;
   delta_pct: number;
-  time_window: string;
+  time_window_minutes: number;
   whale_detected: boolean;
-  whale_amount: number;
-  action: string;
-  instrument: string;
-  avanza_url: string;
+  whale_amount_usd: number | null;
+  matched_asset_id: string;
+  matched_asset_name: string;
+  polarity: "direct" | "inverse" | "context_dependent";
+  suggested_action: string;
+  suggested_instruments: Array<{
+    name: string;
+    avanza_id: string;
+    leverage: number | null;
+    avanza_url: string;
+  }>;
   reasoning: string;
   confidence: number;
-  direction: "bull" | "bear";
-  status: "new" | "reviewed" | "expired";
+  requires_judgment?: boolean;
+  deduplication_key?: string;
+  status: "new" | "viewed" | "dismissed" | "acted";
 }
 
 export interface MarketWatch {
@@ -35,7 +45,7 @@ export interface Correlation {
   polymarket_odds: number;
   instrument: string;
   instrument_type: "BULL" | "BEAR";
-  polarity: "DIRECT" | "INVERSE";
+  polarity: "DIRECT" | "INVERSE" | "CONTEXT";
 }
 
 export interface WhaleEntry {
@@ -58,4 +68,22 @@ export interface AlertChannel {
   name: string;
   enabled: boolean;
   fields: { label: string; value: string }[];
+}
+
+export interface HealthStatus {
+  status: string;
+  uptime: number;
+  timestamp: string;
+  avanza: string;
+  scanner: {
+    markets: { total: number; active: number };
+    signals: { total: number; new: number; viewed: number; acted: number; avg_confidence: number };
+    instruments: { total: number };
+  };
+  jobs: {
+    scan_cycle: { schedule: string };
+    market_refresh: { schedule: string };
+    instrument_refresh: { schedule: string; enabled: boolean };
+    cleanup: { schedule: string };
+  };
 }

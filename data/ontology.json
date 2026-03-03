@@ -1,164 +1,472 @@
 {
-  "version": 2,
+  "version": 3,
   "assets": [
+    {
+      "id": "defense-rheinmetall",
+      "name": "Rheinmetall",
+      "category": "defense",
+      "polymarket_patterns": {
+        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "eu defense"],
+        "categories": ["geopolitics", "defense", "europe"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["RHEINMETALL"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "European rearmament directly drives Rheinmetall revenue. Odds UP on defense spending = BULL RHEINMETALL."
+      }
+    },
+    {
+      "id": "defense-saab",
+      "name": "Saab B",
+      "category": "defense",
+      "polymarket_patterns": {
+        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "sweden nato", "eu defense"],
+        "categories": ["geopolitics", "defense", "europe"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["SAAB B", "SAAB"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Saab wins contracts from European rearmament. Odds UP on defense spending = BULL SAAB."
+      }
+    },
+    {
+      "id": "defense-bae",
+      "name": "BAE Systems",
+      "category": "defense",
+      "polymarket_patterns": {
+        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "uk defense"],
+        "categories": ["geopolitics", "defense"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["BAE SYSTEMS", "BAE"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "BAE Systems is a primary NATO contractor. Odds UP on rearmament = BULL BAE."
+      }
+    },
+    {
+      "id": "defense-lockheed",
+      "name": "Lockheed Martin",
+      "category": "defense",
+      "polymarket_patterns": {
+        "keywords": ["f-35", "us defense budget", "pentagon", "taiwan", "nato spending", "us military", "defense contractor"],
+        "categories": ["geopolitics", "defense", "us politics"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["LOCKHEED MARTIN", "LOCKHEED"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Lockheed Martin profits from US and allied defense spending. Odds UP on US military spending = BULL LOCKHEED."
+      }
+    },
+    {
+      "id": "oil-equinor",
+      "name": "Equinor",
+      "category": "energy",
+      "polymarket_patterns": {
+        "keywords": ["opec", "oil production", "crude oil", "oil price", "oil supply", "brent crude", "oil embargo", "energy crisis"],
+        "categories": ["economics", "energy"],
+        "exclude_keywords": ["olive oil", "oil painting", "oil spill"]
+      },
+      "avanza_search": {
+        "underlying_terms": ["EQUINOR"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Higher oil prices directly boost Equinor revenue. Odds UP on production cuts (higher oil) = BULL EQUINOR."
+      }
+    },
+    {
+      "id": "oil-conocophillips",
+      "name": "ConocoPhillips",
+      "category": "energy",
+      "polymarket_patterns": {
+        "keywords": ["opec", "oil production", "crude oil", "oil price", "oil supply", "brent crude", "wti"],
+        "categories": ["economics", "energy"],
+        "exclude_keywords": ["olive oil", "oil painting"]
+      },
+      "avanza_search": {
+        "underlying_terms": ["CONOCOPHILLIPS"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "ConocoPhillips profits rise with oil prices. Odds UP on production cuts = BULL CONOCOPHILLIPS."
+      }
+    },
+    {
+      "id": "oil-shell",
+      "name": "Shell",
+      "category": "energy",
+      "polymarket_patterns": {
+        "keywords": ["opec", "oil production", "crude oil", "oil price", "lng", "natural gas price", "energy crisis"],
+        "categories": ["economics", "energy"],
+        "exclude_keywords": ["olive oil", "oil painting"]
+      },
+      "avanza_search": {
+        "underlying_terms": ["SHELL"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Shell is an integrated oil major — higher oil prices boost earnings. Odds UP on supply cuts = BULL SHELL."
+      }
+    },
+    {
+      "id": "oil-exxon",
+      "name": "Exxon Mobil",
+      "category": "energy",
+      "polymarket_patterns": {
+        "keywords": ["opec", "oil production", "crude oil", "oil price", "gulf oil", "oil supply cut"],
+        "categories": ["economics", "energy"],
+        "exclude_keywords": ["olive oil", "oil painting"]
+      },
+      "avanza_search": {
+        "underlying_terms": ["EXXON MOBIL", "EXXON"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Exxon Mobil earnings are directly tied to oil prices. Odds UP on OPEC cuts = BULL EXXON."
+      }
+    },
+    {
+      "id": "ai-nvidia",
+      "name": "NVIDIA",
+      "category": "technology",
+      "polymarket_patterns": {
+        "keywords": ["ai chip export", "gpu ban", "semiconductor export", "china ai", "chip restriction", "export control", "ai regulation", "ai spending", "ai infrastructure"],
+        "categories": ["technology", "regulation", "trade"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["NVIDIA"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "GPU export bans are BEARISH for NVIDIA (lost sales). AI spending increases are BULLISH. Requires judgment on which direction the event drives demand."
+      }
+    },
+    {
+      "id": "ai-palantir",
+      "name": "Palantir Technologies",
+      "category": "technology",
+      "polymarket_patterns": {
+        "keywords": ["government ai", "pentagon ai", "defense tech", "military ai", "data analytics government", "ai contract", "dod ai"],
+        "categories": ["technology", "defense", "us politics"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["PALANTIR TECHNOLOGIES", "PALANTIR"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Palantir wins from expanded government AI/defense contracts. Odds UP on government AI spending = BULL PALANTIR."
+      }
+    },
+    {
+      "id": "ai-crowdstrike",
+      "name": "CrowdStrike Holdings",
+      "category": "technology",
+      "polymarket_patterns": {
+        "keywords": ["cybersecurity regulation", "data breach", "cyber attack", "ransomware", "cybersecurity mandate", "state-sponsored hacking"],
+        "categories": ["technology", "regulation", "security"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["CROWDSTRIKE HOLDINGS", "CROWDSTRIKE"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "Cyber attacks drive demand for CrowdStrike (BULLISH). Major regulatory fines or product failures (like the 2024 outage) are BEARISH. Requires judgment."
+      }
+    },
+    {
+      "id": "ev-tesla",
+      "name": "Tesla",
+      "category": "ev",
+      "polymarket_patterns": {
+        "keywords": ["tesla", "elon musk", "ev subsidy", "ev tariff", "doge", "electric vehicle policy", "ira ev credit", "ev mandate"],
+        "categories": ["technology", "politics", "automotive"],
+        "exclude_keywords": ["tesla coil"]
+      },
+      "avanza_search": {
+        "underlying_terms": ["TESLA"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "EV subsidies are BULLISH for Tesla. Musk political controversy or tariff impacts can be BEARISH. IRA repeal is BEARISH. Requires judgment on each event."
+      }
+    },
+    {
+      "id": "mining-boliden",
+      "name": "Boliden",
+      "category": "mining",
+      "polymarket_patterns": {
+        "keywords": ["copper price", "critical minerals", "ev battery", "copper demand", "mining regulation", "metal prices"],
+        "categories": ["commodities", "mining", "environment"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["BOLIDEN"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Boliden is a copper/zinc miner — higher metal prices and EV demand drive its stock. Odds UP on copper demand = BULL BOLIDEN."
+      }
+    },
+    {
+      "id": "mining-freeport",
+      "name": "Freeport-McMoRan",
+      "category": "mining",
+      "polymarket_patterns": {
+        "keywords": ["copper price", "critical minerals", "ev battery", "copper demand", "chile mining", "indonesia mining"],
+        "categories": ["commodities", "mining"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["FREEPORT-MCMORAN", "FREEPORT"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Freeport-McMoRan is the world's largest copper miner. Higher copper prices = BULL FREEPORT."
+      }
+    },
+    {
+      "id": "steel-ssab",
+      "name": "SSAB",
+      "category": "steel",
+      "polymarket_patterns": {
+        "keywords": ["eu steel tariff", "cbam", "carbon border tax", "green steel", "infrastructure spending", "steel demand", "carbon tax"],
+        "categories": ["economics", "environment", "europe"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["SSAB A", "SSAB B", "SSAB"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "SSAB produces fossil-free green steel — CBAM and green steel mandates are bullish. Infrastructure spending drives demand. Odds UP on steel demand = BULL SSAB."
+      }
+    },
+    {
+      "id": "pharma-novo",
+      "name": "Novo Nordisk B",
+      "category": "pharma",
+      "polymarket_patterns": {
+        "keywords": ["ozempic", "wegovy", "glp-1", "obesity drug", "medicare drug pricing", "drug price negotiation", "weight loss drug", "diabetes drug"],
+        "categories": ["healthcare", "regulation"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["NOVO NORDISK B", "NOVO NORDISK"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "GLP-1 demand growth is BULLISH for Novo Nordisk. Medicare price negotiations or patent threats are BEARISH. Requires judgment on direction."
+      }
+    },
+    {
+      "id": "shipping-zim",
+      "name": "ZIM Integrated Shipping Services",
+      "category": "shipping",
+      "polymarket_patterns": {
+        "keywords": ["red sea", "houthi", "suez canal", "shipping rates", "freight rates", "container shipping", "panama canal"],
+        "categories": ["geopolitics", "trade", "shipping"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["ZIM INTEGRATED SHIPPING SERVICES", "ZIM"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Red Sea disruptions force rerouting and push freight rates up, boosting ZIM. Odds UP on Houthi/Suez disruption = BULL ZIM."
+      }
+    },
+    {
+      "id": "telecom-ericsson",
+      "name": "Ericsson B",
+      "category": "telecom",
+      "polymarket_patterns": {
+        "keywords": ["huawei ban", "5g rollout", "open ran", "6g", "5g infrastructure", "telecom security", "china telecom ban"],
+        "categories": ["technology", "regulation", "trade"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["ERICSSON B", "ERICSSON"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Huawei bans and 5G rollout mandates drive Ericsson contract wins. Odds UP on Huawei restrictions = BULL ERICSSON."
+      }
+    },
+    {
+      "id": "renewables-vestas",
+      "name": "Vestas Wind Systems",
+      "category": "renewables",
+      "polymarket_patterns": {
+        "keywords": ["wind energy", "renewable mandate", "green deal", "offshore wind", "ira repeal", "renewable energy subsidy", "clean energy"],
+        "categories": ["energy", "environment", "regulation"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["VESTAS WIND SYSTEMS", "VESTAS"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "Renewable mandates and subsidies are BULLISH for Vestas. IRA repeal or subsidy cuts are BEARISH. Requires judgment on policy direction."
+      }
+    },
+    {
+      "id": "nuclear-sprott",
+      "name": "Sprott Physical Uranium Trust",
+      "category": "nuclear",
+      "polymarket_patterns": {
+        "keywords": ["nuclear energy", "nuclear power", "uranium", "small modular reactor", "smr", "nuclear plant", "nuclear revival"],
+        "categories": ["energy", "environment"],
+        "exclude_keywords": ["nuclear weapon", "nuclear bomb", "nuclear war"]
+      },
+      "avanza_search": {
+        "underlying_terms": ["SPROTT PHYSICAL URANIUM TRUST", "SPROTT"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "direct",
+        "explanation": "Nuclear energy expansion drives uranium demand. Odds UP on nuclear revival/SMR = BULL SPROTT URANIUM."
+      }
+    },
+    {
+      "id": "crypto-coinbase",
+      "name": "Coinbase Global",
+      "category": "crypto",
+      "polymarket_patterns": {
+        "keywords": ["sec crypto", "bitcoin etf", "crypto regulation", "stablecoin", "crypto ban", "crypto legislation", "defi regulation"],
+        "categories": ["crypto", "regulation", "finance"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["COINBASE GLOBAL", "COINBASE"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "Crypto-friendly regulation (ETF approvals, stablecoin clarity) is BULLISH. SEC crackdowns or bans are BEARISH. Requires judgment on regulatory direction."
+      }
+    },
+    {
+      "id": "gaming-evolution",
+      "name": "Evolution Gaming",
+      "category": "gaming",
+      "polymarket_patterns": {
+        "keywords": ["online gambling", "igaming legalization", "sports betting", "casino regulation", "gambling license", "us gambling"],
+        "categories": ["regulation", "gaming"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["EVOLUTION GAMING", "EVOLUTION"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "iGaming legalization is BULLISH for Evolution. Strict gambling regulation or market bans are BEARISH. Requires judgment on policy direction."
+      }
+    },
+    {
+      "id": "retail-hm",
+      "name": "Hennes and Mauritz B",
+      "category": "retail",
+      "polymarket_patterns": {
+        "keywords": ["eu fast fashion", "textile regulation", "fashion sustainability", "clothing import tariff", "fast fashion ban"],
+        "categories": ["regulation", "environment", "trade"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["HM", "HENNES AND MAURITZ B"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "inverse",
+        "explanation": "Fast fashion regulation increases compliance costs for H&M. Odds UP on restrictions = BEAR HM."
+      }
+    },
     {
       "id": "sp500",
       "name": "S&P 500",
       "category": "index",
       "polymarket_patterns": {
-        "keywords": ["federal reserve", "fed rate", "interest rate", "fed funds", "jerome powell", "fomc"],
+        "keywords": ["federal reserve", "fed rate", "interest rate", "fomc", "us recession", "s&p 500 level", "stock market crash"],
         "categories": ["economics", "finance"],
         "exclude_keywords": ["fed cup", "federation"]
       },
       "avanza_search": {
         "underlying_terms": ["SP500", "S&P 500", "S&P500"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "NORDNET", "VON", "SG"],
-        "preferred_leverage": [2, 3, 5]
+        "certificate_type": "certificate"
       },
       "correlation_logic": {
         "default_polarity": "inverse",
-        "explanation": "Fed rate hikes are bearish for equities. Odds UP on rate hike = BEAR SP500."
+        "explanation": "Fed rate hikes are bearish for equities broadly. Odds UP on rate hike = BEAR SP500."
       }
     },
     {
-      "id": "usdsek",
-      "name": "USD/SEK",
-      "category": "currency",
-      "polymarket_patterns": {
-        "keywords": ["trump tariff", "china tariff", "trade war", "us sanctions", "trump trade", "us dollar"],
-        "categories": ["politics", "economics"],
-        "exclude_keywords": []
-      },
-      "avanza_search": {
-        "underlying_terms": ["USDSEK", "USD/SEK"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "NORDNET", "VON"],
-        "preferred_leverage": [2, 3, 5]
-      },
-      "correlation_logic": {
-        "default_polarity": "direct",
-        "explanation": "Trade tensions strengthen USD vs SEK. Odds UP on tariffs = BULL USDSEK."
-      }
-    },
-    {
-      "id": "oil",
-      "name": "Crude Oil",
-      "category": "commodity",
-      "polymarket_patterns": {
-        "keywords": ["opec", "oil production", "oil price", "crude oil", "petroleum", "saudi arabia oil", "oil embargo"],
-        "categories": ["economics", "energy"],
-        "exclude_keywords": ["olive oil", "oil painting"]
-      },
-      "avanza_search": {
-        "underlying_terms": ["OLJA", "OIL", "CRUDE", "BRENT", "WTI"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "VON", "SG"],
-        "preferred_leverage": [2, 3, 5, 10]
-      },
-      "correlation_logic": {
-        "default_polarity": "inverse",
-        "explanation": "OPEC production cuts = less supply = oil price UP. Odds UP on cuts = BULL OLJA."
-      }
-    },
-    {
-      "id": "nasdaq",
-      "name": "NASDAQ",
+      "id": "nasdaq100",
+      "name": "NASDAQ 100",
       "category": "index",
       "polymarket_patterns": {
-        "keywords": ["ai regulation", "tech regulation", "antitrust", "big tech", "eu digital", "ai act", "tech ban"],
+        "keywords": ["antitrust tech", "big tech breakup", "tech sector outlook", "nasdaq level"],
         "categories": ["technology", "regulation"],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["NASDAQ", "NDX", "QQQ", "TEKNIK"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "NORDNET", "VON", "SG"],
-        "preferred_leverage": [2, 3, 5]
+        "underlying_terms": ["NASDAQ", "NDX", "NASDAQ 100"],
+        "certificate_type": "certificate"
       },
       "correlation_logic": {
         "default_polarity": "inverse",
-        "explanation": "Tech regulation is bearish for NASDAQ. Odds UP on regulation = BEAR NASDAQ."
+        "explanation": "Tech regulation broadly bearish for NASDAQ. Odds UP on antitrust/regulation = BEAR NASDAQ."
       }
     },
     {
-      "id": "vix",
-      "name": "VIX / Volatility",
-      "category": "volatility",
-      "polymarket_patterns": {
-        "keywords": ["war", "invasion", "military conflict", "nuclear", "ceasefire", "escalation", "missile", "nato article"],
-        "categories": ["geopolitics", "conflict"],
-        "exclude_keywords": ["star wars"]
-      },
-      "avanza_search": {
-        "underlying_terms": ["VIX", "VOLATILITET", "VIXY"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "VON", "SG"],
-        "preferred_leverage": [1, 2]
-      },
-      "correlation_logic": {
-        "default_polarity": "direct",
-        "explanation": "Geopolitical escalation = higher volatility. Odds UP on conflict = BULL VIX."
-      }
-    },
-    {
-      "id": "gold",
-      "name": "Gold",
-      "category": "commodity",
-      "polymarket_patterns": {
-        "keywords": ["inflation", "cpi", "gold standard", "quantitative easing", "money printing", "debt ceiling"],
-        "categories": ["economics", "finance"],
-        "exclude_keywords": ["golden globe", "gold medal"]
-      },
-      "avanza_search": {
-        "underlying_terms": ["GULD", "GOLD"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "VON", "SG"],
-        "preferred_leverage": [2, 3, 5, 10]
-      },
-      "correlation_logic": {
-        "default_polarity": "direct",
-        "explanation": "Inflation fears = gold up. Odds UP on inflation = BULL GULD."
-      }
-    },
-    {
-      "id": "omx",
-      "name": "OMX Stockholm 30",
+      "id": "omx30",
+      "name": "OMX S30",
       "category": "index",
       "polymarket_patterns": {
-        "keywords": ["sweden economy", "riksbank", "swedish krona", "nordic", "european recession"],
+        "keywords": ["sweden economy", "riksbank", "nordic recession", "swedish gdp"],
         "categories": ["economics", "europe"],
         "exclude_keywords": []
       },
       "avanza_search": {
         "underlying_terms": ["OMX", "OMXS30"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "NORDNET", "VON"],
-        "preferred_leverage": [2, 3, 5, 10, 15]
+        "certificate_type": "certificate"
       },
       "correlation_logic": {
         "default_polarity": "inverse",
-        "explanation": "Negative Swedish economic events = BEAR OMX."
-      }
-    },
-    {
-      "id": "bitcoin",
-      "name": "Bitcoin",
-      "category": "crypto",
-      "polymarket_patterns": {
-        "keywords": ["bitcoin", "crypto regulation", "sec crypto", "bitcoin etf", "btc", "crypto ban"],
-        "categories": ["crypto", "technology"],
-        "exclude_keywords": []
-      },
-      "avanza_search": {
-        "underlying_terms": ["BITCOIN", "BTC", "KRYPTO"],
-        "certificate_type": "certificate",
-        "preferred_issuers": ["AVA", "VON", "21SHARES", "VALOUR"],
-        "preferred_leverage": [1, 2]
-      },
-      "correlation_logic": {
-        "default_polarity": "direct",
-        "explanation": "Positive crypto regulation = BULL BTC. Bans/restrictions = BEAR BTC."
+        "explanation": "Negative Swedish/Nordic economic events = BEAR OMX."
       }
     }
   ]

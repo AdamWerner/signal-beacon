@@ -1,8 +1,19 @@
-import { GammaMarketsResponse, GammaMarket, Trade, TradesResponse, CLOBPricesResponse } from './types.js';
+import { GammaMarket, Trade } from './types.js';
+import { logger } from '../utils/logger.js';
 
 const GAMMA_API_BASE = 'https://gamma-api.polymarket.com';
-const CLOB_API_BASE = 'https://clob.polymarket.com';
 const DATA_API_BASE = 'https://data-api.polymarket.com';
+const FETCH_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export class PolymarketClient {
   /**
@@ -21,15 +32,13 @@ export class PolymarketClient {
     url.searchParams.set('offset', String(offset));
 
     try {
-      const response = await fetch(url.toString());
+      const response = await fetchWithTimeout(url.toString());
       if (!response.ok) {
         throw new Error(`Gamma API error: ${response.statusText}`);
       }
-
-      const data = await response.json() as GammaMarket[];
-      return data;
+      return await response.json() as GammaMarket[];
     } catch (error) {
-      console.error('Failed to fetch markets from Gamma API:', error);
+      logger.error('Failed to fetch markets from Gamma API', { error: String(error) });
       return [];
     }
   }
@@ -52,11 +61,10 @@ export class PolymarketClient {
       allMarkets.push(...markets);
       offset += limit;
 
-      // Rate limiting
       await this.delay(500);
 
       if (markets.length < limit) {
-        break; // No more pages
+        break;
       }
     }
 
@@ -68,38 +76,43 @@ export class PolymarketClient {
    */
   async fetchMarket(slugOrConditionId: string): Promise<GammaMarket | null> {
     try {
-      const response = await fetch(`${GAMMA_API_BASE}/markets/${slugOrConditionId}`);
+      const response = await fetchWithTimeout(`${GAMMA_API_BASE}/markets/${slugOrConditionId}`);
       if (!response.ok) {
         return null;
       }
-
       return await response.json() as GammaMarket;
     } catch (error) {
-      console.error(`Failed to fetch market ${slugOrConditionId}:`, error);
+      logger.error('Failed to fetch market', { id: slugOrConditionId, error: String(error) });
       return null;
     }
   }
 
   /**
-   * Fetch current prices for a market from CLOB API
+   * Fetch current yes/no prices using outcomePrices from the Gamma market response.
+   * This is simpler and more reliable than the CLOB approach.
    */
   async fetchPrices(conditionId: string): Promise<{ yes: number; no: number } | null> {
+    const market = await this.fetchMarket(conditionId);
+    if (!market || !market.outcomePrices) {
+      return null;
+    }
+
     try {
-      const response = await fetch(`${CLOB_API_BASE}/prices?condition_id=${conditionId}`);
-      if (!response.ok) {
+      // outcomePrices may be a JSON-encoded string or already an array
+      const pricesArr: string[] = typeof market.outcomePrices === 'string'
+        ? JSON.parse(market.outcomePrices as unknown as string)
+        : market.outcomePrices;
+
+      if (!Array.isArray(pricesArr) || pricesArr.length < 2) {
         return null;
       }
 
-      const data = await response.json();
-
-      // Parse prices from response (structure may vary)
-      // This is a simplified version - actual structure depends on CLOB API
-      const yesPrice = parseFloat(data.yes || data.YES || '0.5');
-      const noPrice = parseFloat(data.no || data.NO || '0.5');
-
-      return { yes: yesPrice, no: noPrice };
+      return {
+        yes: parseFloat(pricesArr[0]),
+        no: parseFloat(pricesArr[1])
+      };
     } catch (error) {
-      console.error(`Failed to fetch prices for ${conditionId}:`, error);
+      logger.error('Failed to parse outcomePrices', { conditionId, error: String(error) });
       return null;
     }
   }
@@ -110,16 +123,15 @@ export class PolymarketClient {
   async fetchTrades(marketId: string, limit = 100): Promise<Trade[]> {
     try {
       const url = `${DATA_API_BASE}/trades?market_id=${marketId}&limit=${limit}`;
-      const response = await fetch(url);
+      const response = await fetchWithTimeout(url);
 
       if (!response.ok) {
         return [];
       }
 
-      const data = await response.json() as Trade[];
-      return data;
+      return await response.json() as Trade[];
     } catch (error) {
-      console.error(`Failed to fetch trades for ${marketId}:`, error);
+      logger.error('Failed to fetch trades', { marketId, error: String(error) });
       return [];
     }
   }
@@ -130,7 +142,7 @@ export class PolymarketClient {
   async searchMarkets(query: string): Promise<GammaMarket[]> {
     try {
       const url = `${GAMMA_API_BASE}/markets?search=${encodeURIComponent(query)}`;
-      const response = await fetch(url);
+      const response = await fetchWithTimeout(url);
 
       if (!response.ok) {
         return [];
@@ -138,7 +150,7 @@ export class PolymarketClient {
 
       return await response.json() as GammaMarket[];
     } catch (error) {
-      console.error(`Failed to search markets for "${query}":`, error);
+      logger.error('Failed to search markets', { query, error: String(error) });
       return [];
     }
   }

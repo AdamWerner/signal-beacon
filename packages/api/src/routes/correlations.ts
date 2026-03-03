@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { scanner } from '@polysignal/scanner';
+import { AutoMapper } from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
@@ -8,10 +9,7 @@ const services = scanner.getServices();
 router.get('/', (req, res) => {
   try {
     const markets = services.marketStore.findAll(true);
-    const autoMapper = new (require('@polysignal/scanner').AutoMapper)(
-      services.ontology,
-      services.instrumentRegistry
-    );
+    const autoMapper = new AutoMapper(services.ontology, services.instrumentRegistry);
 
     const correlations = markets.map(market => {
       const mappings = autoMapper.mapMarketToInstruments(market);

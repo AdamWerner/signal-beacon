@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { loadConfig, validateConfig } from './config.js';
-import { initializeDatabase, getDatabase } from './storage/db.js';
+import { initializeDatabase } from './storage/db.js';
 import { InstrumentStore } from './storage/instrument-store.js';
 import { MarketStore } from './storage/market-store.js';
 import { SnapshotStore } from './storage/snapshot-store.js';
@@ -21,6 +21,7 @@ import { ScanCycleJob } from './jobs/scan-cycle.js';
 import { MarketRefreshJob } from './jobs/market-refresh.js';
 import { InstrumentRefreshJob } from './jobs/instrument-refresh.js';
 import { CleanupJob } from './jobs/cleanup.js';
+import { logger } from './utils/logger.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -35,145 +36,182 @@ export class PolySignalScanner {
 
   // Core services
   private ontology = new OntologyEngine();
-  private avanzaClient = createAvanzaClient();
-  private instrumentRegistry = new InstrumentRegistry(this.instrumentStore, this.avanzaClient);
-  private avanzaScraper = new AvanzaScraper(this.instrumentRegistry, this.ontology);
+  private avanzaClient: ReturnType<typeof createAvanzaClient> | null = null;
+  private avanzaAvailable = false;
+  private instrumentRegistry: InstrumentRegistry;
+  private avanzaScraper: AvanzaScraper | null = null;
   private polymarketClient = new PolymarketClient();
-  private marketDiscoverer = new MarketDiscoverer(
-    this.polymarketClient,
-    this.ontology,
-    this.marketStore,
-    this.config.polyMarketRelevanceThreshold
-  );
-  private oddsTracker = new OddsTracker(this.polymarketClient, this.snapshotStore, this.marketStore);
-  private whaleDetector = new WhaleDetector(
-    this.polymarketClient,
-    this.whaleStore,
-    this.marketStore,
-    this.config.polyWhaleThresholdUsd
-  );
-  private autoMapper = new AutoMapper(this.ontology, this.instrumentRegistry);
-  private signalGenerator = new SignalGenerator(
-    this.autoMapper,
-    this.marketStore,
-    this.whaleDetector,
-    this.signalStore
-  );
-  private alertDispatcher = new AlertDispatcher({
-    minConfidence: this.config.alertMinConfidence,
-    pushover: this.config.alertPushoverUserKey && this.config.alertPushoverAppToken
-      ? {
-          userKey: this.config.alertPushoverUserKey,
-          appToken: this.config.alertPushoverAppToken,
-          enabled: true
-        }
-      : undefined,
-    webhook: this.config.alertWebhookUrl
-      ? {
-          url: this.config.alertWebhookUrl,
-          enabled: true
-        }
-      : undefined
-  });
+  private marketDiscoverer: MarketDiscoverer;
+  private oddsTracker: OddsTracker;
+  private whaleDetector: WhaleDetector;
+  private autoMapper: AutoMapper;
+  private signalGenerator: SignalGenerator;
+  private alertDispatcher: AlertDispatcher;
 
   // Jobs
-  private scanCycleJob = new ScanCycleJob(
-    this.config,
-    this.oddsTracker,
-    this.whaleDetector,
-    this.signalGenerator,
-    this.alertDispatcher
-  );
-  private marketRefreshJob = new MarketRefreshJob(this.marketDiscoverer);
-  private instrumentRefreshJob = new InstrumentRefreshJob(this.avanzaScraper);
-  private cleanupJob = new CleanupJob(this.snapshotStore, this.signalStore, this.whaleStore);
+  private scanCycleJob: ScanCycleJob;
+  private marketRefreshJob: MarketRefreshJob;
+  private instrumentRefreshJob: InstrumentRefreshJob | null = null;
+  private cleanupJob: CleanupJob;
 
   constructor() {
     validateConfig(this.config);
-    console.log('PolySignal Scanner initialized');
-    console.log(`Environment: ${this.config.nodeEnv}`);
+
+    // Graceful degradation: only initialise Avanza when credentials are present
+    if (process.env.AVANZA_USERNAME) {
+      try {
+        this.avanzaClient = createAvanzaClient();
+        this.avanzaAvailable = true;
+      } catch (err) {
+        logger.warn('Avanza authentication setup failed — instrument discovery disabled', {
+          error: String(err)
+        });
+      }
+    } else {
+      logger.info(
+        'Running without Avanza credentials — instrument discovery disabled, using ontology-based suggestions'
+      );
+    }
+
+    this.instrumentRegistry = new InstrumentRegistry(
+      this.instrumentStore,
+      this.avanzaClient as any // null-safe: only used when avanzaAvailable
+    );
+
+    if (this.avanzaAvailable) {
+      this.avanzaScraper = new AvanzaScraper(this.instrumentRegistry, this.ontology);
+    }
+
+    this.marketDiscoverer = new MarketDiscoverer(
+      this.polymarketClient,
+      this.ontology,
+      this.marketStore,
+      this.config.polyMarketRelevanceThreshold
+    );
+    this.oddsTracker = new OddsTracker(this.polymarketClient, this.snapshotStore, this.marketStore);
+    this.whaleDetector = new WhaleDetector(
+      this.polymarketClient,
+      this.whaleStore,
+      this.marketStore,
+      this.config.polyWhaleThresholdUsd
+    );
+    this.autoMapper = new AutoMapper(this.ontology, this.instrumentRegistry);
+    this.signalGenerator = new SignalGenerator(
+      this.autoMapper,
+      this.marketStore,
+      this.whaleDetector,
+      this.signalStore
+    );
+    this.alertDispatcher = new AlertDispatcher({
+      minConfidence: this.config.alertMinConfidence,
+      pushover: this.config.alertPushoverUserKey && this.config.alertPushoverAppToken
+        ? {
+            userKey: this.config.alertPushoverUserKey,
+            appToken: this.config.alertPushoverAppToken,
+            enabled: true
+          }
+        : undefined,
+      webhook: this.config.alertWebhookUrl
+        ? {
+            url: this.config.alertWebhookUrl,
+            enabled: true
+          }
+        : undefined
+    });
+
+    this.scanCycleJob = new ScanCycleJob(
+      this.config,
+      this.oddsTracker,
+      this.whaleDetector,
+      this.signalGenerator,
+      this.alertDispatcher
+    );
+    this.marketRefreshJob = new MarketRefreshJob(this.marketDiscoverer);
+
+    if (this.avanzaScraper) {
+      this.instrumentRefreshJob = new InstrumentRefreshJob(this.avanzaScraper);
+    }
+
+    this.cleanupJob = new CleanupJob(this.snapshotStore, this.signalStore, this.whaleStore);
+
+    logger.info('PolySignal Scanner initialized', {
+      environment: this.config.nodeEnv,
+      avanza: this.avanzaAvailable ? 'connected' : 'unavailable'
+    });
   }
 
   /**
    * Start the scanner with scheduled jobs
    */
   start() {
-    console.log('\n=== STARTING POLYSIGNAL SCANNER ===\n');
+    logger.info('Starting PolySignal Scanner');
 
-    // Scan cycle: Every 15 minutes (default)
     cron.schedule(this.config.jobScanCron, async () => {
       try {
         await this.scanCycleJob.execute();
       } catch (error) {
-        console.error('Scan cycle error:', error);
+        logger.error('Scan cycle error', { error: String(error) });
       }
     });
-    console.log(`✓ Scan cycle scheduled: ${this.config.jobScanCron}`);
+    logger.info('Scan cycle scheduled', { cron: this.config.jobScanCron });
 
-    // Market refresh: Every 6 hours (default)
     cron.schedule(this.config.jobMarketRefreshCron, async () => {
       try {
         await this.marketRefreshJob.execute();
       } catch (error) {
-        console.error('Market refresh error:', error);
+        logger.error('Market refresh error', { error: String(error) });
       }
     });
-    console.log(`✓ Market refresh scheduled: ${this.config.jobMarketRefreshCron}`);
+    logger.info('Market refresh scheduled', { cron: this.config.jobMarketRefreshCron });
 
-    // Instrument refresh: Daily at 6 AM (default)
-    cron.schedule(this.config.jobInstrumentRefreshCron, async () => {
-      try {
-        await this.instrumentRefreshJob.execute();
-      } catch (error) {
-        console.error('Instrument refresh error:', error);
-      }
-    });
-    console.log(`✓ Instrument refresh scheduled: ${this.config.jobInstrumentRefreshCron}`);
+    if (this.instrumentRefreshJob) {
+      cron.schedule(this.config.jobInstrumentRefreshCron, async () => {
+        try {
+          await this.instrumentRefreshJob!.execute();
+        } catch (error) {
+          logger.error('Instrument refresh error', { error: String(error) });
+        }
+      });
+      logger.info('Instrument refresh scheduled', { cron: this.config.jobInstrumentRefreshCron });
+    } else {
+      logger.warn('Instrument refresh disabled (Avanza unavailable)');
+    }
 
-    // Cleanup: Daily at 3 AM (default)
     cron.schedule(this.config.jobCleanupCron, async () => {
       try {
         await this.cleanupJob.execute();
       } catch (error) {
-        console.error('Cleanup error:', error);
+        logger.error('Cleanup error', { error: String(error) });
       }
     });
-    console.log(`✓ Cleanup scheduled: ${this.config.jobCleanupCron}`);
+    logger.info('Cleanup scheduled', { cron: this.config.jobCleanupCron });
 
-    console.log('\nScanner is running. Press Ctrl+C to stop.\n');
+    logger.info('Scanner is running');
   }
 
-  /**
-   * Run a single scan cycle manually
-   */
   async runScanCycle() {
     return await this.scanCycleJob.execute();
   }
 
-  /**
-   * Run market refresh manually
-   */
   async runMarketRefresh() {
     return await this.marketRefreshJob.execute();
   }
 
-  /**
-   * Run instrument refresh manually
-   */
   async runInstrumentRefresh() {
+    if (!this.instrumentRefreshJob) {
+      throw new Error('Instrument refresh unavailable: Avanza credentials not configured');
+    }
     return await this.instrumentRefreshJob.execute();
   }
 
-  /**
-   * Run cleanup manually
-   */
   async runCleanup() {
     return await this.cleanupJob.execute();
   }
 
-  /**
-   * Get all services (for API access)
-   */
+  getAvanzaAvailable(): boolean {
+    return this.avanzaAvailable;
+  }
+
   getServices() {
     return {
       instrumentStore: this.instrumentStore,
@@ -183,10 +221,14 @@ export class PolySignalScanner {
       whaleStore: this.whaleStore,
       ontology: this.ontology,
       instrumentRegistry: this.instrumentRegistry,
-      marketDiscoverer: this.marketDiscoverer
+      marketDiscoverer: this.marketDiscoverer,
+      avanzaAvailable: this.avanzaAvailable
     };
   }
 }
+
+// Named export for use in API routes
+export { AutoMapper } from './correlation/auto-mapper.js';
 
 // Export singleton instance
 export const scanner = new PolySignalScanner();

@@ -8,6 +8,7 @@ export interface WhaleEvent {
   size_usd: number;
   price_at_trade: number | null;
   odds_impact: number | null;
+  trade_id: string | null;
 }
 
 export interface InsertWhaleEvent {
@@ -17,16 +18,25 @@ export interface InsertWhaleEvent {
   size_usd: number;
   price_at_trade: number | null;
   odds_impact: number | null;
+  trade_id: string | null;
 }
 
 export class WhaleStore {
   constructor(private db: Database.Database) {}
 
+  /**
+   * Check if a whale event with this trade_id already exists (deduplication).
+   */
+  existsByTradeId(tradeId: string): boolean {
+    const stmt = this.db.prepare(`SELECT 1 FROM whale_events WHERE trade_id = ? LIMIT 1`);
+    return stmt.get(tradeId) != null;
+  }
+
   insert(whale: InsertWhaleEvent): void {
     const stmt = this.db.prepare(`
       INSERT INTO whale_events (
-        market_condition_id, timestamp, side, size_usd, price_at_trade, odds_impact
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        market_condition_id, timestamp, side, size_usd, price_at_trade, odds_impact, trade_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -35,7 +45,8 @@ export class WhaleStore {
       whale.side,
       whale.size_usd,
       whale.price_at_trade,
-      whale.odds_impact
+      whale.odds_impact,
+      whale.trade_id
     );
   }
 

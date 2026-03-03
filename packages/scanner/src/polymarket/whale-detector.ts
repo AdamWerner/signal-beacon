@@ -46,7 +46,6 @@ export class WhaleDetector {
    */
   async detectForMarket(conditionId: string): Promise<WhaleDetection[]> {
     try {
-      // Fetch recent trades
       const trades = await this.client.fetchTrades(conditionId, 100);
 
       if (trades.length === 0) {
@@ -64,6 +63,11 @@ export class WhaleDetector {
         const sizeUsd = parseFloat(trade.size) * parseFloat(trade.price);
 
         if (sizeUsd >= this.thresholdUsd) {
+          // Deduplication: skip if we've already stored this trade
+          if (trade.id && this.whaleStore.existsByTradeId(trade.id)) {
+            continue;
+          }
+
           const detection: WhaleDetection = {
             market_condition_id: conditionId,
             market_title: market.title,
@@ -75,14 +79,14 @@ export class WhaleDetector {
 
           detections.push(detection);
 
-          // Store in database
           const whaleEvent: InsertWhaleEvent = {
             market_condition_id: conditionId,
             timestamp: detection.timestamp,
             side: trade.side,
             size_usd: sizeUsd,
             price_at_trade: parseFloat(trade.price),
-            odds_impact: null // Can be calculated if we have before/after odds
+            odds_impact: null,
+            trade_id: trade.id || null
           };
 
           this.whaleStore.insert(whaleEvent);

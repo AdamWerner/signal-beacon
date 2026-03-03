@@ -22,6 +22,7 @@ router.get('/', (req, res) => {
       status: 'healthy',
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
+      avanza: services.avanzaAvailable ? 'connected' : 'not connected',
       scanner: {
         markets: marketStats,
         signals: signalStats,
@@ -32,20 +33,17 @@ router.get('/', (req, res) => {
       },
       jobs: {
         scan_cycle: {
-          schedule: config.jobScanCron,
-          next_run: 'N/A' // Could track with cron.validate()
+          schedule: config.jobScanCron
         },
         market_refresh: {
-          schedule: config.jobMarketRefreshCron,
-          next_run: 'N/A'
+          schedule: config.jobMarketRefreshCron
         },
         instrument_refresh: {
           schedule: config.jobInstrumentRefreshCron,
-          next_run: 'N/A'
+          enabled: services.avanzaAvailable
         },
         cleanup: {
-          schedule: config.jobCleanupCron,
-          next_run: 'N/A'
+          schedule: config.jobCleanupCron
         }
       }
     });

@@ -11,7 +11,7 @@ export interface GeneratedSignal {
   whale_amount_usd: number | null;
   matched_asset_id: string;
   matched_asset_name: string;
-  polarity: 'direct' | 'inverse';
+  polarity: 'direct' | 'inverse' | 'context_dependent';
   suggested_action: string;
   suggested_instruments: Array<{
     name: string;
@@ -21,4 +21,6 @@ export interface GeneratedSignal {
   }>;
   reasoning: string;
   confidence: number;
+  requires_judgment: boolean;
+  deduplication_key: string;
 }

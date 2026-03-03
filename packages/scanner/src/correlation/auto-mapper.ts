@@ -13,7 +13,7 @@ export interface MappedInstrument {
 export interface CorrelationMapping {
   assetId: string;
   assetName: string;
-  polarity: 'direct' | 'inverse';
+  polarity: 'direct' | 'inverse' | 'context_dependent';
   explanation: string;
   instruments: {
     bull: MappedInstrument[];
@@ -50,32 +50,31 @@ export class AutoMapper {
         continue;
       }
 
-      // Get correlation logic
       const correlationLogic = asset.correlation_logic;
 
-      // Find best instruments for this underlying
       const instruments = this.instrumentRegistry.getBestInstruments(
-        asset.avanza_search.underlying_terms[0], // Use primary term
-        asset.avanza_search.preferred_issuers,
-        asset.avanza_search.preferred_leverage
+        asset.avanza_search.underlying_terms[0]
       );
 
-      // Map to MappedInstrument format
-      const bullInstruments: MappedInstrument[] = instruments.bull.map(inst => ({
-        name: inst.name,
-        avanza_id: inst.avanza_id,
-        leverage: inst.leverage,
-        avanza_url: inst.instrument_url,
-        issuer: inst.issuer
-      }));
+      const bullInstruments: MappedInstrument[] = instruments.bull.length > 0
+        ? instruments.bull.map(inst => ({
+            name: inst.name,
+            avanza_id: inst.avanza_id,
+            leverage: inst.leverage,
+            avanza_url: inst.instrument_url,
+            issuer: inst.issuer
+          }))
+        : [this.ontologyFallback(asset.name, 'bull')];
 
-      const bearInstruments: MappedInstrument[] = instruments.bear.map(inst => ({
-        name: inst.name,
-        avanza_id: inst.avanza_id,
-        leverage: inst.leverage,
-        avanza_url: inst.instrument_url,
-        issuer: inst.issuer
-      }));
+      const bearInstruments: MappedInstrument[] = instruments.bear.length > 0
+        ? instruments.bear.map(inst => ({
+            name: inst.name,
+            avanza_id: inst.avanza_id,
+            leverage: inst.leverage,
+            avanza_url: inst.instrument_url,
+            issuer: inst.issuer
+          }))
+        : [this.ontologyFallback(asset.name, 'bear')];
 
       mappings.push({
         assetId: asset.id,
@@ -93,17 +92,35 @@ export class AutoMapper {
   }
 
   /**
-   * Determine trading direction based on polarity and odds change
+   * Determine trading direction based on polarity and odds change.
+   * Returns null for context_dependent (requires human judgment).
    */
   determineTradingDirection(
-    polarity: 'direct' | 'inverse',
+    polarity: 'direct' | 'inverse' | 'context_dependent',
     oddsIncreasing: boolean
-  ): 'bull' | 'bear' {
+  ): 'bull' | 'bear' | null {
+    if (polarity === 'context_dependent') {
+      return null;
+    }
     if (polarity === 'direct') {
       return oddsIncreasing ? 'bull' : 'bear';
     } else {
       return oddsIncreasing ? 'bear' : 'bull';
     }
+  }
+
+  /**
+   * Fallback instrument suggestion from ontology asset name when no real
+   * instruments have been discovered (Avanza not connected).
+   */
+  private ontologyFallback(assetName: string, direction: 'bull' | 'bear'): MappedInstrument {
+    return {
+      name: `${direction.toUpperCase()} ${assetName}`,
+      avanza_id: '',
+      leverage: null,
+      avanza_url: '',
+      issuer: null
+    };
   }
 
   /**

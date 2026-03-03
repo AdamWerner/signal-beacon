@@ -29,9 +29,7 @@ export class AvanzaScraper {
       console.log(`\nProcessing asset: ${asset.name} (${asset.id})`);
 
       const discovered = await this.registry.discoverForUnderlying(
-        asset.avanza_search.underlying_terms,
-        asset.avanza_search.preferred_issuers,
-        asset.avanza_search.preferred_leverage
+        asset.avanza_search.underlying_terms
       );
 
       totalDiscovered += discovered;
@@ -72,9 +70,7 @@ export class AvanzaScraper {
     console.log(`Refreshing instruments for: ${asset.name}`);
 
     return await this.registry.discoverForUnderlying(
-      asset.avanza_search.underlying_terms,
-      asset.avanza_search.preferred_issuers,
-      asset.avanza_search.preferred_leverage
+      asset.avanza_search.underlying_terms
     );
   }
 }

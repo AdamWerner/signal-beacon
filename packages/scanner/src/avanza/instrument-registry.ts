@@ -21,9 +21,7 @@ export class InstrumentRegistry {
    * Discover and register certificates for a specific underlying asset
    */
   async discoverForUnderlying(
-    underlyingTerms: string[],
-    preferredIssuers: string[] = [],
-    preferredLeverage: number[] = []
+    underlyingTerms: string[]
   ): Promise<number> {
     console.log(`Discovering certificates for: ${underlyingTerms.join(', ')}`);
 
@@ -66,9 +64,7 @@ export class InstrumentRegistry {
    * Get the best instruments for an underlying asset
    */
   getBestInstruments(
-    underlying: string,
-    preferredIssuers: string[] = [],
-    preferredLeverage: number[] = []
+    underlying: string
   ): {
     bull: InsertInstrument[];
     bear: InsertInstrument[];
@@ -76,26 +72,9 @@ export class InstrumentRegistry {
     const bulls = this.store.findByUnderlying(underlying, 'bull');
     const bears = this.store.findByUnderlying(underlying, 'bear');
 
-    // Scoring function for ranking instruments
+    // Score by leverage: lower leverage = safer, preferred for retail
     const scoreInstrument = (inst: any): number => {
-      let score = 0;
-
-      // Preferred issuer: +10 points
-      if (inst.issuer && preferredIssuers.includes(inst.issuer)) {
-        score += 10;
-      }
-
-      // Preferred leverage: +5 points
-      if (inst.leverage && preferredLeverage.includes(inst.leverage)) {
-        score += 5;
-      }
-
-      // Lower leverage is generally safer (tie-breaker)
-      if (inst.leverage) {
-        score += 10 / inst.leverage;
-      }
-
-      return score;
+      return inst.leverage ? 10 / inst.leverage : 5;
     };
 
     const sortedBulls = bulls

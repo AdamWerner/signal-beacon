@@ -6,6 +6,10 @@ import { SignalStore } from '../storage/signal-store.js';
 import { calculateConfidence } from './scorer.js';
 import { GeneratedSignal } from './types.js';
 
+const DEDUP_WINDOW_HOURS = 4;
+const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
+const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 60;
+
 export class SignalGenerator {
   constructor(
     private autoMapper: AutoMapper,
@@ -15,7 +19,9 @@ export class SignalGenerator {
   ) {}
 
   /**
-   * Generate signals from detected odds changes
+   * Generate signals from detected odds changes.
+   * Creates one signal per matched asset. For context_dependent polarity,
+   * creates both a BULL and BEAR variant flagged with requires_judgment.
    */
   async generateSignals(oddsChanges: OddsChange[]): Promise<GeneratedSignal[]> {
     const signals: GeneratedSignal[] = [];
@@ -28,7 +34,6 @@ export class SignalGenerator {
         continue;
       }
 
-      // Get correlation mappings
       const mappings = this.autoMapper.mapMarketToInstruments(market);
 
       if (mappings.length === 0) {
@@ -36,61 +41,85 @@ export class SignalGenerator {
         continue;
       }
 
-      // Check for whale activity
       const whaleActivity = this.whaleDetector.getRecentWhaleActivity(
         market.condition_id,
         change.time_window_minutes
       );
-
       const whaleDetected = whaleActivity.length > 0;
       const whaleAmountUsd = whaleDetected
         ? whaleActivity.reduce((sum, w) => sum + w.size_usd, 0)
         : null;
 
-      // Generate a signal for the primary mapping (highest score)
-      const primaryMapping = mappings[0];
+      // Generate a signal for each matched asset
+      for (const mapping of mappings) {
+        const newSignals = this.createSignalsForMapping(
+          change,
+          market,
+          mapping,
+          whaleDetected,
+          whaleAmountUsd
+        );
 
-      const signal = this.createSignal(
-        change,
-        market,
-        primaryMapping,
-        whaleDetected,
-        whaleAmountUsd
-      );
+        for (const signal of newSignals) {
+          // Deduplication check
+          const existing = this.signalStore.findRecentByDeduplicationKey(
+            signal.deduplication_key,
+            DEDUP_WINDOW_HOURS
+          );
 
-      signals.push(signal);
+          if (existing) {
+            const deltaIncreased = Math.abs(signal.delta_pct) - Math.abs(existing.delta_pct);
+            if (deltaIncreased < DEDUP_ESCALATION_THRESHOLD_PCT) {
+              console.log(`  ⟳ Skipping duplicate signal for ${mapping.assetName} (key: ${signal.deduplication_key})`);
+              continue;
+            }
+            console.log(`  ↑ Escalation detected (+${deltaIncreased.toFixed(1)}%) for ${mapping.assetName}`);
+          }
 
-      // Store in database
-      this.signalStore.insert(signal);
-
-      console.log(`  ✓ Signal generated: ${signal.suggested_action} (confidence: ${signal.confidence}%)`);
+          signals.push(signal);
+          this.signalStore.insert(signal);
+          console.log(`  ✓ Signal: ${signal.suggested_action} for ${mapping.assetName} (confidence: ${signal.confidence}%${signal.requires_judgment ? ', ⚖ judgment required' : ''})`);
+        }
+      }
     }
 
     return signals;
   }
 
   /**
-   * Create a signal from odds change and mapping
+   * Create signals for a single mapping.
+   * Returns two signals (BULL + BEAR) for context_dependent polarity, one otherwise.
    */
-  private createSignal(
+  private createSignalsForMapping(
     change: OddsChange,
     market: any,
     mapping: CorrelationMapping,
     whaleDetected: boolean,
     whaleAmountUsd: number | null
-  ): GeneratedSignal {
-    // Determine trading direction
-    const oddsIncreasing = change.delta_pct > 0;
-    const direction = this.autoMapper.determineTradingDirection(
-      mapping.polarity,
-      oddsIncreasing
-    );
+  ): GeneratedSignal[] {
+    if (mapping.polarity === 'context_dependent') {
+      return [
+        this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, 'bull'),
+        this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, 'bear'),
+      ];
+    }
 
-    // Get suggested instruments
+    const oddsIncreasing = change.delta_pct > 0;
+    const direction = this.autoMapper.determineTradingDirection(mapping.polarity, oddsIncreasing) as 'bull' | 'bear';
+    return [this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, direction)];
+  }
+
+  private createSignal(
+    change: OddsChange,
+    market: any,
+    mapping: CorrelationMapping,
+    whaleDetected: boolean,
+    whaleAmountUsd: number | null,
+    direction: 'bull' | 'bear'
+  ): GeneratedSignal {
     const instruments = this.autoMapper.getSuggestedInstruments(mapping, direction);
 
-    // Calculate confidence
-    const confidence = calculateConfidence({
+    let confidence = calculateConfidence({
       delta_pct: change.delta_pct,
       time_window_minutes: change.time_window_minutes,
       whale_detected: whaleDetected,
@@ -99,18 +128,16 @@ export class SignalGenerator {
       relevance_score: market.relevance_score
     });
 
-    // Generate reasoning
-    const reasoning = this.generateReasoning(
-      change,
-      mapping,
-      direction,
-      whaleDetected,
-      whaleAmountUsd
-    );
+    const requiresJudgment = mapping.polarity === 'context_dependent';
+    if (requiresJudgment) {
+      confidence = Math.min(confidence, CONTEXT_DEPENDENT_MAX_CONFIDENCE);
+    }
 
-    // Generate unique ID
+    const reasoning = this.generateReasoning(change, mapping, direction, whaleDetected, whaleAmountUsd, requiresJudgment);
+
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
     const id = `sig_${timestamp}_${Math.random().toString(36).substring(2, 8)}`;
+    const deduplication_key = `${market.condition_id}_${mapping.assetId}_${direction}`;
 
     return {
       id,
@@ -129,35 +156,36 @@ export class SignalGenerator {
       suggested_action: `Consider ${direction.toUpperCase()} position`,
       suggested_instruments: instruments,
       reasoning,
-      confidence
+      confidence,
+      requires_judgment: requiresJudgment,
+      deduplication_key
     };
   }
 
-  /**
-   * Generate human-readable reasoning for the signal
-   */
   private generateReasoning(
     change: OddsChange,
     mapping: CorrelationMapping,
     direction: 'bull' | 'bear',
     whaleDetected: boolean,
-    whaleAmountUsd: number | null
+    whaleAmountUsd: number | null,
+    requiresJudgment: boolean
   ): string {
     const parts: string[] = [];
 
-    // Odds change
     const deltaDir = change.delta_pct > 0 ? 'surged' : 'dropped';
     parts.push(
       `Polymarket odds ${deltaDir} ${Math.abs(change.delta_pct).toFixed(1)}% in ${change.time_window_minutes}min`
     );
 
-    // Whale activity
     if (whaleDetected && whaleAmountUsd) {
       parts.push(`(whale: $${(whaleAmountUsd / 1000).toFixed(0)}K)`);
     }
 
-    // Correlation explanation
     parts.push(mapping.explanation);
+
+    if (requiresJudgment) {
+      parts.push(`⚖ Context-dependent: human judgment required before acting.`);
+    }
 
     return parts.join('. ');
   }

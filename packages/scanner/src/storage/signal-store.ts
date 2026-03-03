@@ -14,11 +14,13 @@ export interface Signal {
   whale_amount_usd: number | null;
   matched_asset_id: string;
   matched_asset_name: string;
-  polarity: 'direct' | 'inverse';
+  polarity: 'direct' | 'inverse' | 'context_dependent';
   suggested_action: string;
   suggested_instruments: string; // JSON array as string
   reasoning: string;
   confidence: number;
+  requires_judgment: boolean;
+  deduplication_key: string | null;
   status: 'new' | 'viewed' | 'dismissed' | 'acted';
 }
 
@@ -35,7 +37,7 @@ export interface InsertSignal {
   whale_amount_usd: number | null;
   matched_asset_id: string;
   matched_asset_name: string;
-  polarity: 'direct' | 'inverse';
+  polarity: 'direct' | 'inverse' | 'context_dependent';
   suggested_action: string;
   suggested_instruments: Array<{
     name: string;
@@ -45,6 +47,8 @@ export interface InsertSignal {
   }>;
   reasoning: string;
   confidence: number;
+  requires_judgment: boolean;
+  deduplication_key: string;
 }
 
 export class SignalStore {
@@ -56,8 +60,9 @@ export class SignalStore {
         id, market_condition_id, market_slug, market_title,
         odds_before, odds_now, delta_pct, time_window_minutes,
         whale_detected, whale_amount_usd, matched_asset_id, matched_asset_name,
-        polarity, suggested_action, suggested_instruments, reasoning, confidence
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        polarity, suggested_action, suggested_instruments, reasoning, confidence,
+        requires_judgment, deduplication_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -77,7 +82,9 @@ export class SignalStore {
       signal.suggested_action,
       JSON.stringify(signal.suggested_instruments),
       signal.reasoning,
-      signal.confidence
+      signal.confidence,
+      signal.requires_judgment ? 1 : 0,
+      signal.deduplication_key
     );
   }
 
@@ -102,6 +109,22 @@ export class SignalStore {
     `);
 
     return stmt.all(market_condition_id) as Signal[];
+  }
+
+  /**
+   * Find the most recent signal with a given deduplication key within N hours.
+   * Used to prevent duplicate signals for the same market+asset combination.
+   */
+  findRecentByDeduplicationKey(key: string, hours: number): Signal | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM signals
+      WHERE deduplication_key = ?
+        AND timestamp >= datetime('now', '-' || ? || ' hours')
+      ORDER BY timestamp DESC
+      LIMIT 1
+    `);
+
+    return (stmt.get(key, hours) as Signal) ?? null;
   }
 
   updateStatus(id: string, status: Signal['status']): void {

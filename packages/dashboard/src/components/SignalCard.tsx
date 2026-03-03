@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Signal } from "@/types";
-import { Anchor, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Anchor, ChevronDown, ChevronUp, ExternalLink, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -9,15 +9,22 @@ interface SignalCardProps {
   signal: Signal;
 }
 
+function deriveDirection(signal: Signal): "bull" | "bear" {
+  return signal.suggested_action.toLowerCase().includes("bull") ? "bull" : "bear";
+}
+
 export function SignalCard({ signal }: SignalCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const isBull = signal.direction === "bull";
+  const direction = deriveDirection(signal);
+  const isBull = direction === "bull";
   const dirColor = isBull ? "text-bull" : "text-bear";
   const borderColor = isBull ? "border-l-bull" : "border-l-bear";
   const glowClass = signal.status === "new" ? (isBull ? "glow-bull" : "glow-bear") : "";
-  const opacityClass = signal.status === "expired" ? "opacity-50" : "";
+  const opacityClass = signal.status === "dismissed" || signal.status === "acted" ? "opacity-50" : "";
 
   const oddsBarWidth = Math.abs(signal.delta_pct) * 3;
+  const primaryInstrument = signal.suggested_instruments?.[0];
+  const timeWindow = `${signal.time_window_minutes}min`;
 
   return (
     <div
@@ -31,7 +38,10 @@ export function SignalCard({ signal }: SignalCardProps) {
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium text-foreground truncate">{signal.market_title}</h3>
           <p className="text-xs font-mono text-muted-foreground mt-0.5">
-            {new Date(signal.timestamp).toLocaleString()} · {signal.time_window}
+            {new Date(signal.timestamp).toLocaleString()} · {timeWindow}
+            {signal.matched_asset_name && (
+              <span className="ml-2 text-muted-foreground/60">· {signal.matched_asset_name}</span>
+            )}
           </p>
         </div>
 
@@ -49,18 +59,32 @@ export function SignalCard({ signal }: SignalCardProps) {
           </div>
           <span className={`text-xl font-mono font-bold ${dirColor}`}>
             {signal.delta_pct > 0 ? "+" : ""}
-            {signal.delta_pct}%
+            {signal.delta_pct.toFixed(1)}%
           </span>
         </div>
 
-        {/* Right: Action + confidence + whale */}
+        {/* Right: Action + confidence + indicators */}
         <div className="flex items-center gap-3 shrink-0">
-          <Badge
-            variant="outline"
-            className={`font-mono text-xs ${isBull ? "border-bull/30 text-bull" : "border-bear/30 text-bear"}`}
-          >
-            {signal.instrument}
-          </Badge>
+          {primaryInstrument && (
+            <Badge
+              variant="outline"
+              className={`font-mono text-xs ${isBull ? "border-bull/30 text-bull" : "border-bear/30 text-bear"}`}
+            >
+              {primaryInstrument.name}
+            </Badge>
+          )}
+
+          {/* Judgment required indicator */}
+          {signal.requires_judgment && (
+            <Tooltip>
+              <TooltipTrigger>
+                <AlertTriangle className="h-4 w-4 text-whale" />
+              </TooltipTrigger>
+              <TooltipContent className="bg-card border-border">
+                <span className="font-mono text-whale text-xs">Human judgment required</span>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {/* Confidence */}
           <div className="flex items-center gap-1.5">
@@ -80,7 +104,7 @@ export function SignalCard({ signal }: SignalCardProps) {
                 <Anchor className="h-4 w-4 text-whale" />
               </TooltipTrigger>
               <TooltipContent className="bg-card border-border">
-                <span className="font-mono text-whale">${signal.whale_amount.toLocaleString()}</span>
+                <span className="font-mono text-whale">${(signal.whale_amount_usd ?? 0).toLocaleString()}</span>
               </TooltipContent>
             </Tooltip>
           )}
@@ -91,7 +115,7 @@ export function SignalCard({ signal }: SignalCardProps) {
             className={`text-[10px] uppercase tracking-wider ${
               signal.status === "new"
                 ? "border-bull/30 text-bull"
-                : signal.status === "reviewed"
+                : signal.status === "viewed"
                   ? "border-muted-foreground/30 text-muted-foreground"
                   : "border-muted-foreground/20 text-muted-foreground/50"
             }`}
@@ -107,14 +131,29 @@ export function SignalCard({ signal }: SignalCardProps) {
       {expanded && (
         <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
           <p className="text-sm text-secondary-foreground leading-relaxed">{signal.reasoning}</p>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" className="text-xs font-mono border-border" asChild>
-              <a href={signal.avanza_url} target="_blank" rel="noopener noreferrer">
-                Open on Avanza <ExternalLink className="ml-1.5 h-3 w-3" />
-              </a>
-            </Button>
-            <span className="text-xs font-mono text-muted-foreground">ID: {signal.id}</span>
-          </div>
+
+          {/* Suggested instruments */}
+          {signal.suggested_instruments.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {signal.suggested_instruments.map((inst, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  {inst.avanza_url ? (
+                    <Button variant="outline" size="sm" className="text-xs font-mono border-border" asChild>
+                      <a href={inst.avanza_url} target="_blank" rel="noopener noreferrer">
+                        {inst.name} <ExternalLink className="ml-1.5 h-3 w-3" />
+                      </a>
+                    </Button>
+                  ) : (
+                    <Badge variant="outline" className="font-mono text-xs border-muted-foreground/30">
+                      {inst.name}
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <span className="text-xs font-mono text-muted-foreground">ID: {signal.id}</span>
         </div>
       )}
     </div>

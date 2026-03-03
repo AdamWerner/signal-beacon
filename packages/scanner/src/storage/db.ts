@@ -14,7 +14,80 @@ export function initializeDatabase(): Database.Database {
   db.pragma('foreign_keys = ON');
 
   createTables(db);
+  runMigrations(db);
   return db;
+}
+
+function runMigrations(db: Database.Database): void {
+  // If the signals table has the old polarity CHECK (direct|inverse only), recreate it
+  const tableInfo = db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='signals'`
+  ).get() as { sql: string } | undefined;
+
+  if (tableInfo?.sql && !tableInfo.sql.includes('context_dependent')) {
+    // Old schema — recreate signals table to support context_dependent polarity
+    db.exec(`
+      ALTER TABLE signals RENAME TO signals_old;
+
+      CREATE TABLE signals (
+        id TEXT PRIMARY KEY,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        market_condition_id TEXT NOT NULL,
+        market_slug TEXT NOT NULL,
+        market_title TEXT NOT NULL,
+        odds_before REAL NOT NULL,
+        odds_now REAL NOT NULL,
+        delta_pct REAL NOT NULL,
+        time_window_minutes INTEGER NOT NULL,
+        whale_detected BOOLEAN DEFAULT FALSE,
+        whale_amount_usd REAL,
+        matched_asset_id TEXT NOT NULL,
+        matched_asset_name TEXT NOT NULL,
+        polarity TEXT NOT NULL CHECK(polarity IN ('direct', 'inverse', 'context_dependent')),
+        suggested_action TEXT NOT NULL,
+        suggested_instruments TEXT NOT NULL,
+        reasoning TEXT NOT NULL,
+        confidence INTEGER NOT NULL,
+        requires_judgment BOOLEAN DEFAULT FALSE,
+        deduplication_key TEXT,
+        status TEXT DEFAULT 'new' CHECK(status IN ('new', 'viewed', 'dismissed', 'acted'))
+      );
+
+      INSERT INTO signals (
+        id, timestamp, market_condition_id, market_slug, market_title,
+        odds_before, odds_now, delta_pct, time_window_minutes,
+        whale_detected, whale_amount_usd, matched_asset_id, matched_asset_name,
+        polarity, suggested_action, suggested_instruments, reasoning, confidence, status
+      )
+      SELECT
+        id, timestamp, market_condition_id, market_slug, market_title,
+        odds_before, odds_now, delta_pct, time_window_minutes,
+        whale_detected, whale_amount_usd, matched_asset_id, matched_asset_name,
+        polarity, suggested_action, suggested_instruments, reasoning, confidence, status
+      FROM signals_old;
+
+      DROP TABLE signals_old;
+
+      CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON signals(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status) WHERE status = 'new';
+      CREATE INDEX IF NOT EXISTS idx_signals_dedup ON signals(deduplication_key, timestamp DESC);
+    `);
+  }
+
+  // Add new columns to existing databases (fails silently if column already exists)
+  for (const sql of [
+    `ALTER TABLE signals ADD COLUMN requires_judgment BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE signals ADD COLUMN deduplication_key TEXT`,
+    `ALTER TABLE whale_events ADD COLUMN trade_id TEXT`,
+  ]) {
+    try { db.exec(sql); } catch { /* column already exists */ }
+  }
+
+  // Indexes — safe to re-run
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_signals_dedup ON signals(deduplication_key, timestamp DESC)`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_whale_trade_id ON whale_events(trade_id) WHERE trade_id IS NOT NULL`);
+  } catch { /* index already exists */ }
 }
 
 function createTables(db: Database.Database): void {
@@ -94,11 +167,15 @@ function createTables(db: Database.Database): void {
       size_usd REAL NOT NULL,
       price_at_trade REAL,
       odds_impact REAL,
+      trade_id TEXT,
       FOREIGN KEY (market_condition_id) REFERENCES tracked_markets(condition_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_whales_market
     ON whale_events(market_condition_id, timestamp DESC);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_whale_trade_id
+    ON whale_events(trade_id) WHERE trade_id IS NOT NULL;
   `);
 
   // Generated trade signals
@@ -117,11 +194,13 @@ function createTables(db: Database.Database): void {
       whale_amount_usd REAL,
       matched_asset_id TEXT NOT NULL,
       matched_asset_name TEXT NOT NULL,
-      polarity TEXT NOT NULL CHECK(polarity IN ('direct', 'inverse')),
+      polarity TEXT NOT NULL CHECK(polarity IN ('direct', 'inverse', 'context_dependent')),
       suggested_action TEXT NOT NULL,
       suggested_instruments TEXT NOT NULL,
       reasoning TEXT NOT NULL,
       confidence INTEGER NOT NULL,
+      requires_judgment BOOLEAN DEFAULT FALSE,
+      deduplication_key TEXT,
       status TEXT DEFAULT 'new' CHECK(status IN ('new', 'viewed', 'dismissed', 'acted')),
       FOREIGN KEY (market_condition_id) REFERENCES tracked_markets(condition_id)
     );
@@ -131,6 +210,9 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_signals_status
     ON signals(status) WHERE status = 'new';
+
+    CREATE INDEX IF NOT EXISTS idx_signals_dedup
+    ON signals(deduplication_key, timestamp DESC);
   `);
 
   // Job execution log (for monitoring scheduled jobs)

@@ -21,12 +21,10 @@ export interface PolymarketPatterns {
 export interface AvanzaSearch {
   underlying_terms: string[];
   certificate_type: string;
-  preferred_issuers: string[];
-  preferred_leverage: number[];
 }
 
 export interface CorrelationLogic {
-  default_polarity: 'direct' | 'inverse';
+  default_polarity: 'direct' | 'inverse' | 'context_dependent';
   explanation: string;
 }
 
