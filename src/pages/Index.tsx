@@ -1,14 +1,20 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useSignals } from "@/hooks/useSignals";
+import { SignalCard } from "@/components/SignalCard";
 
-const Index = () => {
+const SignalFeed = () => {
+  const { data: signals } = useSignals();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+    <div className="max-w-5xl mx-auto space-y-4">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-semibold">Signal Feed</h1>
+        <span className="text-xs font-mono text-muted-foreground">{signals.length} signals</span>
       </div>
+      {signals.map((signal) => (
+        <SignalCard key={signal.id} signal={signal} />
+      ))}
     </div>
   );
 };
 
-export default Index;
+export default SignalFeed;
