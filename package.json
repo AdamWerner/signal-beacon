@@ -10,7 +10,7 @@
     "dev": "npm run dev --workspace=packages/dashboard",
     "dev:api": "npm run dev --workspace=packages/api",
     "dev:all": "npm run dev --workspace=packages/dashboard & npm run dev --workspace=packages/api",
-    "build": "npm run build --workspaces",
+    "build": "npm run build:scanner && npm run build:api && npm run build:dashboard",
     "build:dashboard": "npm run build --workspace=packages/dashboard",
     "build:api": "npm run build --workspace=packages/api",
     "build:scanner": "npm run build --workspace=packages/scanner",

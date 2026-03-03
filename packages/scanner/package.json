@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "avanza": "^5.1.0",
+    "avanza": "^3.0.0",
     "better-sqlite3": "^11.8.1",
     "node-cron": "^3.0.3",
     "zod": "^3.25.76"

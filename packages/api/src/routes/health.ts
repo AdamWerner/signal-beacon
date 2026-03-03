@@ -11,7 +11,7 @@ router.get('/', (req, res) => {
   try {
     const marketStats = services.marketStore.getStats();
     const signalStats = services.signalStore.getStats();
-    const instrumentCounts = services.instrumentStore.countByUnderlying();
+    const instrumentCounts = services.instrumentStore.countByUnderlying() as Record<string, { bull: number; bear: number }>;
 
     const totalInstruments = Object.values(instrumentCounts).reduce(
       (sum, counts) => sum + counts.bull + counts.bear,
