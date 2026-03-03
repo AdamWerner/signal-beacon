@@ -7,10 +7,26 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+package-lock.json
+bun.lockb
+
+# Build outputs
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+data/polysignal.db
+data/polysignal.db-shm
+data/polysignal.db-wal
 
 # Editor directories and files
 .vscode/*
@@ -22,3 +38,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+*.swp
+*.swo
+
+# Temp
+.tmp/
+temp/

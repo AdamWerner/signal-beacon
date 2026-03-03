@@ -1,0 +1,84 @@
+import Database from 'better-sqlite3';
+
+export interface WhaleEvent {
+  id: number;
+  market_condition_id: string;
+  timestamp: string;
+  side: 'YES' | 'NO';
+  size_usd: number;
+  price_at_trade: number | null;
+  odds_impact: number | null;
+}
+
+export interface InsertWhaleEvent {
+  market_condition_id: string;
+  timestamp: string;
+  side: 'YES' | 'NO';
+  size_usd: number;
+  price_at_trade: number | null;
+  odds_impact: number | null;
+}
+
+export class WhaleStore {
+  constructor(private db: Database.Database) {}
+
+  insert(whale: InsertWhaleEvent): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO whale_events (
+        market_condition_id, timestamp, side, size_usd, price_at_trade, odds_impact
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      whale.market_condition_id,
+      whale.timestamp,
+      whale.side,
+      whale.size_usd,
+      whale.price_at_trade,
+      whale.odds_impact
+    );
+  }
+
+  findByMarket(market_condition_id: string, limit = 50): WhaleEvent[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM whale_events
+      WHERE market_condition_id = ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+
+    return stmt.all(market_condition_id, limit) as WhaleEvent[];
+  }
+
+  findRecent(hours = 24, limit = 100): WhaleEvent[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM whale_events
+      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+
+    return stmt.all(hours, limit) as WhaleEvent[];
+  }
+
+  getRecentByMarket(market_condition_id: string, minutes = 60): WhaleEvent[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM whale_events
+      WHERE market_condition_id = ?
+        AND timestamp >= datetime('now', '-' || ? || ' minutes')
+      ORDER BY timestamp DESC
+    `);
+
+    return stmt.all(market_condition_id, minutes) as WhaleEvent[];
+  }
+
+  cleanupOld(daysToKeep: number): number {
+    const stmt = this.db.prepare(`
+      DELETE FROM whale_events
+      WHERE timestamp < datetime('now', '-' || ? || ' days')
+    `);
+
+    const info = stmt.run(daysToKeep);
+    return info.changes;
+  }
+}
