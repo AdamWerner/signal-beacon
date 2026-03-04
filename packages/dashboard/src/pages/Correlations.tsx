@@ -37,7 +37,9 @@ function MarketRow({ market }: { market: CorrelationMarket }) {
   const [open, setOpen] = useState(false);
   const hasSignals = market.mappings.some(m => m.signal_count_48h > 0);
   const totalSignals = market.mappings.reduce((s, m) => s + m.signal_count_48h, 0);
-  const polyUrl = `https://polymarket.com/event/${market.market_slug}`;
+  const polyUrl = market.market_slug
+    ? `https://polymarket.com/event/${market.market_slug}`
+    : `https://polymarket.com/search?q=${encodeURIComponent(market.market_title.substring(0, 50))}`;
   const oddsDisplay = market.current_odds != null
     ? `${(market.current_odds * 100).toFixed(0)}% YES`
     : '—';

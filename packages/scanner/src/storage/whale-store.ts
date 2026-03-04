@@ -77,8 +77,8 @@ export class WhaleStore {
       LEFT JOIN (SELECT condition_id, title FROM tracked_markets GROUP BY condition_id) tm
         ON tm.condition_id = w.market_condition_id
       WHERE w.timestamp >= datetime('now', '-' || ? || ' hours')
-      GROUP BY w.id
-      ORDER BY w.timestamp DESC
+      GROUP BY COALESCE(w.trade_id, CAST(w.id AS TEXT)), w.market_condition_id, w.size_usd
+      ORDER BY w.size_usd DESC
       LIMIT ?
     `);
 

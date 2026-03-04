@@ -1,8 +1,10 @@
+import Database from 'better-sqlite3';
 import { Config } from '../config.js';
 import { OddsTracker } from '../polymarket/odds-tracker.js';
 import { WhaleDetector } from '../polymarket/whale-detector.js';
 import { SignalGenerator } from '../signals/generator.js';
 import { AlertDispatcher } from '../alerts/dispatcher.js';
+import { IntelligenceEngine } from '../intelligence/engine.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -19,7 +21,8 @@ export class ScanCycleJob {
     private oddsTracker: OddsTracker,
     private whaleDetector: WhaleDetector,
     private signalGenerator: SignalGenerator,
-    private alertDispatcher: AlertDispatcher
+    private alertDispatcher: AlertDispatcher,
+    private db?: Database.Database
   ) {}
 
   /**
@@ -53,7 +56,19 @@ export class ScanCycleJob {
       console.log('\n[4/4] Generating signals...');
       const signals = await this.signalGenerator.generateSignals(oddsChanges);
 
-      // Step 5: Dispatch alerts
+      // Step 5: Process through intelligence layer (accumulate context, boost confidence)
+      if (this.db && signals.length > 0) {
+        const intel = new IntelligenceEngine(this.db);
+        intel.processNewSignals(signals);
+        for (const signal of signals) {
+          const boost = intel.getConfidenceBoost(signal.matched_asset_id);
+          if (boost > 0) {
+            signal.confidence = Math.min(signal.confidence + boost, 100);
+          }
+        }
+      }
+
+      // Step 6: Dispatch alerts
       if (signals.length > 0) {
         console.log('\nDispatching alerts...');
         await this.alertDispatcher.dispatchBatch(signals);

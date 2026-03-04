@@ -54,6 +54,16 @@ export class CleanupJob {
       const whaleOrphans = this.whaleStore.cleanupOrphans();
       console.log(`  Removed ${whaleOrphans} orphan whale events`);
 
+      // Soft-delete noise markets tracked before filters were tightened
+      console.log('Cleaning up noise markets...');
+      const noiseRemoved = this.marketDiscoverer.cleanupNoiseMarkets();
+      console.log(`  Removed ${noiseRemoved} noise markets`);
+
+      // Dismiss signals from markets that are now inactive (resolved or noise-cleaned)
+      console.log('Dismissing signals from inactive markets...');
+      const dismissedNoise = this.signalStore.dismissFromInactiveMarkets();
+      console.log(`  Dismissed ${dismissedNoise} signals from inactive markets`);
+
       // Check for resolved markets (daily, not per-scan)
       console.log('Checking for resolved markets...');
       const marketsResolved = await this.marketDiscoverer.markResolvedMarkets();

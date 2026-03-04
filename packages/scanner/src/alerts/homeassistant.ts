@@ -37,32 +37,22 @@ export class HomeAssistantAlert {
   async send(signal: GeneratedSignal): Promise<boolean> {
     const action = signal.suggested_action.toLowerCase();
     const isBull = action.includes('bull');
-    const emoji = signal.polarity === 'context_dependent' ? '⚖️' : isBull ? '📈' : '📉';
-    const direction = signal.polarity === 'context_dependent' ? 'BULL/BEAR'
-      : isBull ? 'BULL' : 'BEAR';
+    const emoji = isBull ? '📈' : '📉';
+    const direction = isBull ? 'BULL' : 'BEAR';
 
-    // Use short ticker if available, otherwise truncate asset name
     const ticker = TICKER_MAP[signal.matched_asset_name] ?? signal.matched_asset_name.substring(0, 6).toUpperCase();
-
-    // Title kept very short (~24 chars max): "PS: 📈 BULL LMT 68%"
     const title = `PS: ${emoji} ${direction} ${ticker} ${signal.confidence}%`;
 
-    // Ultra-short market summary (remove question marks, strip long phrases)
-    const marketShort = signal.market_title
-      .replace(/\?$/, '')
-      .replace(/^Will /, '')
-      .substring(0, 60);
-
     const deltaSign = signal.delta_pct > 0 ? '+' : '';
-    const oddsLine = `${(signal.odds_before * 100).toFixed(0)}%→${(signal.odds_now * 100).toFixed(0)}% (${deltaSign}${signal.delta_pct.toFixed(1)}%)`;
+    const oddsLine = `${(signal.odds_before * 100).toFixed(0)}%→${(signal.odds_now * 100).toFixed(0)}% (${deltaSign}${signal.delta_pct.toFixed(0)}%)`;
+    const reason = this.generateShortReason(signal, isBull);
+    const message = `${reason}\n${oddsLine}`;
 
-    const publicUrl = process.env.PUBLIC_URL || 'http://localhost:3100';
+    const publicUrl = process.env.PUBLIC_URL || 'http://192.168.0.15:3100';
     const detailUrl = `${publicUrl}/api/signals/${signal.id}/detail`;
 
-    const message = `${marketShort}\n${oddsLine}\n🔗 ${detailUrl}`;
-
     const servicePath = this.notifyService.replace('.', '/');
-    console.log(`Sending HA notification for signal: ${signal.id} (confidence: ${signal.confidence}%) → ${this.haUrl}/api/services/${servicePath}`);
+    console.log(`Sending HA notification: ${title} → ${this.haUrl}/api/services/${servicePath}`);
 
     try {
       const response = await fetch(`${this.haUrl}/api/services/${servicePath}`, {
@@ -78,7 +68,11 @@ export class HomeAssistantAlert {
             priority: 'high',
             ttl: 0,
             tag: signal.id,
-            url: detailUrl
+            url: detailUrl,
+            clickAction: detailUrl,
+            actions: [
+              { action: 'URI', title: 'View Signal', uri: detailUrl }
+            ]
           }
         })
       });
@@ -93,5 +87,14 @@ export class HomeAssistantAlert {
       console.error('Home Assistant notification error:', error);
       return false;
     }
+  }
+
+  private generateShortReason(signal: GeneratedSignal, isBull: boolean): string {
+    const market = signal.market_title
+      .replace(/^Will /, '')
+      .replace(/\?$/, '')
+      .substring(0, 55);
+    const direction = isBull ? 'UP' : 'DOWN';
+    return `${market} → ${signal.matched_asset_name} likely ${direction}`;
   }
 }

@@ -8,7 +8,7 @@ import { GeneratedSignal } from './types.js';
 
 const DEDUP_WINDOW_HOURS = 4;
 const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
-const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 60;
+const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 40;
 
 export class SignalGenerator {
   constructor(
@@ -171,23 +171,23 @@ export class SignalGenerator {
     whaleAmountUsd: number | null,
     requiresJudgment: boolean
   ): string {
-    const parts: string[] = [];
+    const deltaDir = change.delta_pct > 0 ? 'UP' : 'DOWN';
+    const absChange = Math.abs(change.delta_pct).toFixed(0);
+    const oddsNow = (change.odds_now * 100).toFixed(0);
+    const oddsBefore = (change.odds_before * 100).toFixed(0);
 
-    const deltaDir = change.delta_pct > 0 ? 'surged' : 'dropped';
-    parts.push(
-      `Polymarket odds ${deltaDir} ${Math.abs(change.delta_pct).toFixed(1)}% in ${change.time_window_minutes}min`
-    );
+    let reason = `Polymarket: "${mapping.explanation}" odds went ${deltaDir} ${absChange}% (${oddsBefore}%→${oddsNow}%) in ${change.time_window_minutes}min.`;
 
     if (whaleDetected && whaleAmountUsd) {
-      parts.push(`(whale: $${(whaleAmountUsd / 1000).toFixed(0)}K)`);
+      reason += ` Whale trade: $${(whaleAmountUsd / 1000).toFixed(0)}K.`;
     }
 
-    parts.push(mapping.explanation);
+    reason += ` → ${direction.toUpperCase()} ${mapping.assetName}.`;
 
     if (requiresJudgment) {
-      parts.push(`⚖ Context-dependent: human judgment required before acting.`);
+      reason += ' ⚠ Direction depends on context — verify before trading.';
     }
 
-    return parts.join('. ');
+    return reason;
   }
 }

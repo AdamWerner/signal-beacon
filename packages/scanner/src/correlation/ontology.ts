@@ -98,22 +98,22 @@ export class OntologyEngine {
   }
 
   /**
-   * Calculate relevance score (0-1) for a market
+   * Calculate relevance score (0-1) for a market.
+   * REQUIRES at least one keyword match — category-only matches (score==2) are not enough.
    */
   calculateRelevance(matches: MatchResult[]): number {
     if (matches.length === 0) return 0;
+    const topMatch = matches[0];
 
-    // Normalize score to 0-1 range
-    // Top match with 5+ points = 1.0
-    // Top match with 3-4 points = 0.8
-    // Top match with 1-2 points = 0.5
-    const topScore = matches[0].score;
+    // Category-only match (no keywords) → reject
+    if (topMatch.matchedKeywords.length === 0) return 0;
 
-    if (topScore >= 5) return 1.0;
-    if (topScore >= 3) return 0.8;
-    if (topScore >= 1) return 0.5;
-
-    return 0.3;
+    const topScore = topMatch.score;
+    if (topScore >= 6) return 1.0;
+    if (topScore >= 4) return 0.8;
+    if (topScore >= 3) return 0.6;  // single title keyword match
+    if (topScore >= 1) return 0.4;  // description-only match (borderline)
+    return 0;
   }
 
   /**

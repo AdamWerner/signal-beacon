@@ -129,7 +129,8 @@ export class PolySignalScanner {
       this.oddsTracker,
       this.whaleDetector,
       this.signalGenerator,
-      this.alertDispatcher
+      this.alertDispatcher,
+      this.db
     );
     this.marketRefreshJob = new MarketRefreshJob(this.marketDiscoverer);
 
@@ -238,7 +239,8 @@ export class PolySignalScanner {
       ontology: this.ontology,
       instrumentRegistry: this.instrumentRegistry,
       marketDiscoverer: this.marketDiscoverer,
-      avanzaAvailable: this.avanzaAvailable
+      avanzaAvailable: this.avanzaAvailable,
+      db: this.db as any
     };
   }
 }
@@ -246,6 +248,7 @@ export class PolySignalScanner {
 // Named export for use in API routes
 export { AutoMapper } from './correlation/auto-mapper.js';
 export { getTopSignals, analyzeSignal } from './signals/ai-ranker.js';
+export { IntelligenceEngine } from './intelligence/engine.js';
 
 // Export singleton instance
 export const scanner = new PolySignalScanner();

@@ -42,10 +42,17 @@ function logError(context, err) {
 
 // Import scanner — wrap in try/catch to surface init failures clearly
 let scanner;
+let IntelligenceEngine;
+let isPreMarketWindow;
 try {
   logScan('[init] Loading scanner module...');
   const mod = await import('@polysignal/scanner');
   scanner = mod.scanner;
+  // Intelligence helpers (compiled into scanner dist)
+  const tradingHours = await import('../packages/scanner/dist/intelligence/trading-hours.js').catch(() => null);
+  const engineMod = await import('../packages/scanner/dist/intelligence/engine.js').catch(() => null);
+  isPreMarketWindow = tradingHours?.isPreMarketWindow;
+  IntelligenceEngine = engineMod?.IntelligenceEngine;
   logScan('[init] Scanner module loaded OK');
 } catch (err) {
   logError('scanner init', err);
@@ -55,7 +62,10 @@ try {
 
 let lastRefreshAt = 0;
 let lastCleanupAt = 0;
+let lastInstrumentRefreshAt = 0;
 let cycleCount = 0;
+
+const INSTRUMENT_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 async function runOneCycle() {
   cycleCount++;
@@ -72,6 +82,18 @@ async function runOneCycle() {
       logError(`market refresh (cycle ${cycleCount})`, err);
       // Continue to scan cycle regardless
     }
+
+    // Instrument refresh after market refresh (first time + every 24h)
+    if (scanner.getAvanzaAvailable() && Date.now() - lastInstrumentRefreshAt > INSTRUMENT_REFRESH_INTERVAL_MS) {
+      try {
+        logScan(`[cycle ${cycleCount}] Running instrument refresh...`);
+        await scanner.runInstrumentRefresh();
+        lastInstrumentRefreshAt = Date.now();
+        logScan(`[cycle ${cycleCount}] Instrument refresh complete`);
+      } catch (err) {
+        logError(`instrument refresh (cycle ${cycleCount})`, err);
+      }
+    }
   }
 
   // Cleanup every 24 hours
@@ -85,6 +107,9 @@ async function runOneCycle() {
     }
   }
 
+  // Morning briefing check (before scan)
+  await checkMorningBriefings();
+
   // Main scan
   try {
     const result = await scanner.runScanCycle();
@@ -97,6 +122,62 @@ async function runOneCycle() {
     );
   } catch (err) {
     logError(`scan cycle ${cycleCount}`, err);
+  }
+}
+
+async function checkMorningBriefings() {
+  if (!isPreMarketWindow || !IntelligenceEngine) return;
+
+  const haUrl   = process.env.HA_URL;
+  const haToken = process.env.HA_TOKEN;
+  const haSvc   = process.env.HA_NOTIFY_SERVICE;
+  const pubUrl  = process.env.PUBLIC_URL || 'http://192.168.0.15:3100';
+
+  for (const market of ['swedish', 'us']) {
+    if (!isPreMarketWindow(market)) continue;
+
+    try {
+      // Get db reference from scanner internals
+      const services = scanner.getServices();
+      if (!services) continue;
+      const db = services.signalStore?.db;
+      if (!db) continue;
+
+      const intel = new IntelligenceEngine(db);
+      const existing = intel.getMorningBriefing(market);
+      if (existing?.pushed_at) continue; // already sent today
+
+      logScan(`[briefing] Generating ${market} morning briefing...`);
+      const text = await intel.generateMorningBriefing(market);
+
+      if (haUrl && haToken && haSvc) {
+        const title = market === 'swedish' ? '🇸🇪 OMX Morning Brief' : '🇺🇸 US Market Brief';
+        const servicePath = haSvc.replace('.', '/');
+        const briefingUrl = `${pubUrl}/api/briefing/${market}`;
+        try {
+          const resp = await fetch(`${haUrl}/api/services/${servicePath}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${haToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title,
+              message: text.substring(0, 400),
+              data: { priority: 'high', url: briefingUrl, clickAction: briefingUrl }
+            })
+          });
+          if (resp.ok) {
+            intel.markBriefingPushed(market);
+            logScan(`[briefing] ${market} briefing pushed`);
+          }
+        } catch (err) {
+          logError(`briefing push (${market})`, err);
+        }
+      } else {
+        logScan(`[briefing] ${market}: ${text.substring(0, 200)}`);
+        intel.markBriefingPushed(market);
+      }
+    } catch (err) {
+      logError(`morning briefing (${market})`, err);
+    }
   }
 }
 

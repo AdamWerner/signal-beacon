@@ -4,7 +4,7 @@ import { OntologyEngine } from '../correlation/ontology.js';
 import { MarketStore, InsertMarket } from '../storage/market-store.js';
 
 // Markets matching these patterns are entertainment/gambling with no stock-price signal value
-const NOISE_PATTERNS: RegExp[] = [
+export const NOISE_PATTERNS: RegExp[] = [
   /will .+ post \d+.+tweets/i,
   /will .+ tweet .+ times/i,
   /how many .+ tweets/i,
@@ -15,6 +15,42 @@ const NOISE_PATTERNS: RegExp[] = [
   /temperature/i,
   /subscriber/i,
   /\bviews\b/i,
+  // Crypto meme / token noise
+  /\$[A-Z]{2,10}\s+reach\s+\$/i,
+  /listed on binance/i,
+  /listed on coinbase/i,
+  /memecoin/i,
+  /meme coin/i,
+  /token (launch|listing|price)/i,
+  /nft (floor|price|volume)/i,
+  // Streaming / social media
+  /will .+ (stream|viewers|viewership)/i,
+  /youtube|twitch|tiktok/i,
+  // Entertainment
+  /\b(superbowl|super bowl|oscar|grammy|emmy)\b/i,
+  /box office/i,
+  /album sales/i,
+  /\bdating\b/i,
+  /baby|pregnant|marriage|divorce/i,
+  /reality\s*tv/i,
+  /will .+ die /i,
+  /onlyfans/i,
+  /mukbang/i,
+  // Entertainment / celebrity
+  /bridgerton/i,
+  /release an? (album|single|ep|song)/i,
+  /\b(film|movie|season \d|episode)\b/i,
+  /taylor swift|beyonce|drake|kanye|rihanna/i,
+  /celebrity|famous|influencer/i,
+  /\b(nba|nfl|nhl|mlb|fifa|champions league)\b/i,
+  /will .+ (score|win|beat|defeat|qualify)/i,
+  /\bpenguin\b/i,
+  /\bmemecoin\b|\bshitcoin\b/i,
+  /\$[A-Z]{3,10} (hit|reach|touch|cross) \$/i,
+  // Music charts (mention streaming services but are NOT about the company)
+  /be the (top|\#\d+) (song|artist|track|album|show|movie) on/i,
+  /monthly (spotify|apple music) listeners/i,
+  /top spotify artist/i,
 ];
 
 export interface DiscoveryResult {
@@ -156,6 +192,23 @@ export class MarketDiscoverer {
     }
 
     return resolvedCount;
+  }
+
+  /**
+   * Soft-delete already-tracked markets that match noise patterns.
+   * Run once during cleanup to purge junk that was tracked before filters were tightened.
+   */
+  cleanupNoiseMarkets(): number {
+    const markets = this.store.findAll(true);
+    let removed = 0;
+    for (const m of markets) {
+      if (NOISE_PATTERNS.some(re => re.test(m.title))) {
+        this.store.markAsResolved(m.condition_id);
+        removed++;
+        console.log(`  ✕ Noise cleanup: "${m.title.substring(0, 70)}"`);
+      }
+    }
+    return removed;
   }
 
   /**

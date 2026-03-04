@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { scanner, getTopSignals, analyzeSignal } from '@polysignal/scanner';
+import { scanner, getTopSignals, analyzeSignal, IntelligenceEngine } from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
@@ -31,7 +31,8 @@ router.get('/', (req, res) => {
 // GET /api/signals/top - AI-ranked top 10 signals (must be before /:id)
 router.get('/top', async (req, res) => {
   try {
-    const signals = services.signalStore.findAll(500);
+    const allSignals = services.signalStore.findAll(500);
+    const signals = allSignals.filter(s => s.status !== 'dismissed');
     // Dedup + AI ranking handled inside getTopSignals
     const top = await getTopSignals(signals);
     const parsed = top.map(signal => ({
@@ -55,8 +56,9 @@ router.get('/top/swedish', (req, res) => {
     const signals = services.signalStore.findFiltered({ hours: 48, limit: 500 });
     const swedish = signals
       .filter(s =>
-        SWEDISH_ASSET_IDS.has(s.matched_asset_id) ||
-        SWEDISH_NAME_FRAGMENTS.some(f => s.matched_asset_name.toLowerCase().includes(f))
+        s.status !== 'dismissed' &&
+        (SWEDISH_ASSET_IDS.has(s.matched_asset_id) ||
+        SWEDISH_NAME_FRAGMENTS.some(f => s.matched_asset_name.toLowerCase().includes(f)))
       )
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 5)
@@ -109,7 +111,7 @@ router.get('/:id/detail', async (req, res) => {
 
     const polyUrl = signal.market_slug
       ? `https://polymarket.com/event/${signal.market_slug}`
-      : `https://polymarket.com`;
+      : `https://polymarket.com/search?q=${encodeURIComponent(signal.market_title.substring(0, 50))}`;
 
     const sparkPoints = snapshots.slice(0, 48).reverse()
       .map(s => `${(s.odds_yes * 100).toFixed(1)}`)
@@ -269,6 +271,55 @@ router.put('/:id/status', (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update signal' });
+  }
+});
+
+// GET /api/briefing/:market - Today's morning briefing
+router.get('/briefing/:market', async (req, res) => {
+  try {
+    const market = req.params.market as 'swedish' | 'us';
+    if (market !== 'swedish' && market !== 'us') {
+      return res.status(400).json({ error: 'Market must be "swedish" or "us"' });
+    }
+    const intel = new IntelligenceEngine((services as any).db);
+    const briefing = intel.getMorningBriefing(market);
+    if (briefing) {
+      res.json({ ...briefing, top_signals: JSON.parse(briefing.top_signals || '[]') });
+    } else {
+      res.json({ message: 'No briefing generated yet today', market });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch briefing' });
+  }
+});
+
+// POST /api/briefing/:market/generate - Trigger briefing generation
+router.post('/briefing/:market/generate', async (req, res) => {
+  try {
+    const market = req.params.market as 'swedish' | 'us';
+    if (market !== 'swedish' && market !== 'us') {
+      return res.status(400).json({ error: 'Market must be "swedish" or "us"' });
+    }
+    const intel = new IntelligenceEngine((services as any).db);
+    const text = await intel.generateMorningBriefing(market);
+    res.json({ market, briefing: text });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate briefing' });
+  }
+});
+
+// GET /api/intelligence/memory - Active intelligence memories
+router.get('/intelligence/memory', (req, res) => {
+  try {
+    const intel = new IntelligenceEngine((services as any).db);
+    const memories = intel.getActiveMemories();
+    res.json(memories.map((m: any) => ({
+      ...m,
+      affected_assets: JSON.parse(m.affected_assets || '[]'),
+      source_signals: JSON.parse(m.source_signals || '[]')
+    })));
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch intelligence memory' });
   }
 });
 

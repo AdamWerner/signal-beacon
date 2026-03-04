@@ -3,6 +3,7 @@ import { WebhookClient } from './webhook.js';
 import { HomeAssistantAlert } from './homeassistant.js';
 import { AlertConfig } from './types.js';
 import { GeneratedSignal } from '../signals/types.js';
+import { shouldPushSignal, getAssetMarket } from '../intelligence/trading-hours.js';
 
 export class AlertDispatcher {
   private pushover?: PushoverClient;
@@ -54,13 +55,17 @@ export class AlertDispatcher {
       promises.push(this.webhook.send(signal));
     }
 
-    if (
-      this.homeAssistant &&
-      signal.confidence >= this.haMinConfidence &&
-      Math.abs(signal.delta_pct) >= 20 &&
-      !signal.requires_judgment
-    ) {
-      promises.push(this.homeAssistant.send(signal));
+    if (this.homeAssistant && !signal.requires_judgment) {
+      const meetsThreshold = signal.confidence >= this.haMinConfidence && Math.abs(signal.delta_pct) >= 20;
+      const pushNow = meetsThreshold && shouldPushSignal(signal.matched_asset_id, signal.confidence);
+      const exceptionalSignal = meetsThreshold && signal.confidence >= 80;  // Always push very high confidence
+
+      if (pushNow || exceptionalSignal) {
+        promises.push(this.homeAssistant.send(signal));
+      } else if (meetsThreshold) {
+        const market = getAssetMarket(signal.matched_asset_id);
+        console.log(`  ☕ Signal ${signal.id} brewing — ${market} market closed, will appear in morning briefing`);
+      }
     }
 
     await Promise.all(promises);

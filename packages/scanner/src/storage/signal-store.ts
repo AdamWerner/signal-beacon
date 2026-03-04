@@ -205,6 +205,18 @@ export class SignalStore {
     return stmt.run(hoursOld).changes;
   }
 
+  /** Dismiss signals whose market is no longer active (resolved or noise-cleaned) */
+  dismissFromInactiveMarkets(): number {
+    const stmt = this.db.prepare(`
+      UPDATE signals SET status = 'dismissed'
+      WHERE status IN ('new', 'viewed')
+        AND market_condition_id NOT IN (
+          SELECT condition_id FROM tracked_markets WHERE is_active = TRUE
+        )
+    `);
+    return stmt.run().changes;
+  }
+
   cleanupOld(daysToKeep: number): number {
     const stmt = this.db.prepare(`
       DELETE FROM signals
