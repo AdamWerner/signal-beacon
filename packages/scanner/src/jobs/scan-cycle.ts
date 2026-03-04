@@ -35,18 +35,19 @@ export class ScanCycleJob {
       console.log('\n[1/4] Tracking odds...');
       const marketsTracked = await this.oddsTracker.trackAllMarkets();
 
-      // Step 2: Detect whale activity
-      console.log('\n[2/4] Detecting whale trades...');
-      const whales = await this.whaleDetector.detectWhales();
-
-      // Step 3: Detect significant odds changes
-      console.log('\n[3/4] Detecting odds changes...');
+      // Step 2: Detect significant odds changes
+      console.log('\n[2/4] Detecting odds changes...');
       const oddsChanges = this.oddsTracker.detectSignificantChanges(
         this.config.polyTimeWindowMinutes,
         this.config.polyOddsChangeThreshold
       );
 
       console.log(`Found ${oddsChanges.length} significant odds changes`);
+
+      // Step 3: Detect whale activity — only on markets that had odds changes
+      console.log('\n[3/4] Detecting whale trades (changed markets only)...');
+      const changedMarketIds = [...new Set(oddsChanges.map(c => c.market_condition_id))];
+      const whales = await this.whaleDetector.detectForMarkets(changedMarketIds);
 
       // Step 4: Generate signals
       console.log('\n[4/4] Generating signals...');

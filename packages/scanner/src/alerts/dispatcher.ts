@@ -54,7 +54,12 @@ export class AlertDispatcher {
       promises.push(this.webhook.send(signal));
     }
 
-    if (this.homeAssistant && signal.confidence >= this.haMinConfidence) {
+    if (
+      this.homeAssistant &&
+      signal.confidence >= this.haMinConfidence &&
+      Math.abs(signal.delta_pct) >= 20 &&
+      !signal.requires_judgment
+    ) {
       promises.push(this.homeAssistant.send(signal));
     }
 

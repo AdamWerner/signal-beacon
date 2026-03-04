@@ -46,8 +46,8 @@ router.get('/top', async (req, res) => {
 });
 
 // Swedish assets
-const SWEDISH_ASSET_IDS = new Set(['defense-saab', 'steel-ssab', 'mining-boliden', 'gaming-evolution', 'retail-hm', 'telecom-ericsson', 'auto-volvo', 'tech-spotify']);
-const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution gaming', 'h&m', 'hennes', 'volvo', 'spotify'];
+const SWEDISH_ASSET_IDS = new Set(['defense-saab', 'steel-ssab', 'mining-boliden', 'telecom-ericsson', 'gaming-evolution', 'retail-hm', 'auto-volvo', 'tech-spotify']);
+const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution', 'h&m', 'hennes', 'volvo', 'spotify'];
 
 // GET /api/signals/top/swedish - Top 5 Swedish-asset signals (must be before /:id)
 router.get('/top/swedish', (req, res) => {
@@ -97,6 +97,15 @@ router.get('/:id/detail', async (req, res) => {
     const instruments = JSON.parse(signal.suggested_instruments);
     const snapshots = services.snapshotStore.getHistory(signal.market_condition_id, 24);
     const whales = services.whaleStore.getRecentByMarket(signal.market_condition_id, 60 * 24);
+
+    // Related signals: same market (other assets) + same asset (other markets), last 24h
+    const allRecent = services.signalStore.findFiltered({ hours: 24, limit: 100 });
+    const relatedByMarket = allRecent
+      .filter(s => s.market_condition_id === signal.market_condition_id && s.id !== signal.id)
+      .slice(0, 5);
+    const relatedByAsset = allRecent
+      .filter(s => s.matched_asset_id === signal.matched_asset_id && s.id !== signal.id && s.market_condition_id !== signal.market_condition_id)
+      .slice(0, 5);
 
     const polyUrl = signal.market_slug
       ? `https://polymarket.com/event/${signal.market_slug}`
@@ -191,8 +200,33 @@ ${aiAnalysis ? `
   <p style="margin:0;font-family:monospace;font-size:0.7rem;color:#666;word-break:break-all">${sparkPoints || 'No snapshot data'}</p>
 </div>
 
+${relatedByMarket.length > 0 ? `
+<div class="box">
+  <div class="label">Other Signals on This Market</div>
+  <ul>
+    ${relatedByMarket.map(s => {
+      const d = s.suggested_action.toLowerCase().includes('bull') ? '📈' : '📉';
+      const ds = s.delta_pct > 0 ? '+' : '';
+      return `<li><a href="/api/signals/${s.id}/detail">${d} ${s.matched_asset_name} ${ds}${s.delta_pct.toFixed(1)}% (${s.confidence}%)</a></li>`;
+    }).join('')}
+  </ul>
+</div>
+` : ''}
+${relatedByAsset.length > 0 ? `
+<div class="box">
+  <div class="label">Other ${signal.matched_asset_name} Signals (last 24h)</div>
+  <ul>
+    ${relatedByAsset.map(s => {
+      const d = s.suggested_action.toLowerCase().includes('bull') ? '📈' : '📉';
+      const ds = s.delta_pct > 0 ? '+' : '';
+      return `<li><a href="/api/signals/${s.id}/detail">${d} ${s.market_title.substring(0, 55)} ${ds}${s.delta_pct.toFixed(1)}% (${s.confidence}%)</a></li>`;
+    }).join('')}
+  </ul>
+</div>
+` : ''}
+
 <div class="footer">
-  Signal ID: ${signal.id} · PolySignal v1 · <a href="javascript:history.back()">Back</a>
+  Signal ID: ${signal.id} · Last updated: ${new Date().toLocaleString()} · <a href="/api/signals/top" style="color:#4fc3f7">Top Signals</a> · <a href="javascript:history.back()">Back</a>
 </div>
 </body>
 </html>`;

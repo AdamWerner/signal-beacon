@@ -4,6 +4,8 @@
  * Every 10 minutes: scan cycle
  * Every 6 hours: market refresh
  * Every 24 hours: cleanup
+ *
+ * Note: Start API separately with: npm run dev:api
  */
 
 import 'dotenv/config';
@@ -32,13 +34,24 @@ function logScan(msg) {
 }
 
 function logError(context, err) {
-  const line = `${new Date().toISOString()} [ERROR] ${context}: ${err?.message ?? err}\n`;
+  const msg = err?.stack ?? err?.message ?? String(err);
+  const line = `${new Date().toISOString()} [ERROR] ${context}: ${msg}\n`;
   process.stderr.write(line);
   try { appendFileSync(ERROR_LOG, line); } catch {}
 }
 
-// Lazy-import scanner after dotenv is loaded
-const { scanner } = await import('@polysignal/scanner');
+// Import scanner — wrap in try/catch to surface init failures clearly
+let scanner;
+try {
+  logScan('[init] Loading scanner module...');
+  const mod = await import('@polysignal/scanner');
+  scanner = mod.scanner;
+  logScan('[init] Scanner module loaded OK');
+} catch (err) {
+  logError('scanner init', err);
+  logScan('[fatal] Cannot load scanner — check build output (run npm run build:scanner)');
+  process.exit(1);
+}
 
 let lastRefreshAt = 0;
 let lastCleanupAt = 0;
@@ -54,8 +67,10 @@ async function runOneCycle() {
       logScan(`[cycle ${cycleCount}] Running market refresh...`);
       await scanner.runMarketRefresh();
       lastRefreshAt = Date.now();
+      logScan(`[cycle ${cycleCount}] Market refresh complete`);
     } catch (err) {
-      logError('market refresh', err);
+      logError(`market refresh (cycle ${cycleCount})`, err);
+      // Continue to scan cycle regardless
     }
   }
 
@@ -66,7 +81,7 @@ async function runOneCycle() {
       await scanner.runCleanup();
       lastCleanupAt = Date.now();
     } catch (err) {
-      logError('cleanup', err);
+      logError(`cleanup (cycle ${cycleCount})`, err);
     }
   }
 
@@ -87,6 +102,7 @@ async function runOneCycle() {
 
 async function loop() {
   logScan('[start] PolySignal continuous scan started');
+  logScan('[info] Note: Start API separately with: npm run dev:api');
 
   // Run first refresh immediately
   lastRefreshAt = -Infinity;
@@ -105,8 +121,18 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
+process.on('SIGTERM', () => {
+  logScan('[stop] Received SIGTERM — shutting down gracefully');
+  process.exit(0);
+});
+
 process.on('uncaughtException', (err) => {
   logError('uncaughtException', err);
+  // Don't exit — keep the loop alive
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
   // Don't exit — keep the loop alive
 });
 

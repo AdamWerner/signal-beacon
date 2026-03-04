@@ -71,19 +71,37 @@ function deduplicateSignals(signals: Signal[]): RankedSignal[] {
     marketBest.push({ ...best, also_affects: others });
   }
 
-  // Step 3: per (asset_id + direction), keep highest-confidence
-  const assetDirBest = new Map<string, RankedSignal>();
+  // Step 3: per matched_asset_id — keep the single best signal (any direction).
+  // Mention the losing direction in also_affects.
+  const assetBest = new Map<string, RankedSignal>();
+  const assetRunner = new Map<string, RankedSignal>(); // second-best direction
+
   for (const s of marketBest) {
-    const dir = s.suggested_action.toLowerCase().includes('bull') ? 'bull'
-      : s.suggested_action.toLowerCase().includes('bear') ? 'bear' : 'any';
-    const key = `${s.matched_asset_id}::${dir}`;
-    const existing = assetDirBest.get(key);
+    const existing = assetBest.get(s.matched_asset_id);
     if (!existing || s.confidence > existing.confidence) {
-      assetDirBest.set(key, s);
+      if (existing) assetRunner.set(s.matched_asset_id, existing);
+      assetBest.set(s.matched_asset_id, s);
+    } else {
+      const runner = assetRunner.get(s.matched_asset_id);
+      if (!runner || s.confidence > runner.confidence) {
+        assetRunner.set(s.matched_asset_id, s);
+      }
     }
   }
 
-  return Array.from(assetDirBest.values());
+  // Merge runner-up direction into also_affects of the winner
+  const result: RankedSignal[] = [];
+  for (const [assetId, best] of assetBest) {
+    const runner = assetRunner.get(assetId);
+    const alsoAffects = [...best.also_affects];
+    if (runner) {
+      const dir = runner.suggested_action.toLowerCase().includes('bull') ? 'BULL' : 'BEAR';
+      alsoAffects.push(`${dir} ${runner.matched_asset_name} (alt direction)`);
+    }
+    result.push({ ...best, also_affects: alsoAffects });
+  }
+
+  return result;
 }
 
 function buildRankPrompt(signals: RankedSignal[]): string {

@@ -25,17 +25,26 @@ export class WhaleDetector {
    */
   async detectWhales(): Promise<WhaleDetection[]> {
     const markets = this.marketStore.findAll(true);
+    return this.detectForMarkets(markets.map(m => m.condition_id));
+  }
+
+  /**
+   * Detect whale trades for a specific set of markets (targeted scan).
+   * Use this after odds tracking to only scan markets with significant changes.
+   */
+  async detectForMarkets(conditionIds: string[]): Promise<WhaleDetection[]> {
+    if (conditionIds.length === 0) return [];
     const detections: WhaleDetection[] = [];
 
-    console.log(`Scanning ${markets.length} markets for whale activity (threshold: $${this.thresholdUsd.toLocaleString()})...`);
+    console.log(`Scanning ${conditionIds.length} markets for whale activity (threshold: $${this.thresholdUsd.toLocaleString()})...`);
 
     // Process in parallel batches of 10 with 200ms between batches
     const BATCH_SIZE = 10;
-    for (let i = 0; i < markets.length; i += BATCH_SIZE) {
-      const batch = markets.slice(i, i + BATCH_SIZE);
-      const results = await Promise.all(batch.map(m => this.detectForMarket(m.condition_id)));
+    for (let i = 0; i < conditionIds.length; i += BATCH_SIZE) {
+      const batch = conditionIds.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(batch.map(id => this.detectForMarket(id)));
       for (const whales of results) detections.push(...whales);
-      if (i + BATCH_SIZE < markets.length) await this.delay(200);
+      if (i + BATCH_SIZE < conditionIds.length) await this.delay(200);
     }
 
     console.log(`✓ Detected ${detections.length} whale trades`);

@@ -105,4 +105,13 @@ export class WhaleStore {
     const info = stmt.run(daysToKeep);
     return info.changes;
   }
+
+  /** Remove whale events for markets that no longer exist in tracked_markets */
+  cleanupOrphans(): number {
+    const stmt = this.db.prepare(`
+      DELETE FROM whale_events
+      WHERE market_condition_id NOT IN (SELECT condition_id FROM tracked_markets)
+    `);
+    return stmt.run().changes;
+  }
 }

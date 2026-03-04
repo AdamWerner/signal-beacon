@@ -49,6 +49,11 @@ export class CleanupJob {
       const whalesDeleted = this.whaleStore.cleanupOld(30);
       console.log(`  Deleted ${whalesDeleted} old whale events`);
 
+      // Remove orphan whale events (market deleted by noise filter or resolution)
+      console.log('Cleaning up orphan whale events...');
+      const whaleOrphans = this.whaleStore.cleanupOrphans();
+      console.log(`  Removed ${whaleOrphans} orphan whale events`);
+
       // Check for resolved markets (daily, not per-scan)
       console.log('Checking for resolved markets...');
       const marketsResolved = await this.marketDiscoverer.markResolvedMarkets();

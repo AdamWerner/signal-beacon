@@ -1,8 +1,36 @@
 import { useEffect, useState } from 'react';
-import { Correlation } from '@/types';
+
+export interface CorrelationMapping {
+  asset_id: string;
+  asset_name: string;
+  polarity: string;
+  explanation: string;
+  bull_count: number;
+  bear_count: number;
+  signal_count_48h: number;
+  avg_confidence: number;
+  best_confidence: number;
+  best_signal_id: string | null;
+}
+
+export interface CorrelationMarket {
+  market_condition_id: string;
+  market_title: string;
+  market_slug: string;
+  category: string;
+  current_odds: number | null;
+  relevance_score: number;
+  mappings: CorrelationMapping[];
+}
+
+export interface CorrelationsData {
+  categories: Record<string, CorrelationMarket[]>;
+  total_markets: number;
+  total_with_signals: number;
+}
 
 export const useCorrelations = () => {
-  const [data, setData] = useState<Correlation[]>([]);
+  const [data, setData] = useState<CorrelationsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -11,30 +39,7 @@ export const useCorrelations = () => {
         const res = await fetch('/api/correlations');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-
-        // Flatten API response: each market can have multiple mappings
-        const transformed: Correlation[] = [];
-        for (const entry of json) {
-          for (const mapping of entry.mappings ?? []) {
-            const polarity = mapping.polarity === 'context_dependent'
-              ? 'CONTEXT'
-              : (mapping.polarity === 'inverse' ? 'INVERSE' : 'DIRECT');
-
-            // Derive instrument type from polarity + bulls/bears available
-            const instrument_type = mapping.bull_count > 0 ? 'BULL' : 'BEAR';
-
-            transformed.push({
-              id: `${entry.market_condition_id}_${mapping.asset_id}`,
-              polymarket: entry.market_title,
-              polymarket_odds: 0, // not returned by API currently
-              instrument: `${instrument_type} ${mapping.asset_name}`,
-              instrument_type,
-              polarity,
-            });
-          }
-        }
-
-        setData(transformed);
+        setData(json);
       } catch (err) {
         console.error('Failed to fetch correlations:', err);
       } finally {

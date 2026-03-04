@@ -1,92 +1,159 @@
 import { useState } from "react";
-import { useCorrelations } from "@/hooks/useCorrelations";
-import { ArrowRight } from "lucide-react";
+import { useCorrelations, CorrelationMarket } from "@/hooks/useCorrelations";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { ChevronDown, ChevronUp, ExternalLink, Zap } from "lucide-react";
 
-const CorrelationsPage = () => {
-  const { data: correlations } = useCorrelations();
+const CATEGORY_LABEL: Record<string, string> = {
+  defense: "🛡 Defense",
+  energy: "⛽ Energy",
+  technology: "💻 Technology",
+  tech: "💻 Technology",
+  ev: "⚡ EV / Auto",
+  transport: "🚚 Transport",
+  mining: "⛏ Mining",
+  steel: "🏭 Steel",
+  pharma: "💊 Pharma",
+  shipping: "🚢 Shipping",
+  telecom: "📡 Telecom",
+  renewables: "🌿 Renewables",
+  nuclear: "☢ Nuclear",
+  crypto: "🪙 Crypto",
+  gaming: "🎲 Gaming",
+  retail: "🛍 Retail",
+  automotive: "🚗 Automotive",
+  finance: "📈 Finance",
+  index: "📊 Index",
+  media: "🎵 Media",
+  other: "📌 Other",
+};
+
+function polarityBadge(polarity: string) {
+  if (polarity === "direct") return <Badge variant="outline" className="text-[10px] border-bull/30 text-bull">DIRECT</Badge>;
+  if (polarity === "inverse") return <Badge variant="outline" className="text-[10px] border-bear/30 text-bear">INVERSE</Badge>;
+  return <Badge variant="outline" className="text-[10px] border-whale/30 text-whale">CONTEXT</Badge>;
+}
+
+function MarketRow({ market }: { market: CorrelationMarket }) {
   const [open, setOpen] = useState(false);
+  const hasSignals = market.mappings.some(m => m.signal_count_48h > 0);
+  const totalSignals = market.mappings.reduce((s, m) => s + m.signal_count_48h, 0);
+  const polyUrl = `https://polymarket.com/event/${market.market_slug}`;
+  const oddsDisplay = market.current_odds != null
+    ? `${(market.current_odds * 100).toFixed(0)}% YES`
+    : '—';
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className={`rounded border ${hasSignals ? 'border-bull/20' : 'border-border/40'} overflow-hidden`}>
+      <div
+        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-secondary/20 transition-colors"
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className="text-sm flex-1 truncate">{market.market_title}</span>
+        <span className="text-xs font-mono text-muted-foreground shrink-0">{oddsDisplay}</span>
+        {hasSignals && (
+          <span className="flex items-center gap-1 text-xs font-mono text-bull shrink-0">
+            <Zap className="h-3 w-3" />{totalSignals}
+          </span>
+        )}
+        <span className="text-xs font-mono text-muted-foreground shrink-0">
+          {market.mappings.length} asset{market.mappings.length !== 1 ? 's' : ''}
+        </span>
+        {open ? <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />}
+      </div>
+
+      {open && (
+        <div className="px-3 pb-3 pt-1 border-t border-border/40 bg-secondary/10 space-y-2">
+          <a href={polyUrl} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+            polymarket.com/event/{market.market_slug} <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+          {market.mappings.map(m => (
+            <div key={m.asset_id} className="flex items-start gap-3 text-xs">
+              <span className="font-medium w-32 shrink-0">{m.asset_name}</span>
+              {polarityBadge(m.polarity)}
+              {m.signal_count_48h > 0 && (
+                <span className="text-bull font-mono">{m.signal_count_48h} signal{m.signal_count_48h !== 1 ? 's' : ''} · {m.avg_confidence}% avg</span>
+              )}
+              {m.best_signal_id && (
+                <a href={`/api/signals/${m.best_signal_id}/detail`} target="_blank" rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground flex items-center gap-0.5">
+                  detail <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CorrelationsPage = () => {
+  const { data, isLoading } = useCorrelations();
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(['defense', 'energy', 'technology']));
+
+  if (isLoading) {
+    return <div className="text-xs text-muted-foreground font-mono p-4">Loading correlations...</div>;
+  }
+
+  if (!data) {
+    return <div className="text-xs text-muted-foreground font-mono p-4">No data available.</div>;
+  }
+
+  const categories = Object.entries(data.categories)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  const toggle = (cat: string) => {
+    setExpandedCats(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-4">
+      <div className="flex items-center gap-4">
         <h1 className="text-xl font-semibold">Correlation Map</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="text-xs border-border">
-              + Add Correlation
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="bg-card border-border">
-            <DialogHeader>
-              <DialogTitle>Add Correlation</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div>
-                <Label className="text-xs text-muted-foreground">Polymarket Slug</Label>
-                <Input placeholder="e.g. fed-rate-hike-june" className="mt-1 bg-secondary border-border font-mono text-sm" />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Keywords</Label>
-                <Input placeholder="e.g. federal reserve, interest rate" className="mt-1 bg-secondary border-border text-sm" />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Avanza Instrument</Label>
-                <Input placeholder="e.g. BEAR SP500 X2 AVA" className="mt-1 bg-secondary border-border font-mono text-sm" />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Polarity</Label>
-                <select className="mt-1 w-full bg-secondary border border-border rounded-md px-3 py-2 text-sm text-foreground">
-                  <option value="DIRECT">DIRECT (odds up → instrument up)</option>
-                  <option value="INVERSE">INVERSE (odds up → instrument down)</option>
-                </select>
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Notes</Label>
-                <Input placeholder="Optional notes..." className="mt-1 bg-secondary border-border text-sm" />
-              </div>
-              <Button className="w-full bg-bull text-primary-foreground hover:bg-bull/90 text-sm">Save Correlation</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <span className="text-xs font-mono text-muted-foreground">
+          {data.total_markets} markets · {data.total_with_signals} with signals
+        </span>
       </div>
 
-      <div className="space-y-3">
-        {correlations.map((c) => (
-          <div key={c.id} className="flex items-center gap-4 bg-card border border-border rounded-lg p-4">
-            {/* Left: Polymarket */}
-            <div className="flex-1 bg-secondary/30 rounded-md p-3">
-              <p className="text-xs text-muted-foreground mb-1">Polymarket</p>
-              <p className="text-sm font-medium">{c.polymarket}</p>
-              <span className="text-xs font-mono text-muted-foreground">{(c.polymarket_odds * 100).toFixed(0)}% odds</span>
-            </div>
+      {categories.map(([cat, markets]) => {
+        const open = expandedCats.has(cat);
+        const marketsWithSignals = markets.filter(m => m.mappings.some(mp => mp.signal_count_48h > 0));
+        const totalSignals = markets.reduce((s, m) => s + m.mappings.reduce((ss, mp) => ss + mp.signal_count_48h, 0), 0);
 
-            {/* Arrow */}
-            <div className="flex flex-col items-center gap-1 shrink-0">
-              <ArrowRight className={`h-5 w-5 ${c.polarity === "DIRECT" ? "text-bull" : "text-bear"}`} />
-              <span className={`text-[10px] font-mono font-bold uppercase ${c.polarity === "DIRECT" ? "text-bull" : "text-bear"}`}>
-                {c.polarity}
+        return (
+          <div key={cat} className="rounded-lg border border-border overflow-hidden">
+            <div
+              className="flex items-center gap-3 px-4 py-3 bg-card cursor-pointer hover:bg-secondary/20 transition-colors"
+              onClick={() => toggle(cat)}
+            >
+              <span className="text-sm font-semibold flex-1">
+                {CATEGORY_LABEL[cat] ?? cat}
               </span>
+              <span className="text-xs font-mono text-muted-foreground">{markets.length} markets</span>
+              {totalSignals > 0 && (
+                <span className="flex items-center gap-1 text-xs font-mono text-bull">
+                  <Zap className="h-3 w-3" />{totalSignals} signals · {marketsWithSignals.length} active
+                </span>
+              )}
+              {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
             </div>
 
-            {/* Right: Instrument */}
-            <div className="flex-1 bg-secondary/30 rounded-md p-3">
-              <p className="text-xs text-muted-foreground mb-1">Avanza Instrument</p>
-              <p className="text-sm font-medium font-mono">{c.instrument}</p>
-              <Badge
-                variant="outline"
-                className={`text-[10px] mt-1 ${c.instrument_type === "BULL" ? "border-bull/30 text-bull" : "border-bear/30 text-bear"}`}
-              >
-                {c.instrument_type}
-              </Badge>
-            </div>
+            {open && (
+              <div className="p-3 space-y-1.5 bg-background/50">
+                {markets.map(m => (
+                  <MarketRow key={m.market_condition_id} market={m} />
+                ))}
+              </div>
+            )}
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 };

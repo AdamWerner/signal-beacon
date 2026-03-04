@@ -12,17 +12,19 @@ export function calculateConfidence(params: {
 }): number {
   let score = 0;
 
-  // Magnitude of relative odds change (max 25 points)
+  // Magnitude of relative odds change (max 30 points)
   const absDelta = Math.abs(params.delta_pct);
-  if (absDelta >= 50) {
+  if (absDelta >= 100) {
+    score += 30;
+  } else if (absDelta >= 50) {
     score += 25;
   } else if (absDelta >= 30) {
     score += 20;
-  } else if (absDelta >= 20) {
+  } else if (absDelta >= 15) {
     score += 15;
-  } else if (absDelta >= 10) {
+  } else if (absDelta >= 8) {
     score += 10;
-  } else if (absDelta >= 5) {
+  } else if (absDelta >= 3) {
     score += 5;
   }
 
@@ -62,14 +64,16 @@ export function calculateConfidence(params: {
     score += 8;
   }
 
-  // Market quality (max 15 points)
+  // Market quality — volume tiers (max 15 points)
   if (params.volume !== undefined) {
-    if (params.volume > 1000000) {
+    if (params.volume > 5_000_000) {
       score += 15;
-    } else if (params.volume > 500000) {
+    } else if (params.volume > 1_000_000) {
       score += 10;
-    } else if (params.volume > 100000) {
-      score += 5;
+    } else if (params.volume > 500_000) {
+      score += 7;
+    } else if (params.volume > 100_000) {
+      score += 4;
     }
   }
 
