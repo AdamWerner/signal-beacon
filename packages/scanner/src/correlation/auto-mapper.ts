@@ -24,7 +24,7 @@ export interface CorrelationMapping {
 export class AutoMapper {
   constructor(
     private ontology: OntologyEngine,
-    private instrumentRegistry: InstrumentRegistry
+    private instrumentRegistry: InstrumentRegistry | null
   ) {}
 
   /**
@@ -52,9 +52,9 @@ export class AutoMapper {
 
       const correlationLogic = asset.correlation_logic;
 
-      const instruments = this.instrumentRegistry.getBestInstruments(
-        asset.avanza_search.underlying_terms[0]
-      );
+      const instruments = this.instrumentRegistry
+        ? this.instrumentRegistry.getBestInstruments(asset.avanza_search.underlying_terms[0])
+        : { bull: [], bear: [] };
 
       const bullInstruments: MappedInstrument[] = instruments.bull.length > 0
         ? instruments.bull.map(inst => ({

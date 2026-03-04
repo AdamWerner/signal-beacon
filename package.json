@@ -19,7 +19,9 @@
     "scan": "node scripts/run-scan.js",
     "refresh:instruments": "node scripts/refresh-instruments.js",
     "refresh:markets": "node scripts/refresh-markets.js",
-    "setup": "bash scripts/setup.sh"
+    "setup": "bash scripts/setup.sh",
+    "continuous": "node scripts/continuous-scan.js",
+    "self-improve": "node scripts/self-improve.js"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

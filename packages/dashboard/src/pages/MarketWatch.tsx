@@ -17,74 +17,94 @@ function MiniSparkline({ data, color }: { data: number[]; color: string }) {
   );
 }
 
-function MarketDetail({ market }: { market: MarketWatchType }) {
+function MarketDetail({ market }: { market: MarketWatchType & { mapped_assets?: string[] } }) {
   return (
-    <div className="p-4 border-t border-border bg-secondary/20">
-      <h3 className="text-sm font-medium mb-3">{market.market} — 7 Day Odds History</h3>
-      <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={market.history}>
-            <XAxis
-              dataKey="time"
-              tick={{ fontSize: 10, fill: "hsl(220 5% 45%)" }}
-              tickFormatter={(t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-              stroke="hsl(245 15% 16%)"
-              interval={23}
-            />
-            <YAxis
-              tick={{ fontSize: 10, fill: "hsl(220 5% 45%)" }}
-              tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
-              stroke="hsl(245 15% 16%)"
-              domain={["auto", "auto"]}
-            />
-            <Tooltip
-              contentStyle={{ background: "hsl(240 15% 8%)", border: "1px solid hsl(245 15% 16%)", borderRadius: 6, fontSize: 12 }}
-              labelFormatter={(t) => new Date(t).toLocaleString()}
-              formatter={(v: number) => [`${(v * 100).toFixed(1)}%`, "Odds"]}
-            />
-            <Line type="monotone" dataKey="odds" stroke="hsl(155 100% 50%)" dot={false} strokeWidth={2} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+    <div className="p-4 border-t border-border bg-secondary/20 space-y-3">
+      {market.mapped_assets && market.mapped_assets.length > 0 && (
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">Mapped Assets</p>
+          <div className="flex flex-wrap gap-1">
+            {market.mapped_assets.map((a: string) => (
+              <span key={a} className="text-xs bg-secondary px-2 py-0.5 rounded font-mono">{a}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {market.sparkline.length > 1 && (
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">4h Odds Trend</p>
+          <div className="h-32">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={market.history}>
+                <YAxis
+                  tick={{ fontSize: 10, fill: "hsl(220 5% 45%)" }}
+                  tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
+                  stroke="hsl(245 15% 16%)"
+                  domain={["auto", "auto"]}
+                  width={36}
+                />
+                <Tooltip
+                  contentStyle={{ background: "hsl(240 15% 8%)", border: "1px solid hsl(245 15% 16%)", borderRadius: 6, fontSize: 12 }}
+                  formatter={(v: number) => [`${(v * 100).toFixed(1)}%`, "Odds YES"]}
+                />
+                <Line type="monotone" dataKey="odds" stroke="hsl(155 100% 50%)" dot={false} strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const MarketWatchPage = () => {
-  const { data: markets } = useMarkets();
+  const { data: markets, isLoading } = useMarkets();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <div className="max-w-6xl mx-auto">
-      <h1 className="text-xl font-semibold mb-6">Market Watch</h1>
+      <div className="flex items-center gap-3 mb-6">
+        <h1 className="text-xl font-semibold">Market Watch</h1>
+        <span className="text-xs font-mono text-muted-foreground">— top 20 by recent delta</span>
+      </div>
       <div className="border border-border rounded-lg overflow-hidden">
         {/* Header */}
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_80px_80px] gap-2 px-4 py-2 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="grid grid-cols-[2fr_100px_80px_120px_80px_80px] gap-2 px-4 py-2 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
           <span>Market</span>
-          <span>Current Odds</span>
-          <span>24h Change</span>
-          <span>Last Delta</span>
-          <span>Whale</span>
+          <span>Odds NOW</span>
+          <span>Last Δ</span>
+          <span>4h Trend</span>
+          <span>24h Δ</span>
           <span>Status</span>
         </div>
-        {markets.map((m) => (
+        {isLoading ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">Loading trending markets...</div>
+        ) : markets.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">No market data — run a scan first.</div>
+        ) : markets.map((m) => (
           <div key={m.id}>
             <div
-              className="grid grid-cols-[2fr_1fr_1fr_1fr_80px_80px] gap-2 px-4 py-3 border-t border-border hover:bg-secondary/10 cursor-pointer items-center transition-colors"
+              className="grid grid-cols-[2fr_100px_80px_120px_80px_80px] gap-2 px-4 py-3 border-t border-border hover:bg-secondary/10 cursor-pointer items-center transition-colors"
               onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
             >
               <span className="text-sm font-medium truncate">{m.market}</span>
               <div className="flex items-center gap-2">
-                <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div className="w-10 h-1.5 bg-secondary rounded-full overflow-hidden">
                   <div className="h-full bg-bull rounded-full" style={{ width: `${m.current_odds * 100}%` }} />
                 </div>
-                <span className="text-sm font-mono">{(m.current_odds * 100).toFixed(0)}%</span>
+                <span className="text-xs font-mono">{(m.current_odds * 100).toFixed(0)}%</span>
               </div>
-              <MiniSparkline data={m.sparkline} color={m.change_24h >= 0 ? "hsl(155,100%,50%)" : "hsl(345,100%,60%)"} />
               <span className={`text-sm font-mono font-bold ${m.last_delta >= 0 ? "text-bull" : "text-bear"}`}>
-                {m.last_delta > 0 ? "+" : ""}{m.last_delta}%
+                {m.last_delta > 0 ? "+" : ""}{typeof m.last_delta === 'number' ? m.last_delta.toFixed(1) : m.last_delta}%
               </span>
-              <span>{m.whale_alert && <span className="h-2 w-2 rounded-full bg-whale inline-block" />}</span>
+              {m.sparkline.length > 0 ? (
+                <MiniSparkline data={m.sparkline} color={m.change_24h >= 0 ? "hsl(155,100%,50%)" : "hsl(345,100%,60%)"} />
+              ) : (
+                <span className="text-xs text-muted-foreground font-mono">—</span>
+              )}
+              <span className={`text-xs font-mono ${m.change_24h >= 0 ? "text-bull" : "text-bear"}`}>
+                {m.change_24h > 0 ? "+" : ""}{typeof m.change_24h === 'number' ? m.change_24h.toFixed(1) : '0'}%
+              </span>
               <Badge
                 variant="outline"
                 className={`text-[10px] uppercase tracking-wider w-fit ${

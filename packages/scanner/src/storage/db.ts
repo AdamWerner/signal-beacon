@@ -79,6 +79,7 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE signals ADD COLUMN requires_judgment BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE signals ADD COLUMN deduplication_key TEXT`,
     `ALTER TABLE whale_events ADD COLUMN trade_id TEXT`,
+    `ALTER TABLE tracked_markets ADD COLUMN gamma_id TEXT`,
   ]) {
     try { db.exec(sql); } catch { /* column already exists */ }
   }

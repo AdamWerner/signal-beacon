@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 export interface WhaleEvent {
   id: number;
   market_condition_id: string;
+  market_title?: string | null;
   timestamp: string;
   side: 'YES' | 'NO';
   size_usd: number;
@@ -52,9 +53,15 @@ export class WhaleStore {
 
   findByMarket(market_condition_id: string, limit = 50): WhaleEvent[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM whale_events
-      WHERE market_condition_id = ?
-      ORDER BY timestamp DESC
+      SELECT w.id, w.market_condition_id, w.timestamp, w.side,
+             w.size_usd, w.price_at_trade, w.odds_impact, w.trade_id,
+             tm.title as market_title
+      FROM whale_events w
+      LEFT JOIN (SELECT condition_id, title FROM tracked_markets GROUP BY condition_id) tm
+        ON tm.condition_id = w.market_condition_id
+      WHERE w.market_condition_id = ?
+      GROUP BY w.id
+      ORDER BY w.timestamp DESC
       LIMIT ?
     `);
 
@@ -63,9 +70,15 @@ export class WhaleStore {
 
   findRecent(hours = 24, limit = 100): WhaleEvent[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM whale_events
-      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
-      ORDER BY timestamp DESC
+      SELECT w.id, w.market_condition_id, w.timestamp, w.side,
+             w.size_usd, w.price_at_trade, w.odds_impact, w.trade_id,
+             tm.title as market_title
+      FROM whale_events w
+      LEFT JOIN (SELECT condition_id, title FROM tracked_markets GROUP BY condition_id) tm
+        ON tm.condition_id = w.market_condition_id
+      WHERE w.timestamp >= datetime('now', '-' || ? || ' hours')
+      GROUP BY w.id
+      ORDER BY w.timestamp DESC
       LIMIT ?
     `);
 

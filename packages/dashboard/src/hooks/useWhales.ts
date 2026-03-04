@@ -16,10 +16,10 @@ export const useWhales = () => {
         const transformed: WhaleEntry[] = json.map((w: any) => ({
           id: String(w.id),
           timestamp: w.timestamp,
-          market: w.market_condition_id,
+          market: w.market_title || (w.market_condition_id?.substring(0, 12) + '…'),
           amount: w.size_usd,
           direction: w.side as 'YES' | 'NO',
-          odds_impact: w.odds_impact ?? 0,
+          price_at_trade: w.price_at_trade,
         }));
 
         setData(transformed);

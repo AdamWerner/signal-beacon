@@ -8,31 +8,48 @@ export function calculateConfidence(params: {
   whale_usd?: number;
   volume?: number;
   relevance_score?: number;
+  abs_change_pp?: number; // absolute percentage-point change (odds_now - odds_before)
 }): number {
   let score = 0;
 
-  // Magnitude of odds change (max 30 points)
+  // Magnitude of relative odds change (max 25 points)
   const absDelta = Math.abs(params.delta_pct);
-  if (absDelta >= 20) {
-    score += 30;
-  } else if (absDelta >= 15) {
+  if (absDelta >= 50) {
     score += 25;
-  } else if (absDelta >= 10) {
+  } else if (absDelta >= 30) {
     score += 20;
-  } else if (absDelta >= 8) {
+  } else if (absDelta >= 20) {
     score += 15;
-  } else if (absDelta >= 5) {
+  } else if (absDelta >= 10) {
     score += 10;
+  } else if (absDelta >= 5) {
+    score += 5;
   }
 
-  // Whale activity (max 25 points)
-  if (params.whale_detected && params.whale_usd) {
-    if (params.whale_usd >= 100000) {
-      score += 25;
-    } else if (params.whale_usd >= 50000) {
-      score += 20;
-    } else if (params.whale_usd >= 25000) {
-      score += 15;
+  // Absolute percentage-point change bonus (max 25 points)
+  // A 2%→20% move (+18pp) is far more actionable than 50%→55% (+5pp)
+  const absChange = params.abs_change_pp !== undefined ? Math.abs(params.abs_change_pp) : 0;
+  if (absChange >= 0.20) {
+    score += 25;
+  } else if (absChange >= 0.10) {
+    score += 18;
+  } else if (absChange >= 0.05) {
+    score += 10;
+  } else if (absChange >= 0.02) {
+    score += 4;
+  }
+
+  // Whale activity (max 20 points) — any whale detection gets base credit
+  if (params.whale_detected) {
+    score += 10; // base bonus just for whale presence
+    if (params.whale_usd) {
+      if (params.whale_usd >= 100000) {
+        score += 10;
+      } else if (params.whale_usd >= 50000) {
+        score += 7;
+      } else if (params.whale_usd >= 10000) {
+        score += 4;
+      }
     }
   }
 

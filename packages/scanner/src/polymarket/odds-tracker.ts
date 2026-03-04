@@ -20,22 +20,46 @@ export class OddsTracker {
   ) {}
 
   /**
-   * Track current odds for all active markets
+   * Track current odds for all active markets using a single bulk fetch.
    */
   async trackAllMarkets(): Promise<number> {
-    const markets = this.marketStore.findAll(true);
+    const trackedMarkets = this.marketStore.findAll(true);
+    if (trackedMarkets.length === 0) return 0;
+
+    console.log(`Bulk-fetching prices for ${trackedMarkets.length} tracked markets...`);
+
+    // Single paginated bulk fetch — already returns outcomePrices for each market
+    const allMarkets = await this.client.fetchAllMarkets(true, false);
+
+    // Build lookup: conditionId → [yesPrice, noPrice]
+    const priceMap = new Map<string, [number, number]>();
+    for (const market of allMarkets) {
+      if (!market.conditionId || !market.outcomePrices) continue;
+      try {
+        const pricesArr: string[] = typeof market.outcomePrices === 'string'
+          ? JSON.parse(market.outcomePrices as unknown as string)
+          : market.outcomePrices;
+        if (!Array.isArray(pricesArr) || pricesArr.length < 2) continue;
+        const yes = parseFloat(pricesArr[0]);
+        const no = parseFloat(pricesArr[1]);
+        if (!isNaN(yes) && !isNaN(no)) {
+          priceMap.set(market.conditionId, [yes, no]);
+        }
+      } catch { /* skip malformed */ }
+    }
+
     let trackedCount = 0;
-
-    console.log(`Tracking odds for ${markets.length} markets...`);
-
-    for (const market of markets) {
-      const success = await this.trackMarket(market.condition_id);
-      if (success) {
-        trackedCount++;
-      }
-
-      // Rate limiting
-      await this.delay(500);
+    for (const market of trackedMarkets) {
+      const prices = priceMap.get(market.condition_id);
+      if (!prices) continue;
+      this.snapshotStore.insert({
+        market_condition_id: market.condition_id,
+        odds_yes: prices[0],
+        odds_no: prices[1],
+        volume_24h: null
+      });
+      this.marketStore.updateLastChecked(market.condition_id);
+      trackedCount++;
     }
 
     console.log(`✓ Tracked ${trackedCount} markets`);
@@ -43,22 +67,35 @@ export class OddsTracker {
   }
 
   /**
-   * Track odds for a single market
+   * Track odds for a single market using the Gamma numeric id for the API call.
    */
-  async trackMarket(conditionId: string): Promise<boolean> {
+  async trackMarket(conditionId: string, gammaId: string): Promise<boolean> {
     try {
-      // Fetch current prices/odds from CLOB API
-      const prices = await this.client.fetchPrices(conditionId);
+      const gammaMarket = await this.client.fetchMarket(gammaId);
+      if (!gammaMarket || !gammaMarket.outcomePrices) {
+        return false;
+      }
 
-      if (!prices) {
+      // outcomePrices is a JSON string like '["0.65","0.35"]' or already an array
+      const pricesArr: string[] = typeof gammaMarket.outcomePrices === 'string'
+        ? JSON.parse(gammaMarket.outcomePrices as unknown as string)
+        : gammaMarket.outcomePrices;
+
+      if (!Array.isArray(pricesArr) || pricesArr.length < 2) {
+        return false;
+      }
+
+      const yes = parseFloat(pricesArr[0]);
+      const no = parseFloat(pricesArr[1]);
+      if (isNaN(yes) || isNaN(no)) {
         return false;
       }
 
       const snapshot: InsertSnapshot = {
         market_condition_id: conditionId,
-        odds_yes: prices.yes,
-        odds_no: prices.no,
-        volume_24h: null // Can be fetched from market data if needed
+        odds_yes: yes,
+        odds_no: no,
+        volume_24h: null
       };
 
       this.snapshotStore.insert(snapshot);

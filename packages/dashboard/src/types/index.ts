@@ -54,7 +54,7 @@ export interface WhaleEntry {
   market: string;
   amount: number;
   direction: "YES" | "NO";
-  odds_impact: number;
+  price_at_trade: number | null;
 }
 
 export interface ScannerSettings {
@@ -74,6 +74,7 @@ export interface HealthStatus {
   status: string;
   uptime: number;
   timestamp: string;
+  last_scan_at: string | null;
   avanza: string;
   scanner: {
     markets: { total: number; active: number };

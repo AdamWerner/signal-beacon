@@ -34,6 +34,16 @@ export function StatusBar() {
   const trackedMarkets = health?.scanner.markets.active ?? 0;
   const totalInstruments = health?.scanner.instruments.total ?? 0;
 
+  // Compute "last scan X min ago" from last_scan_at
+  const lastScanLabel = (() => {
+    if (!health?.last_scan_at) return null;
+    const diffMs = Date.now() - new Date(health.last_scan_at).getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    return `${Math.floor(diffMin / 60)}h ago`;
+  })();
+
   return (
     <header className="h-10 border-b border-border bg-card flex items-center px-4 gap-6 text-xs font-mono shrink-0 relative overflow-hidden">
       {/* Scan line animation */}
@@ -73,11 +83,11 @@ export function StatusBar() {
         </div>
       )}
 
-      {/* Scan schedule */}
-      {health && (
+      {/* Last scan time */}
+      {lastScanLabel && (
         <div className="flex items-center gap-1.5 text-muted-foreground z-10">
           <Clock className="h-3 w-3" />
-          <span>{health.jobs.scan_cycle.schedule}</span>
+          <span>Last scan: {lastScanLabel}</span>
         </div>
       )}
 

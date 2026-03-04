@@ -36,15 +36,15 @@ const WhaleTracker = () => {
       </div>
 
       <div className="border border-border rounded-lg overflow-hidden">
-        <div className="grid grid-cols-[180px_2fr_140px_80px_100px] gap-2 px-4 py-2 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="grid grid-cols-[180px_2fr_140px_80px_80px] gap-2 px-4 py-2 bg-secondary/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
           <span>Timestamp</span>
           <span>Market</span>
           <span>Amount</span>
           <span>Direction</span>
-          <span>Impact</span>
+          <span>Odds YES</span>
         </div>
         {filtered.map((w) => (
-          <div key={w.id} className="grid grid-cols-[180px_2fr_140px_80px_100px] gap-2 px-4 py-3 border-t border-border hover:bg-secondary/10 items-center transition-colors">
+          <div key={w.id} className="grid grid-cols-[180px_2fr_140px_80px_80px] gap-2 px-4 py-3 border-t border-border hover:bg-secondary/10 items-center transition-colors">
             <span className="text-xs font-mono text-muted-foreground">
               {new Date(w.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
             </span>
@@ -56,8 +56,8 @@ const WhaleTracker = () => {
             >
               {w.direction}
             </Badge>
-            <span className={`text-xs font-mono ${w.odds_impact >= 0 ? "text-bull" : "text-bear"}`}>
-              {w.odds_impact > 0 ? "+" : ""}{(w.odds_impact * 100).toFixed(1)}%
+            <span className="text-xs font-mono text-muted-foreground">
+              {w.price_at_trade != null ? `${(w.price_at_trade * 100).toFixed(0)}%` : '—'}
             </span>
           </div>
         ))}

@@ -74,7 +74,7 @@ export class SnapshotStore {
     const now = this.getLatest(market_condition_id);
     const before = this.getSnapshotAt(market_condition_id, time_window_minutes);
 
-    if (!now || !before) {
+    if (!now || !before || before.odds_yes === 0) {
       return null;
     }
 
@@ -85,6 +85,23 @@ export class SnapshotStore {
       odds_now: now.odds_yes,
       delta_pct: Math.round(delta_pct * 100) / 100 // Round to 2 decimals
     };
+  }
+
+  /** Get up to `samples` evenly-spaced odds_yes values from the last `hours` hours */
+  getSparkline(market_condition_id: string, hours = 4, samples = 20): number[] {
+    const rows = this.db.prepare(`
+      SELECT odds_yes FROM odds_snapshots
+      WHERE market_condition_id = ?
+        AND timestamp >= datetime('now', '-' || ? || ' hours')
+      ORDER BY timestamp ASC
+    `).all(market_condition_id, hours) as { odds_yes: number }[];
+
+    if (rows.length === 0) return [];
+    if (rows.length <= samples) return rows.map(r => r.odds_yes);
+
+    // Downsample evenly
+    const step = (rows.length - 1) / (samples - 1);
+    return Array.from({ length: samples }, (_, i) => rows[Math.round(i * step)].odds_yes);
   }
 
   cleanupOld(daysToKeep: number): number {

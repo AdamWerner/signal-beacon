@@ -58,7 +58,9 @@ export class PolymarketClient {
         break;
       }
 
-      allMarkets.push(...markets);
+      // Filter out malformed entries before accumulating
+      const valid = markets.filter(m => m.conditionId && m.slug && m.question);
+      allMarkets.push(...valid);
       offset += limit;
 
       await this.delay(500);
@@ -72,17 +74,18 @@ export class PolymarketClient {
   }
 
   /**
-   * Fetch a single market by slug or condition_id
+   * Fetch a single market by its Gamma numeric id (e.g. "531202").
+   * GET /markets/{id} returns 200; condition_id as path/query does not work.
    */
-  async fetchMarket(slugOrConditionId: string): Promise<GammaMarket | null> {
+  async fetchMarket(gammaId: string): Promise<GammaMarket | null> {
     try {
-      const response = await fetchWithTimeout(`${GAMMA_API_BASE}/markets/${slugOrConditionId}`);
+      const response = await fetchWithTimeout(`${GAMMA_API_BASE}/markets/${gammaId}`);
       if (!response.ok) {
         return null;
       }
       return await response.json() as GammaMarket;
     } catch (error) {
-      logger.error('Failed to fetch market', { id: slugOrConditionId, error: String(error) });
+      logger.error('Failed to fetch market', { id: gammaId, error: String(error) });
       return null;
     }
   }
@@ -118,20 +121,24 @@ export class PolymarketClient {
   }
 
   /**
-   * Fetch recent trades for a market
+   * Fetch recent trades for a market by conditionId
    */
-  async fetchTrades(marketId: string, limit = 100): Promise<Trade[]> {
+  async fetchTrades(conditionId: string, limit = 100): Promise<Trade[]> {
     try {
-      const url = `${DATA_API_BASE}/trades?market_id=${marketId}&limit=${limit}`;
+      // data-api uses "market" (not "market_id") for the condition_id filter
+      const url = `${DATA_API_BASE}/trades?market=${conditionId}&limit=${limit}`;
       const response = await fetchWithTimeout(url);
 
       if (!response.ok) {
+        logger.warn('Trades API returned non-OK', { conditionId, status: response.status });
         return [];
       }
 
-      return await response.json() as Trade[];
+      const data = await response.json() as Trade[] | { data?: Trade[] };
+      // API may return array directly or { data: [...] }
+      return (Array.isArray(data) ? data : (data as { data?: Trade[] }).data ?? []) as Trade[];
     } catch (error) {
-      logger.error('Failed to fetch trades', { marketId, error: String(error) });
+      logger.error('Failed to fetch trades', { conditionId, error: String(error) });
       return [];
     }
   }

@@ -38,7 +38,7 @@ export class PolySignalScanner {
   private ontology = new OntologyEngine();
   private avanzaClient: ReturnType<typeof createAvanzaClient> | null = null;
   private avanzaAvailable = false;
-  private instrumentRegistry: InstrumentRegistry;
+  private instrumentRegistry: InstrumentRegistry | null = null;
   private avanzaScraper: AvanzaScraper | null = null;
   private polymarketClient = new PolymarketClient();
   private marketDiscoverer: MarketDiscoverer;
@@ -59,10 +59,15 @@ export class PolySignalScanner {
 
     // Graceful degradation: only initialise Avanza when credentials are present
     if (process.env.AVANZA_USERNAME) {
+      console.log('Avanza credentials found, attempting connection...');
       try {
         this.avanzaClient = createAvanzaClient();
         this.avanzaAvailable = true;
+        this.instrumentRegistry = new InstrumentRegistry(this.instrumentStore, this.avanzaClient);
+        this.avanzaScraper = new AvanzaScraper(this.instrumentRegistry, this.ontology);
+        console.log('Avanza client created successfully (auth is lazy — happens on first instrument search)');
       } catch (err) {
+        console.error('Avanza setup failed — instrument discovery disabled:', err);
         logger.warn('Avanza authentication setup failed — instrument discovery disabled', {
           error: String(err)
         });
@@ -71,15 +76,6 @@ export class PolySignalScanner {
       logger.info(
         'Running without Avanza credentials — instrument discovery disabled, using ontology-based suggestions'
       );
-    }
-
-    this.instrumentRegistry = new InstrumentRegistry(
-      this.instrumentStore,
-      this.avanzaClient as any // null-safe: only used when avanzaAvailable
-    );
-
-    if (this.avanzaAvailable) {
-      this.avanzaScraper = new AvanzaScraper(this.instrumentRegistry, this.ontology);
     }
 
     this.marketDiscoverer = new MarketDiscoverer(
@@ -116,6 +112,15 @@ export class PolySignalScanner {
             url: this.config.alertWebhookUrl,
             enabled: true
           }
+        : undefined,
+      homeAssistant: this.config.haUrl && this.config.haToken
+        ? {
+            url: this.config.haUrl,
+            token: this.config.haToken,
+            notifyService: this.config.haNotifyService,
+            minConfidence: this.config.alertMinConfidenceHa,
+            enabled: true
+          }
         : undefined
     });
 
@@ -132,7 +137,7 @@ export class PolySignalScanner {
       this.instrumentRefreshJob = new InstrumentRefreshJob(this.avanzaScraper);
     }
 
-    this.cleanupJob = new CleanupJob(this.snapshotStore, this.signalStore, this.whaleStore);
+    this.cleanupJob = new CleanupJob(this.snapshotStore, this.signalStore, this.whaleStore, this.marketDiscoverer);
 
     logger.info('PolySignal Scanner initialized', {
       environment: this.config.nodeEnv,
@@ -173,6 +178,17 @@ export class PolySignalScanner {
         }
       });
       logger.info('Instrument refresh scheduled', { cron: this.config.jobInstrumentRefreshCron });
+
+      // Run once at startup so instruments are populated immediately (fire-and-forget)
+      setImmediate(async () => {
+        try {
+          console.log('Running startup instrument refresh...');
+          await this.instrumentRefreshJob!.execute();
+          console.log('Startup instrument refresh complete');
+        } catch (err) {
+          console.error('Startup instrument refresh failed:', err);
+        }
+      });
     } else {
       logger.warn('Instrument refresh disabled (Avanza unavailable)');
     }
@@ -229,6 +245,7 @@ export class PolySignalScanner {
 
 // Named export for use in API routes
 export { AutoMapper } from './correlation/auto-mapper.js';
+export { getTopSignals } from './signals/ai-ranker.js';
 
 // Export singleton instance
 export const scanner = new PolySignalScanner();

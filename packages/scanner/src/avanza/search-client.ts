@@ -76,20 +76,25 @@ export class AvanzaSearchClient {
     const seenIds = new Set<string>();
 
     for (const term of underlyingTerms) {
-      const query = direction ? `${direction} ${term}` : term;
+      // Search with explicit direction prefixes — Avanza certificate search works
+      // much better with "bull RHEINMETALL" / "bear RHEINMETALL" than bare term
+      const queries = direction
+        ? [`${direction} ${term}`]
+        : [`bull ${term}`, `bear ${term}`];
 
-      const results = await this.searchCertificates(query);
+      for (const query of queries) {
+        const results = await this.searchCertificates(query);
 
-      // Deduplicate by ID
-      for (const result of results) {
-        if (!seenIds.has(result.id)) {
-          seenIds.add(result.id);
-          allResults.push(result);
+        for (const result of results) {
+          if (!seenIds.has(result.id)) {
+            seenIds.add(result.id);
+            allResults.push(result);
+          }
         }
-      }
 
-      // Rate limiting: wait 2 seconds between requests
-      await this.delay(2000);
+        // Rate limiting: wait 2 seconds between requests
+        await this.delay(2000);
+      }
     }
 
     return allResults;

@@ -69,7 +69,7 @@ export class SignalGenerator {
 
           if (existing) {
             const deltaIncreased = Math.abs(signal.delta_pct) - Math.abs(existing.delta_pct);
-            if (deltaIncreased < DEDUP_ESCALATION_THRESHOLD_PCT) {
+            if (!Number.isFinite(deltaIncreased) || deltaIncreased < DEDUP_ESCALATION_THRESHOLD_PCT) {
               console.log(`  ⟳ Skipping duplicate signal for ${mapping.assetName} (key: ${signal.deduplication_key})`);
               continue;
             }
@@ -125,7 +125,8 @@ export class SignalGenerator {
       whale_detected: whaleDetected,
       whale_usd: whaleAmountUsd || undefined,
       volume: market.volume,
-      relevance_score: market.relevance_score
+      relevance_score: market.relevance_score,
+      abs_change_pp: change.odds_now - change.odds_before
     });
 
     const requiresJudgment = mapping.polarity === 'context_dependent';

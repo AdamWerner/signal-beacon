@@ -1,6 +1,6 @@
 export interface GammaMarket {
   id: string;
-  condition_id: string;
+  conditionId: string;
   question: string;
   slug: string;
   description?: string;

@@ -101,6 +101,31 @@ export class SignalStore {
     return status ? stmt.all(status, limit) as Signal[] : stmt.all(limit) as Signal[];
   }
 
+  /** Filter by hours (recency), min confidence, and optional status */
+  findFiltered(opts: { hours?: number; minConfidence?: number; status?: Signal['status']; limit?: number }): Signal[] {
+    const { hours, minConfidence, status, limit = 200 } = opts;
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (hours) {
+      conditions.push(`timestamp >= datetime('now', '-' || ? || ' hours')`);
+      params.push(hours);
+    }
+    if (minConfidence !== undefined) {
+      conditions.push('confidence >= ?');
+      params.push(minConfidence);
+    }
+    if (status) {
+      conditions.push('status = ?');
+      params.push(status);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(limit);
+    const stmt = this.db.prepare(`SELECT * FROM signals ${where} ORDER BY timestamp DESC LIMIT ?`);
+    return stmt.all(...params) as Signal[];
+  }
+
   findByMarket(market_condition_id: string): Signal[] {
     const stmt = this.db.prepare(`
       SELECT * FROM signals
@@ -150,6 +175,24 @@ export class SignalStore {
       acted: number;
       avg_confidence: number;
     };
+  }
+
+  /** Timestamp of the most recently created signal, or null if none */
+  getLatestTimestamp(): string | null {
+    const row = this.db.prepare(
+      `SELECT timestamp FROM signals ORDER BY timestamp DESC LIMIT 1`
+    ).get() as { timestamp: string } | undefined;
+    return row?.timestamp ?? null;
+  }
+
+  /** Auto-dismiss signals that are still 'new' after N hours */
+  expireStale(hoursOld: number): number {
+    const stmt = this.db.prepare(`
+      UPDATE signals SET status = 'dismissed'
+      WHERE status = 'new'
+        AND timestamp < datetime('now', '-' || ? || ' hours')
+    `);
+    return stmt.run(hoursOld).changes;
   }
 
   cleanupOld(daysToKeep: number): number {

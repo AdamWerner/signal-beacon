@@ -1,15 +1,19 @@
 import { PushoverClient } from './pushover.js';
 import { WebhookClient } from './webhook.js';
+import { HomeAssistantAlert } from './homeassistant.js';
 import { AlertConfig } from './types.js';
 import { GeneratedSignal } from '../signals/types.js';
 
 export class AlertDispatcher {
   private pushover?: PushoverClient;
   private webhook?: WebhookClient;
+  private homeAssistant?: HomeAssistantAlert;
+  private haMinConfidence: number;
   private minConfidence: number;
 
   constructor(config: AlertConfig) {
     this.minConfidence = config.minConfidence || 50;
+    this.haMinConfidence = config.homeAssistant?.minConfidence ?? 65;
 
     if (config.pushover) {
       this.pushover = new PushoverClient(config.pushover);
@@ -17,6 +21,14 @@ export class AlertDispatcher {
 
     if (config.webhook) {
       this.webhook = new WebhookClient(config.webhook);
+    }
+
+    if (config.homeAssistant?.enabled && config.homeAssistant.url && config.homeAssistant.token) {
+      this.homeAssistant = new HomeAssistantAlert(
+        config.homeAssistant.url,
+        config.homeAssistant.token,
+        config.homeAssistant.notifyService
+      );
     }
   }
 
@@ -40,6 +52,10 @@ export class AlertDispatcher {
 
     if (this.webhook) {
       promises.push(this.webhook.send(signal));
+    }
+
+    if (this.homeAssistant && signal.confidence >= this.haMinConfidence) {
+      promises.push(this.homeAssistant.send(signal));
     }
 
     await Promise.all(promises);

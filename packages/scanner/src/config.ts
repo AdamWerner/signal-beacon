@@ -1,3 +1,5 @@
+import { logger } from './utils/logger.js';
+
 export interface Config {
   // Scanner thresholds
   polyOddsChangeThreshold: number;
@@ -24,9 +26,16 @@ export interface Config {
   alertPushoverAppToken?: string;
   alertWebhookUrl?: string;
 
+  // Home Assistant
+  haUrl: string;
+  haToken: string;
+  haNotifyService: string;
+  alertMinConfidenceHa: number;
+
   // Server
   apiPort: number;
   nodeEnv: string;
+  publicUrl: string;
 }
 
 export function loadConfig(): Config {
@@ -34,7 +43,7 @@ export function loadConfig(): Config {
     // Scanner thresholds
     polyOddsChangeThreshold: parseFloat(process.env.POLY_ODDS_CHANGE_THRESHOLD || '8'),
     polyTimeWindowMinutes: parseInt(process.env.POLY_TIME_WINDOW_MINUTES || '60', 10),
-    polyWhaleThresholdUsd: parseFloat(process.env.POLY_WHALE_THRESHOLD_USD || '25000'),
+    polyWhaleThresholdUsd: parseFloat(process.env.POLY_WHALE_THRESHOLD_USD || '5000'),
     polyMarketRelevanceThreshold: parseFloat(process.env.POLY_MARKET_RELEVANCE_THRESHOLD || '0.4'),
 
     // Job schedules
@@ -56,24 +65,21 @@ export function loadConfig(): Config {
     alertPushoverAppToken: process.env.ALERT_PUSHOVER_APP_TOKEN,
     alertWebhookUrl: process.env.ALERT_WEBHOOK_URL,
 
+    // Home Assistant
+    haUrl: process.env.HA_URL || '',
+    haToken: process.env.HA_TOKEN || '',
+    haNotifyService: process.env.HA_NOTIFY_SERVICE || 'notify.mobile_app_adamsajphone',
+    alertMinConfidenceHa: parseInt(process.env.ALERT_MIN_CONFIDENCE_HA || '65', 10),
+
     // Server
     apiPort: parseInt(process.env.API_PORT || '3100', 10),
-    nodeEnv: process.env.NODE_ENV || 'development'
+    nodeEnv: process.env.NODE_ENV || 'development',
+    publicUrl: process.env.PUBLIC_URL || 'http://localhost:3100'
   };
 }
 
 export function validateConfig(config: Config): void {
-  const errors: string[] = [];
-
-  if (!config.avanzaUsername) {
-    errors.push('AVANZA_USERNAME is required');
-  }
-
-  if (!config.avanzaPassword) {
-    errors.push('AVANZA_PASSWORD is required');
-  }
-
-  if (errors.length > 0) {
-    throw new Error(`Configuration errors:\n${errors.join('\n')}`);
+  if (!config.avanzaUsername || !config.avanzaPassword) {
+    logger.warn('Avanza credentials not configured — running in Polymarket-only mode');
   }
 }

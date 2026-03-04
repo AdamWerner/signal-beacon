@@ -18,10 +18,13 @@ router.get('/', (req, res) => {
       0
     );
 
+    const lastScanAt = services.signalStore.getLatestTimestamp();
+
     res.json({
       status: 'healthy',
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
+      last_scan_at: lastScanAt,
       avanza: services.avanzaAvailable ? 'connected' : 'not connected',
       scanner: {
         markets: marketStats,

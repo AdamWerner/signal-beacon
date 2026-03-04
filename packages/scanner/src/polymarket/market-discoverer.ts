@@ -3,6 +3,20 @@ import { GammaMarket } from './types.js';
 import { OntologyEngine } from '../correlation/ontology.js';
 import { MarketStore, InsertMarket } from '../storage/market-store.js';
 
+// Markets matching these patterns are entertainment/gambling with no stock-price signal value
+const NOISE_PATTERNS: RegExp[] = [
+  /will .+ post \d+.+tweets/i,
+  /will .+ tweet .+ times/i,
+  /how many .+ tweets/i,
+  /will .+ reach \d+ followers/i,
+  /price of .+ on .+ at/i,
+  /will .+ score \d+/i,
+  /will .+ win .+ game/i,
+  /temperature/i,
+  /subscriber/i,
+  /\bviews\b/i,
+];
+
 export interface DiscoveryResult {
   totalScanned: number;
   newMarketsAdded: number;
@@ -34,7 +48,19 @@ export class MarketDiscoverer {
     let updatedCount = 0;
 
     for (const market of markets) {
-      const existing = this.store.findByConditionId(market.condition_id);
+      // Skip markets missing required fields
+      if (!market.conditionId || !market.slug || !market.question) {
+        continue;
+      }
+
+      // Skip noise markets (entertainment/gambling with no stock-price signal value)
+      const question = market.question;
+      if (NOISE_PATTERNS.some(re => re.test(question))) {
+        console.log(`  ⊘ Skipping noise market: "${question.substring(0, 60)}"`);
+        continue;
+      }
+
+      const existing = this.store.findByConditionId(market.conditionId);
 
       // Match market to ontology assets
       const matches = this.ontology.matchMarket(
@@ -56,7 +82,8 @@ export class MarketDiscoverer {
       const matchedAssetIds = matches.map(m => m.assetId);
 
       const marketData: InsertMarket = {
-        condition_id: market.condition_id,
+        condition_id: market.conditionId,
+        gamma_id: market.id || null,
         slug: market.slug,
         title: market.question,
         description: market.description || null,
@@ -74,11 +101,13 @@ export class MarketDiscoverer {
         updatedCount++;
       }
 
-      this.store.insert(marketData);
+      try {
+        this.store.insert(marketData);
+      } catch (err) {
+        console.error(`Failed to insert market "${market.question.substring(0, 60)}...":`, err);
+        // continue processing remaining markets
+      }
     }
-
-    // Check for resolved markets (markets that are now closed)
-    const resolvedCount = await this.markResolvedMarkets();
 
     const duration = Date.now() - startTime;
 
@@ -86,13 +115,12 @@ export class MarketDiscoverer {
     console.log(`  Scanned: ${markets.length}`);
     console.log(`  New: ${newCount}`);
     console.log(`  Updated: ${updatedCount}`);
-    console.log(`  Resolved: ${resolvedCount}`);
 
     return {
       totalScanned: markets.length,
       newMarketsAdded: newCount,
       marketsUpdated: updatedCount,
-      marketsResolved: resolvedCount,
+      marketsResolved: 0,
       duration
     };
   }
@@ -100,17 +128,27 @@ export class MarketDiscoverer {
   /**
    * Check tracked markets for resolution
    */
-  private async markResolvedMarkets(): Promise<number> {
+  async markResolvedMarkets(): Promise<number> {
     const trackedMarkets = this.store.findAll(true);
     let resolvedCount = 0;
 
     for (const tracked of trackedMarkets) {
-      const market = await this.client.fetchMarket(tracked.condition_id);
+      if (!tracked.gamma_id) {
+        continue; // no numeric id yet — skip resolution check until next refresh
+      }
 
-      if (!market || market.closed) {
-        this.store.markAsResolved(tracked.condition_id);
-        resolvedCount++;
-        console.log(`  → Marked as resolved: "${tracked.title.substring(0, 60)}..."`);
+      try {
+        const market = await this.client.fetchMarket(tracked.gamma_id);
+
+        // Only resolve if we got a successful response confirming the market is closed.
+        // A null response means the fetch failed — leave the market active.
+        if (market && market.closed) {
+          this.store.markAsResolved(tracked.condition_id);
+          resolvedCount++;
+          console.log(`  → Marked as resolved: "${(tracked.title ?? tracked.condition_id).substring(0, 60)}"`);
+        }
+      } catch (err) {
+        console.error(`Failed to check resolution for ${tracked.condition_id}:`, err);
       }
 
       // Rate limit

@@ -1,18 +1,22 @@
 import { Router } from 'express';
-import { scanner } from '@polysignal/scanner';
+import { scanner, getTopSignals } from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
 
-// GET /api/signals - Get all signals
+// GET /api/signals - Get signals with optional filters
+// Query params: limit, status, hours (recency), min_confidence
 router.get('/', (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 100;
     const status = req.query.status as any;
+    const hours = req.query.hours ? parseInt(req.query.hours as string) : undefined;
+    const minConfidence = req.query.min_confidence ? parseInt(req.query.min_confidence as string) : undefined;
 
-    const signals = services.signalStore.findAll(limit, status);
+    const signals = (hours !== undefined || minConfidence !== undefined)
+      ? services.signalStore.findFiltered({ hours, minConfidence, status, limit })
+      : services.signalStore.findAll(limit, status);
 
-    // Parse JSON fields
     const parsed = signals.map(signal => ({
       ...signal,
       suggested_instruments: JSON.parse(signal.suggested_instruments)
@@ -21,6 +25,209 @@ router.get('/', (req, res) => {
     res.json(parsed);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch signals' });
+  }
+});
+
+// GET /api/signals/top - AI-ranked top 10 signals (must be before /:id)
+router.get('/top', async (req, res) => {
+  try {
+    const signals = services.signalStore.findAll(500);
+
+    // Step 1: For each market, collect all signals grouped by asset
+    const marketAssetGroups = new Map<string, Map<string, typeof signals[0]>>();
+    for (const s of signals) {
+      if (!marketAssetGroups.has(s.market_condition_id)) {
+        marketAssetGroups.set(s.market_condition_id, new Map());
+      }
+      const assetMap = marketAssetGroups.get(s.market_condition_id)!;
+      // Per asset, keep higher confidence; prefer non-context_dependent
+      const existing = assetMap.get(s.matched_asset_id);
+      if (!existing || s.confidence > existing.confidence) {
+        assetMap.set(s.matched_asset_id, s);
+      }
+    }
+
+    // Step 2: Per market, pick ONE best asset (highest confidence × abs delta)
+    // Track other assets as "also_affects"
+    const marketBest: Array<typeof signals[0] & { also_affects: string[] }> = [];
+    for (const [, assetMap] of marketAssetGroups) {
+      const assetSignals = Array.from(assetMap.values());
+      assetSignals.sort((a, b) =>
+        (b.confidence * Math.abs(b.delta_pct)) - (a.confidence * Math.abs(a.delta_pct))
+      );
+      const best = assetSignals[0];
+      const others = assetSignals.slice(1).map(s => s.matched_asset_name);
+      marketBest.push({ ...best, also_affects: others });
+    }
+
+    // Step 3: Deduplicate by (matched_asset_id + direction) — one signal per asset
+    const assetDirBest = new Map<string, typeof marketBest[0]>();
+    for (const s of marketBest) {
+      const dir = s.suggested_action.toLowerCase().includes('bull') ? 'bull'
+        : s.suggested_action.toLowerCase().includes('bear') ? 'bear' : 'any';
+      const key = `${s.matched_asset_id}::${dir}`;
+      const existing = assetDirBest.get(key);
+      if (!existing || s.confidence > existing.confidence) {
+        assetDirBest.set(key, s);
+      }
+    }
+    const deduped = Array.from(assetDirBest.values());
+
+    // Step 4: AI ranking
+    const top = await getTopSignals(deduped);
+
+    const parsed = top.map(signal => ({
+      ...signal,
+      suggested_instruments: JSON.parse(signal.suggested_instruments as unknown as string),
+      also_affects: (signal as any).also_affects ?? []
+    }));
+    res.json(parsed);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch top signals' });
+  }
+});
+
+// Swedish assets
+const SWEDISH_ASSET_IDS = new Set(['defense-saab', 'steel-ssab', 'mining-boliden']);
+const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution gaming', 'h&m', 'hennes'];
+
+// GET /api/signals/top/swedish - Top 5 Swedish-asset signals (must be before /:id)
+router.get('/top/swedish', (req, res) => {
+  try {
+    const signals = services.signalStore.findFiltered({ hours: 48, limit: 500 });
+    const swedish = signals
+      .filter(s =>
+        SWEDISH_ASSET_IDS.has(s.matched_asset_id) ||
+        SWEDISH_NAME_FRAGMENTS.some(f => s.matched_asset_name.toLowerCase().includes(f))
+      )
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 5)
+      .map(s => ({ ...s, suggested_instruments: JSON.parse(s.suggested_instruments) }));
+    res.json(swedish);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch Swedish signals' });
+  }
+});
+
+// GET /api/signals/stats - Get signal statistics (must be before /:id)
+router.get('/stats', (req, res) => {
+  try {
+    const stats = services.signalStore.getStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// GET /api/signals/:id/detail - Full signal detail HTML page (must be before /:id plain)
+router.get('/:id/detail', async (req, res) => {
+  try {
+    const signal = services.signalStore.findById(req.params.id);
+    if (!signal) {
+      return res.status(404).send('<h1>Signal not found</h1>');
+    }
+
+    const instruments = JSON.parse(signal.suggested_instruments);
+    const snapshots = services.snapshotStore.getHistory(signal.market_condition_id, 24);
+    const whales = services.whaleStore.getRecentByMarket(signal.market_condition_id, 60 * 24);
+
+    const polyUrl = signal.market_slug
+      ? `https://polymarket.com/event/${signal.market_slug}`
+      : `https://polymarket.com`;
+
+    const sparkPoints = snapshots.slice(0, 48).reverse()
+      .map(s => `${(s.odds_yes * 100).toFixed(1)}`)
+      .join(',');
+
+    const whaleSummary = whales.length > 0
+      ? whales.slice(0, 5).map(w =>
+          `<li>${w.side} $${w.size_usd.toLocaleString()} @ ${(w.price_at_trade ?? 0 * 100).toFixed(0)}% YES</li>`
+        ).join('')
+      : '<li>No recent whale activity</li>';
+
+    const instHtml = instruments.length > 0
+      ? instruments.map((i: any) => i.avanza_url
+          ? `<a href="${i.avanza_url}" target="_blank">${i.name}</a>`
+          : `<span>${i.name}</span>`
+        ).join(' | ')
+      : 'No instruments';
+
+    const isBull = signal.suggested_action.toLowerCase().includes('bull');
+    const dirColor = isBull ? '#00ff88' : '#ff3d6e';
+    const deltaSign = signal.delta_pct > 0 ? '+' : '';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PolySignal: ${signal.matched_asset_name}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d0d1a; color: #e2e2ee; margin: 0; padding: 24px; max-width: 700px; }
+  h1 { color: ${dirColor}; font-size: 1.5rem; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 0.85rem; margin-bottom: 24px; }
+  .box { background: #161625; border: 1px solid #2a2a3e; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .label { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .big { font-size: 2rem; font-family: monospace; color: ${dirColor}; font-weight: bold; }
+  .oddsbar { height: 6px; background: #2a2a3e; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .oddsbar div { height: 100%; background: ${dirColor}; border-radius: 3px; }
+  a { color: #4fc3f7; }
+  ul { margin: 0; padding-left: 20px; }
+  li { margin: 4px 0; font-size: 0.9rem; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; border: 1px solid ${dirColor}33; color: ${dirColor}; }
+  .footer { color: #444; font-size: 0.75rem; margin-top: 32px; }
+</style>
+</head>
+<body>
+<h1>${isBull ? '📈 BULL' : '📉 BEAR'} ${signal.matched_asset_name}</h1>
+<div class="sub">Signal generated ${new Date(signal.timestamp).toLocaleString()} · Confidence: ${signal.confidence}%</div>
+
+<div class="box">
+  <div class="label">Market Question</div>
+  <p style="margin:0;line-height:1.5">${signal.market_title}</p>
+  <a href="${polyUrl}" target="_blank" style="font-size:0.8rem">View on Polymarket ↗</a>
+</div>
+
+<div class="box">
+  <div class="label">Odds Change</div>
+  <div class="big">${deltaSign}${signal.delta_pct.toFixed(1)}%</div>
+  <div style="font-size:0.85rem;color:#888;margin-top:4px">
+    ${(signal.odds_before * 100).toFixed(0)}% → ${(signal.odds_now * 100).toFixed(0)}% YES
+    &nbsp;over ${signal.time_window_minutes} min
+  </div>
+  <div class="oddsbar"><div style="width:${signal.odds_now * 100}%"></div></div>
+</div>
+
+<div class="box">
+  <div class="label">Signal Reasoning</div>
+  <p style="margin:0;line-height:1.5;font-size:0.9rem">${signal.reasoning}</p>
+</div>
+
+<div class="box">
+  <div class="label">Suggested Instruments (Avanza)</div>
+  <p style="margin:0;font-size:0.9rem">${instHtml}</p>
+</div>
+
+<div class="box">
+  <div class="label">Recent Whale Activity (last 24h)</div>
+  <ul>${whaleSummary}</ul>
+</div>
+
+<div class="box">
+  <div class="label">Odds History (last 24h snapshots)</div>
+  <p style="margin:0;font-family:monospace;font-size:0.7rem;color:#666;word-break:break-all">${sparkPoints || 'No snapshot data'}</p>
+</div>
+
+<div class="footer">
+  Signal ID: ${signal.id} · PolySignal v1 · <a href="javascript:history.back()">Back</a>
+</div>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    res.status(500).send('<h1>Error generating detail page</h1>');
   }
 });
 
@@ -55,16 +262,6 @@ router.put('/:id/status', (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update signal' });
-  }
-});
-
-// GET /api/signals/stats - Get signal statistics
-router.get('/stats', (req, res) => {
-  try {
-    const stats = services.signalStore.getStats();
-    res.json(stats);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 

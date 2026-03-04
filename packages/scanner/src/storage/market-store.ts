@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 export interface TrackedMarket {
   id: number;
   condition_id: string;
+  gamma_id: string | null;
   slug: string;
   title: string;
   description: string | null;
@@ -19,6 +20,7 @@ export interface TrackedMarket {
 
 export interface InsertMarket {
   condition_id: string;
+  gamma_id: string | null;
   slug: string;
   title: string;
   description: string | null;
@@ -35,10 +37,11 @@ export class MarketStore {
   insert(market: InsertMarket): void {
     const stmt = this.db.prepare(`
       INSERT INTO tracked_markets (
-        condition_id, slug, title, description, category,
+        condition_id, gamma_id, slug, title, description, category,
         matched_asset_ids, relevance_score, volume, liquidity, last_checked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(condition_id) DO UPDATE SET
+        gamma_id = excluded.gamma_id,
         slug = excluded.slug,
         title = excluded.title,
         description = excluded.description,
@@ -52,6 +55,7 @@ export class MarketStore {
 
     stmt.run(
       market.condition_id,
+      market.gamma_id,
       market.slug,
       market.title,
       market.description,

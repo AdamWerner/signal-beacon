@@ -7,29 +7,52 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 interface SignalCardProps {
   signal: Signal;
+  /** Compact mode: condensed single-line summary (used in AI Top Trades list) */
+  compact?: boolean;
+  /** Nested mode: no outer rounded border (used inside grouped pairs) */
+  nested?: boolean;
 }
 
 function deriveDirection(signal: Signal): "bull" | "bear" {
   return signal.suggested_action.toLowerCase().includes("bull") ? "bull" : "bear";
 }
 
-export function SignalCard({ signal }: SignalCardProps) {
+export function SignalCard({ signal, compact = false, nested = false }: SignalCardProps) {
   const [expanded, setExpanded] = useState(false);
   const direction = deriveDirection(signal);
   const isBull = direction === "bull";
   const dirColor = isBull ? "text-bull" : "text-bear";
   const borderColor = isBull ? "border-l-bull" : "border-l-bear";
-  const glowClass = signal.status === "new" ? (isBull ? "glow-bull" : "glow-bear") : "";
+  const glowClass = signal.status === "new" && !compact && !nested ? (isBull ? "glow-bull" : "glow-bear") : "";
   const opacityClass = signal.status === "dismissed" || signal.status === "acted" ? "opacity-50" : "";
 
   const oddsBarWidth = Math.abs(signal.delta_pct) * 3;
   const primaryInstrument = signal.suggested_instruments?.[0];
   const timeWindow = `${signal.time_window_minutes}min`;
 
+  // Compact layout: single row summary for AI top list
+  if (compact) {
+    return (
+      <div className={`flex items-center gap-3 py-1 ${opacityClass}`}>
+        <span className={`text-xs font-mono font-bold ${dirColor}`}>
+          {signal.delta_pct > 0 ? "+" : ""}{signal.delta_pct.toFixed(1)}%
+        </span>
+        <span className="text-xs text-foreground truncate flex-1">{signal.matched_asset_name}</span>
+        <span className="text-xs font-mono text-muted-foreground truncate hidden sm:block" style={{ maxWidth: "200px" }}>
+          {signal.market_title.substring(0, 50)}
+        </span>
+        <span className="text-xs font-mono text-muted-foreground">{signal.confidence}%</span>
+        {signal.whale_detected && <Anchor className="h-3 w-3 text-whale shrink-0" />}
+      </div>
+    );
+  }
+
+  const wrapClass = nested
+    ? `bg-card border-l-2 ${borderColor} ${glowClass} ${opacityClass} transition-all`
+    : `bg-card border border-border border-l-2 ${borderColor} rounded-lg ${glowClass} ${opacityClass} transition-all`;
+
   return (
-    <div
-      className={`bg-card border border-border border-l-2 ${borderColor} rounded-lg ${glowClass} ${opacityClass} transition-all`}
-    >
+    <div className={wrapClass}>
       <div
         className="flex items-center gap-4 p-4 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
