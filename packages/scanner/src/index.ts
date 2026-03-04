@@ -245,7 +245,7 @@ export class PolySignalScanner {
 
 // Named export for use in API routes
 export { AutoMapper } from './correlation/auto-mapper.js';
-export { getTopSignals } from './signals/ai-ranker.js';
+export { getTopSignals, analyzeSignal } from './signals/ai-ranker.js';
 
 // Export singleton instance
 export const scanner = new PolySignalScanner();

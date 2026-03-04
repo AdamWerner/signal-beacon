@@ -78,6 +78,7 @@ function runMigrations(db: Database.Database): void {
   for (const sql of [
     `ALTER TABLE signals ADD COLUMN requires_judgment BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE signals ADD COLUMN deduplication_key TEXT`,
+    `ALTER TABLE signals ADD COLUMN ai_analysis TEXT`,
     `ALTER TABLE whale_events ADD COLUMN trade_id TEXT`,
     `ALTER TABLE tracked_markets ADD COLUMN gamma_id TEXT`,
   ]) {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { scanner, getTopSignals } from '@polysignal/scanner';
+import { scanner, getTopSignals, analyzeSignal } from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
@@ -32,50 +32,8 @@ router.get('/', (req, res) => {
 router.get('/top', async (req, res) => {
   try {
     const signals = services.signalStore.findAll(500);
-
-    // Step 1: For each market, collect all signals grouped by asset
-    const marketAssetGroups = new Map<string, Map<string, typeof signals[0]>>();
-    for (const s of signals) {
-      if (!marketAssetGroups.has(s.market_condition_id)) {
-        marketAssetGroups.set(s.market_condition_id, new Map());
-      }
-      const assetMap = marketAssetGroups.get(s.market_condition_id)!;
-      // Per asset, keep higher confidence; prefer non-context_dependent
-      const existing = assetMap.get(s.matched_asset_id);
-      if (!existing || s.confidence > existing.confidence) {
-        assetMap.set(s.matched_asset_id, s);
-      }
-    }
-
-    // Step 2: Per market, pick ONE best asset (highest confidence × abs delta)
-    // Track other assets as "also_affects"
-    const marketBest: Array<typeof signals[0] & { also_affects: string[] }> = [];
-    for (const [, assetMap] of marketAssetGroups) {
-      const assetSignals = Array.from(assetMap.values());
-      assetSignals.sort((a, b) =>
-        (b.confidence * Math.abs(b.delta_pct)) - (a.confidence * Math.abs(a.delta_pct))
-      );
-      const best = assetSignals[0];
-      const others = assetSignals.slice(1).map(s => s.matched_asset_name);
-      marketBest.push({ ...best, also_affects: others });
-    }
-
-    // Step 3: Deduplicate by (matched_asset_id + direction) — one signal per asset
-    const assetDirBest = new Map<string, typeof marketBest[0]>();
-    for (const s of marketBest) {
-      const dir = s.suggested_action.toLowerCase().includes('bull') ? 'bull'
-        : s.suggested_action.toLowerCase().includes('bear') ? 'bear' : 'any';
-      const key = `${s.matched_asset_id}::${dir}`;
-      const existing = assetDirBest.get(key);
-      if (!existing || s.confidence > existing.confidence) {
-        assetDirBest.set(key, s);
-      }
-    }
-    const deduped = Array.from(assetDirBest.values());
-
-    // Step 4: AI ranking
-    const top = await getTopSignals(deduped);
-
+    // Dedup + AI ranking handled inside getTopSignals
+    const top = await getTopSignals(signals);
     const parsed = top.map(signal => ({
       ...signal,
       suggested_instruments: JSON.parse(signal.suggested_instruments as unknown as string),
@@ -88,8 +46,8 @@ router.get('/top', async (req, res) => {
 });
 
 // Swedish assets
-const SWEDISH_ASSET_IDS = new Set(['defense-saab', 'steel-ssab', 'mining-boliden']);
-const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution gaming', 'h&m', 'hennes'];
+const SWEDISH_ASSET_IDS = new Set(['defense-saab', 'steel-ssab', 'mining-boliden', 'gaming-evolution', 'retail-hm', 'telecom-ericsson', 'auto-volvo', 'tech-spotify']);
+const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution gaming', 'h&m', 'hennes', 'volvo', 'spotify'];
 
 // GET /api/signals/top/swedish - Top 5 Swedish-asset signals (must be before /:id)
 router.get('/top/swedish', (req, res) => {
@@ -125,6 +83,15 @@ router.get('/:id/detail', async (req, res) => {
     const signal = services.signalStore.findById(req.params.id);
     if (!signal) {
       return res.status(404).send('<h1>Signal not found</h1>');
+    }
+
+    // AI analysis — load from cache or generate
+    let aiAnalysis = signal.ai_analysis;
+    if (!aiAnalysis) {
+      try {
+        aiAnalysis = await analyzeSignal(signal);
+        if (aiAnalysis) services.signalStore.setAiAnalysis(signal.id, aiAnalysis);
+      } catch { /* non-fatal */ }
     }
 
     const instruments = JSON.parse(signal.suggested_instruments);
@@ -198,6 +165,12 @@ router.get('/:id/detail', async (req, res) => {
   <div class="oddsbar"><div style="width:${signal.odds_now * 100}%"></div></div>
 </div>
 
+${aiAnalysis ? `
+<div class="box" style="border-color:${dirColor}44">
+  <div class="label" style="color:${dirColor}">🤖 AI Analysis</div>
+  <p style="margin:0;line-height:1.6;font-size:0.9rem">${aiAnalysis.replace(/\n/g, '<br>')}</p>
+</div>
+` : ''}
 <div class="box">
   <div class="label">Signal Reasoning</div>
   <p style="margin:0;line-height:1.5;font-size:0.9rem">${signal.reasoning}</p>

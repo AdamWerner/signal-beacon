@@ -21,6 +21,7 @@ export interface Signal {
   confidence: number;
   requires_judgment: boolean;
   deduplication_key: string | null;
+  ai_analysis: string | null;
   status: 'new' | 'viewed' | 'dismissed' | 'acted';
 }
 
@@ -155,6 +156,15 @@ export class SignalStore {
   updateStatus(id: string, status: Signal['status']): void {
     const stmt = this.db.prepare('UPDATE signals SET status = ? WHERE id = ?');
     stmt.run(status, id);
+  }
+
+  getAiAnalysis(id: string): string | null {
+    const row = this.db.prepare('SELECT ai_analysis FROM signals WHERE id = ?').get(id) as { ai_analysis: string | null } | undefined;
+    return row?.ai_analysis ?? null;
+  }
+
+  setAiAnalysis(id: string, analysis: string): void {
+    this.db.prepare('UPDATE signals SET ai_analysis = ? WHERE id = ?').run(analysis, id);
   }
 
   getStats() {

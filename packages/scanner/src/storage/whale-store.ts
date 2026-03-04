@@ -35,7 +35,7 @@ export class WhaleStore {
 
   insert(whale: InsertWhaleEvent): void {
     const stmt = this.db.prepare(`
-      INSERT INTO whale_events (
+      INSERT OR IGNORE INTO whale_events (
         market_condition_id, timestamp, side, size_usd, price_at_trade, odds_impact, trade_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);

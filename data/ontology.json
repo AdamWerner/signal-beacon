@@ -24,7 +24,7 @@
       "name": "Saab B",
       "category": "defense",
       "polymarket_patterns": {
-        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "sweden nato", "eu defense"],
+        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "sweden nato", "eu defense", "gripen", "fighter jet", "military aircraft", "fighter aircraft", "saab gripen"],
         "categories": ["geopolitics", "defense", "europe"],
         "exclude_keywords": []
       },
@@ -222,7 +222,7 @@
       "name": "Boliden",
       "category": "mining",
       "polymarket_patterns": {
-        "keywords": ["copper price", "critical minerals", "ev battery", "copper demand", "mining regulation", "metal prices"],
+        "keywords": ["copper price", "zinc price", "lead price", "base metals", "critical minerals", "ev battery", "copper demand", "mining regulation", "metal prices"],
         "categories": ["commodities", "mining", "environment"],
         "exclude_keywords": []
       },
@@ -258,7 +258,7 @@
       "name": "SSAB",
       "category": "steel",
       "polymarket_patterns": {
-        "keywords": ["eu steel tariff", "cbam", "carbon border tax", "green steel", "infrastructure spending", "steel demand", "carbon tax"],
+        "keywords": ["eu steel tariff", "cbam", "carbon border tax", "green steel", "infrastructure spending", "steel demand", "carbon tax", "fossil-free steel", "green steel transition", "hybrit", "decarbonize steel"],
         "categories": ["economics", "environment", "europe"],
         "exclude_keywords": []
       },
@@ -384,7 +384,7 @@
       "name": "Evolution Gaming",
       "category": "gaming",
       "polymarket_patterns": {
-        "keywords": ["online gambling", "igaming legalization", "sports betting", "casino regulation", "gambling license", "us gambling"],
+        "keywords": ["online gambling", "igaming", "igaming legalization", "sports betting", "casino regulation", "gambling license", "us gambling", "live casino", "online casino"],
         "categories": ["regulation", "gaming"],
         "exclude_keywords": []
       },
@@ -413,6 +413,42 @@
       "correlation_logic": {
         "default_polarity": "inverse",
         "explanation": "Fast fashion regulation increases compliance costs for H&M. Odds UP on restrictions = BEAR HM."
+      }
+    },
+    {
+      "id": "auto-volvo",
+      "name": "Volvo Group",
+      "category": "automotive",
+      "polymarket_patterns": {
+        "keywords": ["ev truck", "autonomous trucking", "freight automation", "commercial ev", "truck electrification", "heavy vehicle", "eu truck emission", "zero emission truck"],
+        "categories": ["automotive", "environment", "technology"],
+        "exclude_keywords": ["volvo cars"]
+      },
+      "avanza_search": {
+        "underlying_terms": ["VOLVO B", "AB VOLVO"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "EV truck mandates increase transition costs short-term (BEARISH) but position Volvo as market leader (BULLISH). Requires judgment on timeline/policy."
+      }
+    },
+    {
+      "id": "tech-spotify",
+      "name": "Spotify Technology",
+      "category": "technology",
+      "polymarket_patterns": {
+        "keywords": ["music streaming", "podcast regulation", "streaming royalties", "digital music license", "streaming market", "audio streaming", "music platform", "podcast market"],
+        "categories": ["technology", "regulation", "media"],
+        "exclude_keywords": []
+      },
+      "avanza_search": {
+        "underlying_terms": ["SPOTIFY TECHNOLOGY", "SPOTIFY"],
+        "certificate_type": "certificate"
+      },
+      "correlation_logic": {
+        "default_polarity": "context_dependent",
+        "explanation": "Higher streaming royalty requirements are BEARISH for Spotify margins. Market share growth or podcast ad revenue expansion is BULLISH. Requires judgment."
       }
     },
     {
