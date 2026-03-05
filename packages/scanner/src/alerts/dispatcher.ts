@@ -10,7 +10,6 @@ export class AlertDispatcher {
   private webhook?: WebhookClient;
   private homeAssistant?: HomeAssistantAlert;
   private haMinConfidence: number;
-  private haIntradayMinConfidence: number;
   private minConfidence: number;
   private verificationRequiredForPush: boolean;
   private onSignalsPushed?: (signalIds: string[], market: 'swedish' | 'us') => void;
@@ -18,7 +17,6 @@ export class AlertDispatcher {
   constructor(config: AlertConfig) {
     this.minConfidence = config.minConfidence || 50;
     this.haMinConfidence = config.homeAssistant?.minConfidence ?? 65;
-    this.haIntradayMinConfidence = config.intradayMinConfidenceHa ?? Math.max(this.haMinConfidence, 80);
     this.verificationRequiredForPush = config.verificationRequiredForPush ?? true;
     this.onSignalsPushed = config.onSignalsPushed;
 
@@ -100,11 +98,10 @@ export class AlertDispatcher {
       return 0;
     }
 
-    const intradayThreshold = Math.max(this.haMinConfidence, this.haIntradayMinConfidence);
     const pushable = signals.filter(signal =>
-      signal.confidence >= intradayThreshold &&
-      Math.abs(signal.delta_pct) >= 20 &&
-      signal.verification_score >= 70
+      signal.confidence >= this.haMinConfidence &&
+      Math.abs(signal.delta_pct) >= 15 &&
+      signal.verification_status === 'approved'
     );
 
     if (pushable.length === 0) {

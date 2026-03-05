@@ -115,7 +115,6 @@ export class PolySignalScanner {
     this.alertDispatcher = new AlertDispatcher({
       minConfidence: this.config.alertMinConfidence,
       verificationRequiredForPush: this.config.verificationRequiredForPush,
-      intradayMinConfidenceHa: this.config.alertMinConfidenceHaIntraday,
       onSignalsPushed: (signalIds) => {
         this.signalStore.markPushed(signalIds, 'ha');
       },

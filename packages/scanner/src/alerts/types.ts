@@ -14,7 +14,6 @@ export interface AlertConfig {
   homeAssistant?: HomeAssistantConfig;
   minConfidence?: number;
   verificationRequiredForPush?: boolean;
-  intradayMinConfidenceHa?: number;
   onSignalsPushed?: (signalIds: string[], market: 'swedish' | 'us') => void;
 }
 

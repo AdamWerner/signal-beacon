@@ -36,7 +36,6 @@ export interface Config {
   haToken: string;
   haNotifyService: string;
   alertMinConfidenceHa: number;
-  alertMinConfidenceHaIntraday: number;
 
   // Server
   apiPort: number;
@@ -83,7 +82,6 @@ export function loadConfig(): Config {
     haToken: process.env.HA_TOKEN || '',
     haNotifyService: process.env.HA_NOTIFY_SERVICE || 'notify.mobile_app_adamsajphone',
     alertMinConfidenceHa: parseInt(process.env.ALERT_MIN_CONFIDENCE_HA || '65', 10),
-    alertMinConfidenceHaIntraday: parseInt(process.env.ALERT_MIN_CONFIDENCE_HA_INTRADAY || '80', 10),
 
     // Server
     apiPort: parseInt(process.env.API_PORT || '3100', 10),
