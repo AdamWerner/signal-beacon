@@ -132,4 +132,18 @@ export class AutoMapper {
   ): MappedInstrument[] {
     return direction === 'bull' ? mapping.instruments.bull : mapping.instruments.bear;
   }
+
+  /**
+   * Return the ontology keywords for a specific asset that explicitly appear in
+   * the market title/description. Used by the verification guard.
+   */
+  getMatchedKeywordsForAsset(market: TrackedMarket, assetId: string): string[] {
+    const asset = this.ontology.getAsset(assetId);
+    if (!asset) return [];
+
+    const haystack = `${market.title} ${market.description || ''}`.toLowerCase();
+    return asset.polymarket_patterns.keywords.filter(keyword =>
+      haystack.includes(keyword.toLowerCase())
+    );
+  }
 }

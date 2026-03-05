@@ -24,6 +24,7 @@ export class AvanzaScraper {
 
     const assets = this.ontology.getAllAssets();
     let totalDiscovered = 0;
+    let zeroResultAssets = 0;
 
     for (const asset of assets) {
       console.log(`\nProcessing asset: ${asset.name} (${asset.id})`);
@@ -33,7 +34,15 @@ export class AvanzaScraper {
       );
 
       totalDiscovered += discovered;
-      console.log(`  Found ${discovered} new certificates`);
+      if (discovered === 0) {
+        zeroResultAssets += 1;
+        console.warn(
+          `  [warn] no new certificates for ${asset.name} ` +
+          `(terms: ${asset.avanza_search.underlying_terms.join(', ')})`
+        );
+      } else {
+        console.log(`  Found ${discovered} new certificates`);
+      }
     }
 
     // Mark stale instruments as inactive (not seen in 7 days)
@@ -48,6 +57,12 @@ export class AvanzaScraper {
     console.log(`  Total active: ${stats.total_active}`);
     console.log(`  Newly discovered: ${totalDiscovered}`);
     console.log(`  Marked inactive: ${markedInactive}`);
+    if (stats.total_active === 0) {
+      console.warn('[warn] Avanza refresh finished with 0 active instruments. Check auth/session/search output.');
+    }
+    if (zeroResultAssets > 0) {
+      console.warn(`[warn] ${zeroResultAssets}/${assets.length} assets returned zero new certificates this run.`);
+    }
 
     return {
       assetsProcessed: assets.length,

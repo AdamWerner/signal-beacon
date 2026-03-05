@@ -13,7 +13,8 @@ try {
   console.log(`Odds changes detected: ${result.oddsChangesDetected}`);
   console.log(`Whales detected: ${result.whalesDetected}`);
   console.log(`Signals generated: ${result.signalsGenerated}`);
-  console.log(`Alerts sent: ${result.alertsSent}`);
+  console.log(`HA pushed: ${result.haPushed}`);
+  console.log(`Brewed: ${result.brewed}`);
   console.log(`Duration: ${(result.duration / 1000).toFixed(1)}s`);
 
   process.exit(0);

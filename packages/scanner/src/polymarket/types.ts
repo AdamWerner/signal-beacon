@@ -3,6 +3,8 @@ export interface GammaMarket {
   conditionId: string;
   question: string;
   slug: string;
+  eventSlug?: string;
+  events?: Array<{ slug?: string }>;
   description?: string;
   category?: string;
   end_date_iso?: string;

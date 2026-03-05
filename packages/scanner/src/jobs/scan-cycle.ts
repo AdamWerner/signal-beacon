@@ -58,17 +58,48 @@ export class ScanCycleJob {
         intelligence.processNewSignals(signals);
 
         for (const signal of signals) {
+          let changed = false;
+
           const boost = intelligence.getConfidenceBoost(signal.matched_asset_id);
-          if (boost <= 0) continue;
-
-          signal.confidence = Math.min(signal.confidence + boost, 100);
-
-          // Persist boosted confidence so the DB, API, and notifications stay consistent.
-          try {
-            this.db.prepare('UPDATE signals SET confidence = ? WHERE id = ?').run(signal.confidence, signal.id);
+          if (boost > 0) {
+            signal.confidence = Math.min(signal.confidence + boost, 100);
+            changed = true;
             console.log(`  Intelligence boost +${boost} for ${signal.matched_asset_name} -> ${signal.confidence}%`);
+          }
+
+          try {
+            const perf = this.db.prepare(`
+              SELECT suggested_confidence_adjustment, samples, reliability_score
+              FROM asset_performance
+              WHERE asset_id = ?
+              LIMIT 1
+            `).get(signal.matched_asset_id) as {
+              suggested_confidence_adjustment: number;
+              samples: number;
+              reliability_score: number;
+            } | undefined;
+
+            if (perf && perf.samples >= 4 && perf.suggested_confidence_adjustment !== 0) {
+              signal.confidence = Math.max(
+                0,
+                Math.min(signal.confidence + perf.suggested_confidence_adjustment, 100)
+              );
+              changed = true;
+              console.log(
+                `  Backtest adj ${perf.suggested_confidence_adjustment > 0 ? '+' : ''}${perf.suggested_confidence_adjustment} ` +
+                `for ${signal.matched_asset_name} (samples=${perf.samples}, rel=${perf.reliability_score.toFixed(2)}) -> ${signal.confidence}%`
+              );
+            }
           } catch {
-            // Non-fatal, continue scan cycle.
+            // Ignore performance adjustment read issues.
+          }
+
+          if (changed) {
+            try {
+              this.db.prepare('UPDATE signals SET confidence = ? WHERE id = ?').run(signal.confidence, signal.id);
+            } catch {
+              // Non-fatal, continue scan cycle.
+            }
           }
         }
       }

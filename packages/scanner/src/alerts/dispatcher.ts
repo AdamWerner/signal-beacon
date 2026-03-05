@@ -10,11 +10,17 @@ export class AlertDispatcher {
   private webhook?: WebhookClient;
   private homeAssistant?: HomeAssistantAlert;
   private haMinConfidence: number;
+  private haIntradayMinConfidence: number;
   private minConfidence: number;
+  private verificationRequiredForPush: boolean;
+  private onSignalsPushed?: (signalIds: string[], market: 'swedish' | 'us') => void;
 
   constructor(config: AlertConfig) {
     this.minConfidence = config.minConfidence || 50;
     this.haMinConfidence = config.homeAssistant?.minConfidence ?? 65;
+    this.haIntradayMinConfidence = config.intradayMinConfidenceHa ?? Math.max(this.haMinConfidence, 80);
+    this.verificationRequiredForPush = config.verificationRequiredForPush ?? true;
+    this.onSignalsPushed = config.onSignalsPushed;
 
     if (config.pushover) {
       this.pushover = new PushoverClient(config.pushover);
@@ -52,6 +58,13 @@ export class AlertDispatcher {
     for (const signal of signals) {
       if (signal.confidence < this.minConfidence) continue;
       if (signal.requires_judgment) continue;
+      if (this.verificationRequiredForPush && !this.isEligibleByVerification(signal)) {
+        console.log(
+          `  Skip push ${signal.id} not verification-approved ` +
+          `(${signal.verification_status}/${signal.verification_source})`
+        );
+        continue;
+      }
 
       const market = getAssetMarket(signal.matched_asset_id);
       if (market === 'swedish') {
@@ -87,8 +100,11 @@ export class AlertDispatcher {
       return 0;
     }
 
+    const intradayThreshold = Math.max(this.haMinConfidence, this.haIntradayMinConfidence);
     const pushable = signals.filter(signal =>
-      signal.confidence >= this.haMinConfidence && Math.abs(signal.delta_pct) >= 15
+      signal.confidence >= intradayThreshold &&
+      Math.abs(signal.delta_pct) >= 20 &&
+      signal.verification_score >= 70
     );
 
     if (pushable.length === 0) {
@@ -110,10 +126,20 @@ export class AlertDispatcher {
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 5);
 
+    let sent = false;
     if (dedupedSignals.length === 1) {
-      await homeAssistant.send(dedupedSignals[0]);
+      sent = await homeAssistant.send(dedupedSignals[0]);
     } else {
-      await homeAssistant.sendAggregated(dedupedSignals, market);
+      sent = await homeAssistant.sendAggregated(dedupedSignals, market);
+    }
+
+    if (!sent) {
+      console.warn(`  HA push attempt failed for ${market} market (${dedupedSignals.length} assets)`);
+      return 0;
+    }
+
+    if (this.onSignalsPushed) {
+      this.onSignalsPushed(dedupedSignals.map(signal => signal.id), market);
     }
 
     console.log(`  Pushed aggregated ${market} HA alert (${dedupedSignals.length} assets)`);
@@ -125,11 +151,18 @@ export class AlertDispatcher {
    */
   private async dispatchLegacy(signal: GeneratedSignal): Promise<void> {
     if (signal.confidence < this.minConfidence) return;
+    if (this.verificationRequiredForPush && !this.isEligibleByVerification(signal)) return;
 
     const promises: Promise<boolean>[] = [];
     if (this.pushover) promises.push(this.pushover.send(signal));
     if (this.webhook) promises.push(this.webhook.send(signal));
 
     await Promise.all(promises);
+  }
+
+  private isEligibleByVerification(signal: GeneratedSignal): boolean {
+    if (signal.verification_status !== 'approved') return false;
+    if (signal.verification_source === 'guard_allowlist') return true;
+    return signal.verification_source === 'claude' || signal.verification_source === 'guard';
   }
 }

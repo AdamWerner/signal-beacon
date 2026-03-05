@@ -148,6 +148,7 @@ export class IntelligenceEngine {
       WHERE timestamp >= datetime('now', '-16 hours')
         AND matched_asset_id IN (${placeholders})
         AND requires_judgment = 0
+        AND verification_status = 'approved'
       ORDER BY confidence DESC
     `).all(...assetList) as Array<{ [key: string]: any }>;
 

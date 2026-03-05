@@ -5,6 +5,7 @@ export interface TrackedMarket {
   condition_id: string;
   gamma_id: string | null;
   slug: string;
+  event_slug: string | null;
   title: string;
   description: string | null;
   category: string | null;
@@ -22,6 +23,7 @@ export interface InsertMarket {
   condition_id: string;
   gamma_id: string | null;
   slug: string;
+  event_slug: string | null;
   title: string;
   description: string | null;
   category: string | null;
@@ -37,12 +39,13 @@ export class MarketStore {
   insert(market: InsertMarket): void {
     const stmt = this.db.prepare(`
       INSERT INTO tracked_markets (
-        condition_id, gamma_id, slug, title, description, category,
+        condition_id, gamma_id, slug, event_slug, title, description, category,
         matched_asset_ids, relevance_score, volume, liquidity, last_checked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(condition_id) DO UPDATE SET
         gamma_id = excluded.gamma_id,
         slug = excluded.slug,
+        event_slug = excluded.event_slug,
         title = excluded.title,
         description = excluded.description,
         category = excluded.category,
@@ -57,6 +60,7 @@ export class MarketStore {
       market.condition_id,
       market.gamma_id,
       market.slug,
+      market.event_slug,
       market.title,
       market.description,
       market.category,

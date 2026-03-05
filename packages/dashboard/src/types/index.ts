@@ -24,6 +24,13 @@ export interface Signal {
   confidence: number;
   requires_judgment?: boolean;
   deduplication_key?: string;
+  verification_status?: "pending" | "approved" | "rejected" | "needs_review";
+  verification_score?: number;
+  verification_reason?: string | null;
+  verification_flags?: string[];
+  verification_source?: string | null;
+  verification_record?: string | null;
+  also_affects?: string[];
   status: "new" | "viewed" | "dismissed" | "acted";
 }
 

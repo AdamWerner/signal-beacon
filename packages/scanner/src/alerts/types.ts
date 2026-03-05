@@ -13,6 +13,9 @@ export interface AlertConfig {
   webhook?: WebhookConfig;
   homeAssistant?: HomeAssistantConfig;
   minConfidence?: number;
+  verificationRequiredForPush?: boolean;
+  intradayMinConfidenceHa?: number;
+  onSignalsPushed?: (signalIds: string[], market: 'swedish' | 'us') => void;
 }
 
 export interface PushoverConfig {

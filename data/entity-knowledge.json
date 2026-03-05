@@ -1,0 +1,45 @@
+{
+  "person_to_asset": {
+    "elon musk": ["ev-tesla", "tech-spotify"],
+    "jerome powell": ["sp500", "nasdaq100"],
+    "janet yellen": ["sp500", "nasdaq100"],
+    "christine lagarde": ["sp500", "nasdaq100"],
+    "jensen huang": ["ai-nvidia", "nasdaq100"],
+    "sam altman": ["ai-nvidia", "ai-palantir", "nasdaq100"],
+    "vladimir putin": ["oil-equinor", "oil-shell", "oil-exxon", "defense-saab", "defense-rheinmetall"],
+    "volodymyr zelenskyy": ["defense-saab", "defense-rheinmetall", "defense-lockheed", "defense-bae"],
+    "donald trump": ["sp500", "nasdaq100", "oil-equinor", "oil-shell", "oil-exxon"]
+  },
+  "entity_to_asset": {
+    "federal reserve": ["sp500", "nasdaq100"],
+    "fed": ["sp500", "nasdaq100"],
+    "opec": ["oil-equinor", "oil-conocophillips", "oil-shell", "oil-exxon"],
+    "nato": ["defense-saab", "defense-rheinmetall", "defense-lockheed", "defense-bae"],
+    "ecb": ["sp500", "nasdaq100"],
+    "riksbank": ["omx30", "retail-hm", "gaming-evolution", "telecom-ericsson"],
+    "tesla": ["ev-tesla"],
+    "nvidia": ["ai-nvidia"],
+    "saab": ["defense-saab"],
+    "ericsson": ["telecom-ericsson"],
+    "spotify": ["tech-spotify"],
+    "omx": ["omx30"],
+    "nasdaq": ["nasdaq100"],
+    "s&p 500": ["sp500"]
+  },
+  "market_type_allowlist_keywords": [
+    "federal reserve",
+    "fed",
+    "opec",
+    "nato",
+    "tariff",
+    "sanction",
+    "cpi",
+    "inflation",
+    "rate hike",
+    "rate cut",
+    "ceasefire",
+    "oil",
+    "gas",
+    "defense spending"
+  ]
+}

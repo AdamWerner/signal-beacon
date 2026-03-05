@@ -8,6 +8,7 @@
 import { readFileSync, appendFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { scanner } from '@polysignal/scanner';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -93,3 +94,66 @@ if (issues.length === 0) {
   note(`[ISSUES] ${issues.length} pattern(s) detected:`);
   issues.forEach(i => note(`  - ${i}`));
 }
+
+async function runBacktestLearning() {
+  note('[learning] running daily backtest learning pass...');
+
+  for (const market of ['swedish', 'us']) {
+    try {
+      const result = await scanner.runDailyBacktest(market);
+      note(
+        `[learning] ${market}: evaluated=${result.signalsEvaluated} ` +
+        `hit30=${(result.hitRate30m * 100).toFixed(0)}% hit60=${(result.hitRate60m * 100).toFixed(0)}% ` +
+        `avg60=${result.avgMove60m.toFixed(2)}%${result.skipped ? ' (cached)' : ''}`
+      );
+
+      if (result.aiNotes) {
+        note(`[learning] ${market} ai-notes: ${result.aiNotes}`);
+      }
+    } catch (error) {
+      note(`[learning] ${market} backtest failed: ${String(error)}`);
+    }
+  }
+
+  try {
+    const db = scanner.getServices().db;
+    const top = db.prepare(`
+      SELECT asset_name, samples, hit_rate_60m, suggested_confidence_adjustment
+      FROM asset_performance
+      WHERE samples >= 4
+      ORDER BY hit_rate_60m DESC
+      LIMIT 5
+    `).all();
+    const bottom = db.prepare(`
+      SELECT asset_name, samples, hit_rate_60m, suggested_confidence_adjustment
+      FROM asset_performance
+      WHERE samples >= 4
+      ORDER BY hit_rate_60m ASC
+      LIMIT 5
+    `).all();
+
+    if (top.length > 0) {
+      note('[learning] strongest assets:');
+      for (const row of top) {
+        note(
+          `  - ${row.asset_name}: samples=${row.samples}, hit60=${(row.hit_rate_60m * 100).toFixed(0)}%, ` +
+          `adj=${row.suggested_confidence_adjustment > 0 ? '+' : ''}${row.suggested_confidence_adjustment}`
+        );
+      }
+    }
+
+    if (bottom.length > 0) {
+      note('[learning] weakest assets:');
+      for (const row of bottom) {
+        note(
+          `  - ${row.asset_name}: samples=${row.samples}, hit60=${(row.hit_rate_60m * 100).toFixed(0)}%, ` +
+          `adj=${row.suggested_confidence_adjustment > 0 ? '+' : ''}${row.suggested_confidence_adjustment}`
+        );
+      }
+    }
+  } catch (error) {
+    note(`[learning] could not summarize asset performance: ${String(error)}`);
+  }
+}
+
+await runBacktestLearning();

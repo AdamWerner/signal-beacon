@@ -116,11 +116,13 @@ export class MarketDiscoverer {
       }
 
       const matchedAssetIds = matches.map(m => m.assetId);
+      const eventSlug = market.eventSlug || market.events?.[0]?.slug || null;
 
       const marketData: InsertMarket = {
         condition_id: market.conditionId,
         gamma_id: market.id || null,
         slug: market.slug,
+        event_slug: eventSlug,
         title: market.question,
         description: market.description || null,
         category: market.category || null,

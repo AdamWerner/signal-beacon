@@ -22,6 +22,15 @@ export interface Signal {
   requires_judgment: boolean;
   deduplication_key: string | null;
   ai_analysis: string | null;
+  verification_status: 'pending' | 'approved' | 'rejected' | 'needs_review';
+  verification_score: number;
+  verification_reason: string | null;
+  verification_flags: string;
+  verification_source: string | null;
+  verification_record: string | null;
+  verification_updated_at: string | null;
+  push_sent_at: string | null;
+  push_channel: string | null;
   status: 'new' | 'viewed' | 'dismissed' | 'acted';
 }
 
@@ -50,6 +59,12 @@ export interface InsertSignal {
   confidence: number;
   requires_judgment: boolean;
   deduplication_key: string;
+  verification_status: 'pending' | 'approved' | 'rejected' | 'needs_review';
+  verification_score: number;
+  verification_reason: string;
+  verification_flags: string[];
+  verification_source: string;
+  verification_record: string | null;
 }
 
 export class SignalStore {
@@ -62,8 +77,10 @@ export class SignalStore {
         odds_before, odds_now, delta_pct, time_window_minutes,
         whale_detected, whale_amount_usd, matched_asset_id, matched_asset_name,
         polarity, suggested_action, suggested_instruments, reasoning, confidence,
-        requires_judgment, deduplication_key
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        requires_judgment, deduplication_key,
+        verification_status, verification_score, verification_reason,
+        verification_flags, verification_source, verification_record, verification_updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `);
 
     stmt.run(
@@ -85,7 +102,13 @@ export class SignalStore {
       signal.reasoning,
       signal.confidence,
       signal.requires_judgment ? 1 : 0,
-      signal.deduplication_key
+      signal.deduplication_key,
+      signal.verification_status,
+      signal.verification_score,
+      signal.verification_reason,
+      JSON.stringify(signal.verification_flags),
+      signal.verification_source,
+      signal.verification_record
     );
   }
 
@@ -172,6 +195,38 @@ export class SignalStore {
     this.db.prepare('UPDATE signals SET ai_analysis = ? WHERE id = ?').run(analysis, id);
   }
 
+  setVerification(
+    id: string,
+    verification: {
+      status: Signal['verification_status'];
+      score: number;
+      reason: string;
+      flags: string[];
+      source: string;
+      record?: string | null;
+    }
+  ): void {
+    this.db.prepare(`
+      UPDATE signals
+      SET verification_status = ?,
+          verification_score = ?,
+          verification_reason = ?,
+          verification_flags = ?,
+          verification_source = ?,
+          verification_record = ?,
+          verification_updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      verification.status,
+      Math.max(0, Math.min(100, verification.score)),
+      verification.reason,
+      JSON.stringify(verification.flags),
+      verification.source,
+      verification.record ?? null,
+      id
+    );
+  }
+
   getStats() {
     const stmt = this.db.prepare(`
       SELECT
@@ -231,5 +286,47 @@ export class SignalStore {
 
     const info = stmt.run(daysToKeep);
     return info.changes;
+  }
+
+  markPushed(signalIds: string[], channel = 'ha'): void {
+    if (signalIds.length === 0) return;
+    const stmt = this.db.prepare(`
+      UPDATE signals
+      SET push_sent_at = datetime('now'),
+          push_channel = ?
+      WHERE id = ?
+    `);
+
+    const tx = this.db.transaction((ids: string[]) => {
+      for (const id of ids) {
+        stmt.run(channel, id);
+      }
+    });
+
+    tx(signalIds);
+  }
+
+  getAssetPerformanceAdjustment(assetId: string): {
+    adjustment: number;
+    samples: number;
+    reliabilityScore: number;
+  } | null {
+    const row = this.db.prepare(`
+      SELECT suggested_confidence_adjustment, samples, reliability_score
+      FROM asset_performance
+      WHERE asset_id = ?
+      LIMIT 1
+    `).get(assetId) as {
+      suggested_confidence_adjustment: number;
+      samples: number;
+      reliability_score: number;
+    } | undefined;
+
+    if (!row) return null;
+    return {
+      adjustment: row.suggested_confidence_adjustment || 0,
+      samples: row.samples || 0,
+      reliabilityScore: row.reliability_score || 0
+    };
   }
 }

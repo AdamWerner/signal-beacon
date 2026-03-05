@@ -37,7 +37,7 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
   const dirColor = isBull ? "text-bull" : "text-bear";
   const emoji = signal.polarity === "context_dependent" ? "⚖" : isBull ? "▲" : "▼";
   const deltaSign = signal.delta_pct > 0 ? "+" : "";
-  const polyUrl = signal.market_slug ? `https://polymarket.com/event/${signal.market_slug}` : null;
+  const polyUrl = `https://polymarket.com/search?q=${encodeURIComponent(signal.market_title.substring(0, 50))}`;
   const instrument = signal.suggested_instruments?.[0];
 
   return (
@@ -56,6 +56,9 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
           {deltaSign}{signal.delta_pct?.toFixed(1)}%
         </span>
         <span className="text-xs font-mono text-muted-foreground shrink-0">{signal.confidence}%</span>
+        <span className="text-[10px] font-mono text-muted-foreground uppercase shrink-0">
+          {(signal.verification_status || "pending").replace("_", " ")}
+        </span>
         {open ? <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />}
       </div>
 
@@ -84,10 +87,13 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
               Also affects: {signal.also_affects.join(', ')}
             </p>
           )}
+          <p className="text-muted-foreground/80">
+            Verification: {(signal.verification_status || "pending")} ({signal.verification_source || "none"}){signal.verification_reason ? ` - ${signal.verification_reason}` : ""}
+          </p>
           {polyUrl && (
             <a href={polyUrl} target="_blank" rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground flex items-center gap-1">
-              polymarket.com/event/{signal.market_slug} <ExternalLink className="h-2.5 w-2.5" />
+              Open on Polymarket search <ExternalLink className="h-2.5 w-2.5" />
             </a>
           )}
           <p className="font-mono text-muted-foreground/60">ID: {signal.id}</p>
@@ -101,7 +107,7 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
 
 function ContextCard({ bull, bear }: { bull: Signal; bear: Signal }) {
   const [open, setOpen] = useState(false);
-  const polyUrl = bull.market_slug ? `https://polymarket.com/event/${bull.market_slug}` : null;
+  const polyUrl = `https://polymarket.com/search?q=${encodeURIComponent(bull.market_title.substring(0, 50))}`;
   const deltaSign = bull.delta_pct > 0 ? "+" : "";
 
   return (
@@ -144,7 +150,7 @@ function ContextCard({ bull, bear }: { bull: Signal; bear: Signal }) {
           {polyUrl && (
             <a href={polyUrl} target="_blank" rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground flex items-center gap-1">
-              polymarket.com/event/{bull.market_slug} <ExternalLink className="h-2.5 w-2.5" />
+              Open on Polymarket search <ExternalLink className="h-2.5 w-2.5" />
             </a>
           )}
         </div>
@@ -220,7 +226,7 @@ const SignalFeed = () => {
   const [hours, setHours] = useState<number | undefined>(24);
   const [minConfidence, setMinConfidence] = useState(0);
   const { data: signals, isLoading } = useSignals({ hours, minConfidence: minConfidence || undefined, limit: 200 });
-  const { data: topSignals, isLoading: topLoading } = useTopSignals();
+  const { data: topSignals, isLoading: topLoading, includeUnverified, setIncludeUnverified } = useTopSignals();
   const { data: swedishSignals, isLoading: sweLoading } = useSwedishSignals();
 
   const grouped = useMemo(() => groupContextPairs(signals), [signals]);
@@ -233,8 +239,16 @@ const SignalFeed = () => {
         <div className="flex items-center gap-2 mb-1">
           <Trophy className="h-4 w-4 text-bull" />
           <h2 className="text-sm font-semibold text-bull">AI Top Trades</h2>
+          <Button
+            size="sm"
+            variant={includeUnverified ? "outline" : "default"}
+            className="h-6 text-[10px] px-2 font-mono"
+            onClick={() => setIncludeUnverified(v => !v)}
+          >
+            {includeUnverified ? "Show verified only" : "Show all (debug)"}
+          </Button>
           <span className="text-xs font-mono text-muted-foreground ml-auto">
-            {topLoading ? "Ranking..." : `${topSignals.length} ranked`}
+            {topLoading ? "Ranking..." : `${topSignals.length} ranked ${includeUnverified ? "(all)" : "(verified)"}`}
           </span>
         </div>
         {topLoading ? (

@@ -13,6 +13,7 @@ import whalesRouter from './routes/whales.js';
 import healthRouter from './routes/health.js';
 import briefingRouter from './routes/briefing.js';
 import tweetsRouter from './routes/tweets.js';
+import backtestRouter from './routes/backtest.js';
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3100', 10);
@@ -30,6 +31,7 @@ app.use('/api/whales', whalesRouter);
 app.use('/api/health', healthRouter);
 app.use('/api/briefing', briefingRouter);
 app.use('/api/tweets', tweetsRouter);
+app.use('/api/backtest', backtestRouter);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -45,7 +47,8 @@ app.get('/', (_req, res) => {
       '/api/whales',
       '/api/health',
       '/api/briefing/:market',
-      '/api/tweets'
+      '/api/tweets',
+      '/api/backtest'
     ]
   });
 });

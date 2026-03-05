@@ -4,6 +4,35 @@ import { scanner, getTopSignals, analyzeSignal, IntelligenceEngine } from '@poly
 const router = Router();
 const services = scanner.getServices();
 
+function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function escapeHtml(value: unknown): string {
+  const text = String(value ?? '');
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function parseSignal(signal: any) {
+  return {
+    ...signal,
+    suggested_instruments: safeJsonParse(signal.suggested_instruments, []),
+    verification_flags: Array.isArray(signal.verification_flags)
+      ? signal.verification_flags
+      : safeJsonParse<string[]>(signal.verification_flags, [])
+  };
+}
+
 // GET /api/signals - Get signals with optional filters
 // Query params: limit, status, hours (recency), min_confidence
 router.get('/', (req, res) => {
@@ -17,10 +46,7 @@ router.get('/', (req, res) => {
       ? services.signalStore.findFiltered({ hours, minConfidence, status, limit })
       : services.signalStore.findAll(limit, status);
 
-    const parsed = signals.map(signal => ({
-      ...signal,
-      suggested_instruments: JSON.parse(signal.suggested_instruments)
-    }));
+    const parsed = signals.map(parseSignal);
 
     res.json(parsed);
   } catch (error) {
@@ -31,13 +57,13 @@ router.get('/', (req, res) => {
 // GET /api/signals/top - AI-ranked top 10 signals (must be before /:id)
 router.get('/top', async (req, res) => {
   try {
+    const includeUnverified = req.query.include_unverified === 'true';
     const allSignals = services.signalStore.findAll(500);
     const signals = allSignals.filter(s => s.status !== 'dismissed');
     // Dedup + AI ranking handled inside getTopSignals
-    const top = await getTopSignals(signals);
+    const top = await getTopSignals(signals, { includeUnverified });
     const parsed = top.map(signal => ({
-      ...signal,
-      suggested_instruments: JSON.parse(signal.suggested_instruments as unknown as string),
+      ...parseSignal(signal),
       also_affects: (signal as any).also_affects ?? []
     }));
     res.json(parsed);
@@ -53,16 +79,29 @@ const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolutio
 // GET /api/signals/top/swedish - Top 5 Swedish-asset signals (must be before /:id)
 router.get('/top/swedish', (req, res) => {
   try {
+    const includeUnverified = req.query.include_unverified === 'true';
     const signals = services.signalStore.findFiltered({ hours: 48, limit: 500 });
-    const swedish = signals
+    const swedishPool = signals
       .filter(s =>
         s.status !== 'dismissed' &&
+        (includeUnverified || s.verification_status === 'approved') &&
         (SWEDISH_ASSET_IDS.has(s.matched_asset_id) ||
         SWEDISH_NAME_FRAGMENTS.some(f => s.matched_asset_name.toLowerCase().includes(f)))
       )
+      .sort((a, b) => b.confidence - a.confidence);
+
+    const byAsset = new Map<string, any>();
+    for (const signal of swedishPool) {
+      const existing = byAsset.get(signal.matched_asset_id);
+      if (!existing || signal.confidence > existing.confidence) {
+        byAsset.set(signal.matched_asset_id, signal);
+      }
+    }
+
+    const swedish = Array.from(byAsset.values())
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 5)
-      .map(s => ({ ...s, suggested_instruments: JSON.parse(s.suggested_instruments) }));
+      .map(parseSignal);
     res.json(swedish);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch Swedish signals' });
@@ -96,7 +135,11 @@ router.get('/:id/detail', async (req, res) => {
       } catch { /* non-fatal */ }
     }
 
-    const instruments = JSON.parse(signal.suggested_instruments);
+    const instruments = safeJsonParse(signal.suggested_instruments, []);
+    const verificationFlags = safeJsonParse<string[]>(signal.verification_flags, []);
+    const verificationRecord = signal.verification_record
+      ? safeJsonParse(signal.verification_record, signal.verification_record)
+      : null;
     const snapshots = services.snapshotStore.getHistory(signal.market_condition_id, 24);
     const whales = services.whaleStore.getRecentByMarket(signal.market_condition_id, 60 * 24);
 
@@ -109,9 +152,11 @@ router.get('/:id/detail', async (req, res) => {
       .filter(s => s.matched_asset_id === signal.matched_asset_id && s.id !== signal.id && s.market_condition_id !== signal.market_condition_id)
       .slice(0, 5);
 
-    const polyUrl = signal.market_slug
-      ? `https://polymarket.com/event/${signal.market_slug}`
-      : `https://polymarket.com/search?q=${encodeURIComponent(signal.market_title.substring(0, 50))}`;
+    const marketMeta = services.marketStore.findByConditionId(signal.market_condition_id);
+    const eventSlug = marketMeta?.event_slug || null;
+    const polyUrl = eventSlug
+      ? `https://polymarket.com/event/${eventSlug}`
+      : `https://polymarket.com/search?q=${encodeURIComponent(`${signal.market_title.substring(0, 40)} ${signal.matched_asset_name}`)}`;
 
     const sparkPoints = snapshots.slice(0, 48).reverse()
       .map(s => `${(s.odds_yes * 100).toFixed(1)}`)
@@ -188,6 +233,17 @@ ${aiAnalysis ? `
 </div>
 
 <div class="box">
+  <div class="label">Verification</div>
+  <p style="margin:0;line-height:1.5;font-size:0.9rem">
+    Status: ${signal.verification_status || 'pending'} (${signal.verification_source || 'none'})<br>
+    Score: ${signal.verification_score ?? 0}%<br>
+    Reason: ${signal.verification_reason || 'No decision record'}<br>
+    Flags: ${verificationFlags.length > 0 ? verificationFlags.join(', ') : 'none'}
+  </p>
+  ${verificationRecord ? `<pre style="margin-top:10px;overflow:auto;font-size:0.75rem;background:#111122;padding:8px;border-radius:6px">${escapeHtml(JSON.stringify(verificationRecord, null, 2))}</pre>` : ''}
+</div>
+
+<div class="box">
   <div class="label">Suggested Instruments (Avanza)</div>
   <p style="margin:0;font-size:0.9rem">${instHtml}</p>
 </div>
@@ -249,10 +305,7 @@ router.get('/:id', (req, res) => {
       return res.status(404).json({ error: 'Signal not found' });
     }
 
-    res.json({
-      ...signal,
-      suggested_instruments: JSON.parse(signal.suggested_instruments)
-    });
+    res.json(parseSignal(signal));
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch signal' });
   }

@@ -53,15 +53,27 @@ export class WhaleStore {
 
   findByMarket(market_condition_id: string, limit = 50): WhaleEvent[] {
     const stmt = this.db.prepare(`
-      SELECT w.id, w.market_condition_id, w.timestamp, w.side,
-             w.size_usd, w.price_at_trade, w.odds_impact, w.trade_id,
+      WITH deduped AS (
+        SELECT
+          w.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(
+              w.trade_id,
+              w.market_condition_id || '|' || w.timestamp || '|' || w.side || '|' || ROUND(w.size_usd, 2) || '|' || COALESCE(ROUND(w.price_at_trade, 4), 0)
+            )
+            ORDER BY w.id DESC
+          ) as rn
+        FROM whale_events w
+        WHERE w.market_condition_id = ?
+      )
+      SELECT d.id, d.market_condition_id, d.timestamp, d.side,
+             d.size_usd, d.price_at_trade, d.odds_impact, d.trade_id,
              tm.title as market_title
-      FROM whale_events w
+      FROM deduped d
       LEFT JOIN (SELECT condition_id, title FROM tracked_markets GROUP BY condition_id) tm
-        ON tm.condition_id = w.market_condition_id
-      WHERE w.market_condition_id = ?
-      GROUP BY w.id
-      ORDER BY w.timestamp DESC
+        ON tm.condition_id = d.market_condition_id
+      WHERE d.rn = 1
+      ORDER BY d.timestamp DESC
       LIMIT ?
     `);
 
@@ -70,15 +82,27 @@ export class WhaleStore {
 
   findRecent(hours = 24, limit = 100): WhaleEvent[] {
     const stmt = this.db.prepare(`
-      SELECT w.id, w.market_condition_id, w.timestamp, w.side,
-             w.size_usd, w.price_at_trade, w.odds_impact, w.trade_id,
+      WITH deduped AS (
+        SELECT
+          w.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(
+              w.trade_id,
+              w.market_condition_id || '|' || w.timestamp || '|' || w.side || '|' || ROUND(w.size_usd, 2) || '|' || COALESCE(ROUND(w.price_at_trade, 4), 0)
+            )
+            ORDER BY w.id DESC
+          ) as rn
+        FROM whale_events w
+        WHERE w.timestamp >= datetime('now', '-' || ? || ' hours')
+      )
+      SELECT d.id, d.market_condition_id, d.timestamp, d.side,
+             d.size_usd, d.price_at_trade, d.odds_impact, d.trade_id,
              tm.title as market_title
-      FROM whale_events w
+      FROM deduped d
       LEFT JOIN (SELECT condition_id, title FROM tracked_markets GROUP BY condition_id) tm
-        ON tm.condition_id = w.market_condition_id
-      WHERE w.timestamp >= datetime('now', '-' || ? || ' hours')
-      GROUP BY COALESCE(w.trade_id, CAST(w.id AS TEXT)), w.market_condition_id, w.size_usd
-      ORDER BY w.size_usd DESC
+        ON tm.condition_id = d.market_condition_id
+      WHERE d.rn = 1
+      ORDER BY d.size_usd DESC
       LIMIT ?
     `);
 

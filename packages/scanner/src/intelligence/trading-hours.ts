@@ -31,8 +31,7 @@ export function getAssetMarket(assetId: string): 'swedish' | 'us' {
   return 'us';
 }
 
-function getStockholmMinutes(): { minutes: number; day: number } {
-  const now = new Date();
+function getStockholmMinutes(now = new Date()): { minutes: number; day: number } {
   const stockholmStr = now.toLocaleString('en-US', { timeZone: 'Europe/Stockholm' });
   const s = new Date(stockholmStr);
   return {
@@ -41,8 +40,8 @@ function getStockholmMinutes(): { minutes: number; day: number } {
   };
 }
 
-export function isMarketOpen(market: 'swedish' | 'us'): boolean {
-  const { minutes, day } = getStockholmMinutes();
+export function isMarketOpenAt(market: 'swedish' | 'us', now: Date): boolean {
+  const { minutes, day } = getStockholmMinutes(now);
   if (day === 0 || day === 6) return false;
   const cfg = TRADING_HOURS[market];
   const open  = cfg.open.hour  * 60 + cfg.open.minute;
@@ -50,13 +49,21 @@ export function isMarketOpen(market: 'swedish' | 'us'): boolean {
   return minutes >= open && minutes < close;
 }
 
-export function isPreMarketWindow(market: 'swedish' | 'us'): boolean {
-  const { minutes, day } = getStockholmMinutes();
+export function isMarketOpen(market: 'swedish' | 'us'): boolean {
+  return isMarketOpenAt(market, new Date());
+}
+
+export function isPreMarketWindowAt(market: 'swedish' | 'us', now: Date): boolean {
+  const { minutes, day } = getStockholmMinutes(now);
   if (day === 0 || day === 6) return false;
   const cfg = TRADING_HOURS[market];
   const push = cfg.preMarketPush.hour * 60 + cfg.preMarketPush.minute;
   const open = cfg.open.hour * 60 + cfg.open.minute;
   return minutes >= push && minutes < open;
+}
+
+export function isPreMarketWindow(market: 'swedish' | 'us'): boolean {
+  return isPreMarketWindowAt(market, new Date());
 }
 
 /**

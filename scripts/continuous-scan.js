@@ -5,6 +5,7 @@
  * - Every 6 hours: market refresh
  * - Every 24 hours: cleanup
  * - Every 30 minutes: tweet collection
+ * - Near close: daily backtest + learning update (SE ~17:30, US ~22:00 CET/CEST)
  */
 
 import 'dotenv/config';
@@ -108,6 +109,7 @@ acquireLockOrExit();
 let scanner;
 let IntelligenceEngine;
 let isPreMarketWindow;
+let tradingHoursConfig;
 
 try {
   logScan('[init] loading scanner module...');
@@ -118,6 +120,7 @@ try {
   const engineMod = await import('../packages/scanner/dist/intelligence/engine.js').catch(() => null);
 
   isPreMarketWindow = tradingHours?.isPreMarketWindow;
+  tradingHoursConfig = tradingHours?.TRADING_HOURS;
   IntelligenceEngine = engineMod?.IntelligenceEngine;
   logScan('[init] scanner module loaded');
 } catch (err) {
@@ -184,6 +187,7 @@ async function runOneCycle() {
   }
 
   await checkMorningBriefings();
+  await checkDailyBacktests();
 
   if (Date.now() - lastTweetCollectionAt > TWEET_COLLECTION_INTERVAL_MS) {
     try {
@@ -209,6 +213,46 @@ async function runOneCycle() {
     );
   } catch (err) {
     logError(`scan cycle ${cycleCount}`, err);
+  }
+}
+
+function getStockholmNowParts() {
+  const now = new Date();
+  const stockholm = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Stockholm' }));
+  return {
+    day: stockholm.getDay(),
+    minutes: stockholm.getHours() * 60 + stockholm.getMinutes()
+  };
+}
+
+function shouldRunBacktest(market) {
+  if (!tradingHoursConfig || !tradingHoursConfig[market]) return false;
+  const { day, minutes } = getStockholmNowParts();
+  if (day === 0 || day === 6) return false;
+
+  const closeCfg = tradingHoursConfig[market].close;
+  const closeMinutes = closeCfg.hour * 60 + closeCfg.minute;
+  return minutes >= closeMinutes && minutes < closeMinutes + 90;
+}
+
+async function checkDailyBacktests() {
+  if (!scanner?.runDailyBacktest) return;
+
+  for (const market of ['swedish', 'us']) {
+    if (!shouldRunBacktest(market)) continue;
+
+    try {
+      const result = await scanner.runDailyBacktest(market);
+      if (!result.skipped) {
+        logScan(
+          `[backtest] ${market} date=${result.date} evaluated=${result.signalsEvaluated} ` +
+          `hit30=${(result.hitRate30m * 100).toFixed(0)}% hit60=${(result.hitRate60m * 100).toFixed(0)}% ` +
+          `avg30=${result.avgMove30m.toFixed(2)}% avg60=${result.avgMove60m.toFixed(2)}%`
+        );
+      }
+    } catch (err) {
+      logError(`daily backtest (${market})`, err);
+    }
   }
 }
 

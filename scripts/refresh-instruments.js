@@ -14,6 +14,10 @@ try {
   console.log(`Marked inactive: ${result.instrumentsMarkedInactive}`);
   console.log(`Total active: ${result.stats.total_active}`);
   console.log(`Duration: ${(result.duration / 1000).toFixed(1)}s`);
+  if (result.stats.total_active === 0) {
+    console.warn('\n[warn] 0 active instruments after refresh.');
+    console.warn('[warn] Check AVANZA_USERNAME/AVANZA_PASSWORD/TOTP and inspect scanner logs for auth/search errors.');
+  }
 
   console.log('\nBy underlying asset:');
   Object.entries(result.stats.by_underlying).forEach(([underlying, counts]) => {

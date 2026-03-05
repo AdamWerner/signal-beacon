@@ -50,6 +50,16 @@ function runMigrations(db: Database.Database): void {
         confidence INTEGER NOT NULL,
         requires_judgment BOOLEAN DEFAULT FALSE,
         deduplication_key TEXT,
+        ai_analysis TEXT,
+        verification_status TEXT DEFAULT 'pending' CHECK(verification_status IN ('pending', 'approved', 'rejected', 'needs_review')),
+        verification_score INTEGER DEFAULT 0,
+        verification_reason TEXT,
+        verification_flags TEXT DEFAULT '[]',
+        verification_source TEXT DEFAULT 'none',
+        verification_record TEXT,
+        verification_updated_at DATETIME,
+        push_sent_at DATETIME,
+        push_channel TEXT,
         status TEXT DEFAULT 'new' CHECK(status IN ('new', 'viewed', 'dismissed', 'acted'))
       );
 
@@ -78,8 +88,18 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE signals ADD COLUMN requires_judgment BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE signals ADD COLUMN deduplication_key TEXT`,
     `ALTER TABLE signals ADD COLUMN ai_analysis TEXT`,
+    `ALTER TABLE signals ADD COLUMN verification_status TEXT DEFAULT 'pending'`,
+    `ALTER TABLE signals ADD COLUMN verification_score INTEGER DEFAULT 0`,
+    `ALTER TABLE signals ADD COLUMN verification_reason TEXT`,
+    `ALTER TABLE signals ADD COLUMN verification_flags TEXT DEFAULT '[]'`,
+    `ALTER TABLE signals ADD COLUMN verification_source TEXT DEFAULT 'none'`,
+    `ALTER TABLE signals ADD COLUMN verification_record TEXT`,
+    `ALTER TABLE signals ADD COLUMN verification_updated_at DATETIME`,
+    `ALTER TABLE signals ADD COLUMN push_sent_at DATETIME`,
+    `ALTER TABLE signals ADD COLUMN push_channel TEXT`,
     `ALTER TABLE whale_events ADD COLUMN trade_id TEXT`,
     `ALTER TABLE tracked_markets ADD COLUMN gamma_id TEXT`,
+    `ALTER TABLE tracked_markets ADD COLUMN event_slug TEXT`,
 
     // Tweet account enrichment
     `ALTER TABLE tweet_accounts ADD COLUMN discovery_source TEXT DEFAULT 'seed'`,
@@ -166,6 +186,64 @@ function runMigrations(db: Database.Database): void {
 
       CREATE INDEX IF NOT EXISTS idx_tweet_connections_target
       ON tweet_account_connections(target_handle, last_seen_at DESC);
+
+      CREATE TABLE IF NOT EXISTS signal_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_id TEXT NOT NULL UNIQUE,
+        evaluated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        market TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        asset_name TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        entry_time DATETIME NOT NULL,
+        entry_price REAL NOT NULL,
+        move_10m_pct REAL,
+        move_30m_pct REAL,
+        move_60m_pct REAL,
+        favorable_peak_60m_pct REAL,
+        adverse_peak_60m_pct REAL,
+        direction_correct_30m BOOLEAN,
+        direction_correct_60m BOOLEAN,
+        confidence_at_signal INTEGER,
+        verification_score INTEGER,
+        source TEXT DEFAULT 'signal_timestamp',
+        FOREIGN KEY (signal_id) REFERENCES signals(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS daily_backtest_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        market TEXT NOT NULL,
+        executed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        signals_evaluated INTEGER DEFAULT 0,
+        hit_rate_30m REAL DEFAULT 0,
+        hit_rate_60m REAL DEFAULT 0,
+        avg_move_30m REAL DEFAULT 0,
+        avg_move_60m REAL DEFAULT 0,
+        ai_notes TEXT,
+        UNIQUE(date, market)
+      );
+
+      CREATE TABLE IF NOT EXISTS asset_performance (
+        asset_id TEXT PRIMARY KEY,
+        asset_name TEXT NOT NULL,
+        market TEXT NOT NULL,
+        samples INTEGER DEFAULT 0,
+        hit_rate_30m REAL DEFAULT 0,
+        hit_rate_60m REAL DEFAULT 0,
+        avg_move_60m REAL DEFAULT 0,
+        avg_favorable_60m REAL DEFAULT 0,
+        avg_adverse_60m REAL DEFAULT 0,
+        reliability_score REAL DEFAULT 0.5,
+        suggested_confidence_adjustment INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_signal_outcomes_market_time
+      ON signal_outcomes(market, evaluated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_signal_outcomes_asset
+      ON signal_outcomes(asset_id, evaluated_at DESC);
     `);
   } catch {
     // Tables/indexes already exist.
@@ -201,6 +279,7 @@ function createTables(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       condition_id TEXT UNIQUE NOT NULL,
       slug TEXT NOT NULL,
+      event_slug TEXT,
       title TEXT NOT NULL,
       description TEXT,
       category TEXT,
@@ -278,6 +357,16 @@ function createTables(db: Database.Database): void {
       confidence INTEGER NOT NULL,
       requires_judgment BOOLEAN DEFAULT FALSE,
       deduplication_key TEXT,
+      ai_analysis TEXT,
+      verification_status TEXT DEFAULT 'pending' CHECK(verification_status IN ('pending', 'approved', 'rejected', 'needs_review')),
+      verification_score INTEGER DEFAULT 0,
+      verification_reason TEXT,
+      verification_flags TEXT DEFAULT '[]',
+      verification_source TEXT DEFAULT 'none',
+      verification_record TEXT,
+      verification_updated_at DATETIME,
+      push_sent_at DATETIME,
+      push_channel TEXT,
       status TEXT DEFAULT 'new' CHECK(status IN ('new', 'viewed', 'dismissed', 'acted')),
       FOREIGN KEY (market_condition_id) REFERENCES tracked_markets(condition_id)
     );
@@ -368,6 +457,64 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_tweet_connections_target
     ON tweet_account_connections(target_handle, last_seen_at DESC);
+
+    CREATE TABLE IF NOT EXISTS signal_outcomes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_id TEXT NOT NULL UNIQUE,
+      evaluated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      market TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      asset_name TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      entry_time DATETIME NOT NULL,
+      entry_price REAL NOT NULL,
+      move_10m_pct REAL,
+      move_30m_pct REAL,
+      move_60m_pct REAL,
+      favorable_peak_60m_pct REAL,
+      adverse_peak_60m_pct REAL,
+      direction_correct_30m BOOLEAN,
+      direction_correct_60m BOOLEAN,
+      confidence_at_signal INTEGER,
+      verification_score INTEGER,
+      source TEXT DEFAULT 'signal_timestamp',
+      FOREIGN KEY (signal_id) REFERENCES signals(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_backtest_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      market TEXT NOT NULL,
+      executed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      signals_evaluated INTEGER DEFAULT 0,
+      hit_rate_30m REAL DEFAULT 0,
+      hit_rate_60m REAL DEFAULT 0,
+      avg_move_30m REAL DEFAULT 0,
+      avg_move_60m REAL DEFAULT 0,
+      ai_notes TEXT,
+      UNIQUE(date, market)
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_performance (
+      asset_id TEXT PRIMARY KEY,
+      asset_name TEXT NOT NULL,
+      market TEXT NOT NULL,
+      samples INTEGER DEFAULT 0,
+      hit_rate_30m REAL DEFAULT 0,
+      hit_rate_60m REAL DEFAULT 0,
+      avg_move_60m REAL DEFAULT 0,
+      avg_favorable_60m REAL DEFAULT 0,
+      avg_adverse_60m REAL DEFAULT 0,
+      reliability_score REAL DEFAULT 0.5,
+      suggested_confidence_adjustment INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_signal_outcomes_market_time
+    ON signal_outcomes(market, evaluated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_signal_outcomes_asset
+    ON signal_outcomes(asset_id, evaluated_at DESC);
   `);
 
   console.log('Database initialized successfully at:', DB_PATH);
@@ -376,5 +523,3 @@ function createTables(db: Database.Database): void {
 export function getDatabase(): Database.Database {
   return new Database(DB_PATH);
 }
-
-

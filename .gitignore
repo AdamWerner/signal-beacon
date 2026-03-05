@@ -27,6 +27,7 @@ dist-ssr
 data/polysignal.db
 data/polysignal.db-shm
 data/polysignal.db-wal
+data/*.lock
 
 # Editor directories and files
 .vscode/*

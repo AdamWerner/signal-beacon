@@ -25,6 +25,8 @@ import { logger } from './utils/logger.js';
 import { TweetStore } from './storage/tweet-store.js';
 import { TweetCollector } from './tweets/collector.js';
 import { TweetIntelligenceProcessor } from './tweets/processor.js';
+import { TradeVerificationGate } from './verification/trade-gate.js';
+import { SignalBacktestEvaluator } from './backtest/evaluator.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -38,6 +40,7 @@ export class PolySignalScanner {
   private tweetStore = new TweetStore(this.db);
   private tweetCollector: TweetCollector;
   private tweetProcessor: TweetIntelligenceProcessor;
+  private backtestEvaluator: SignalBacktestEvaluator;
 
   private ontology = new OntologyEngine();
   private avanzaClient: ReturnType<typeof createAvanzaClient> | null = null;
@@ -50,6 +53,7 @@ export class PolySignalScanner {
   private whaleDetector: WhaleDetector;
   private autoMapper: AutoMapper;
   private signalGenerator: SignalGenerator;
+  private verificationGate: TradeVerificationGate;
   private alertDispatcher: AlertDispatcher;
 
   private scanCycleJob: ScanCycleJob;
@@ -96,15 +100,25 @@ export class PolySignalScanner {
     );
 
     this.autoMapper = new AutoMapper(this.ontology, this.instrumentRegistry);
+    this.verificationGate = new TradeVerificationGate({
+      entityConfidenceThreshold: this.config.entityConfidenceThreshold,
+      unknownPersonLegalEventPolicy: this.config.unknownPersonLegalEventPolicy
+    });
     this.signalGenerator = new SignalGenerator(
       this.autoMapper,
       this.marketStore,
       this.whaleDetector,
-      this.signalStore
+      this.signalStore,
+      this.verificationGate
     );
 
     this.alertDispatcher = new AlertDispatcher({
       minConfidence: this.config.alertMinConfidence,
+      verificationRequiredForPush: this.config.verificationRequiredForPush,
+      intradayMinConfidenceHa: this.config.alertMinConfidenceHaIntraday,
+      onSignalsPushed: (signalIds) => {
+        this.signalStore.markPushed(signalIds, 'ha');
+      },
       pushover: this.config.alertPushoverUserKey && this.config.alertPushoverAppToken
         ? {
             userKey: this.config.alertPushoverUserKey,
@@ -154,6 +168,7 @@ export class PolySignalScanner {
 
     this.tweetCollector = new TweetCollector(this.tweetStore);
     this.tweetProcessor = new TweetIntelligenceProcessor(this.db);
+    this.backtestEvaluator = new SignalBacktestEvaluator(this.db);
 
     const seedResult = this.tweetStore.seedDefaultAccounts(1200);
     console.log(
@@ -203,8 +218,11 @@ export class PolySignalScanner {
       setImmediate(async () => {
         try {
           console.log('Running startup instrument refresh...');
-          await instrumentRefreshJob.execute();
-          console.log('Startup instrument refresh complete');
+          const result = await instrumentRefreshJob.execute();
+          console.log(`Startup instrument refresh complete (active instruments: ${result.stats.total_active})`);
+          if (result.stats.total_active === 0) {
+            console.warn('[warn] Instrument table still empty after startup refresh. Run npm run refresh:instruments and inspect Avanza auth/search logs.');
+          }
         } catch (err) {
           console.error('Startup instrument refresh failed:', err);
         }
@@ -266,6 +284,10 @@ export class PolySignalScanner {
     return await this.tweetProcessor.processTweetBatch();
   }
 
+  async runDailyBacktest(market: 'swedish' | 'us', date?: string) {
+    return await this.backtestEvaluator.runDailyBacktest(market, date);
+  }
+
   runTweetUniverseExpansion(target = 1200) {
     return this.tweetStore.expandUniverseToTarget(target);
   }
@@ -294,6 +316,8 @@ export class PolySignalScanner {
 export { AutoMapper } from './correlation/auto-mapper.js';
 export { getTopSignals, analyzeSignal } from './signals/ai-ranker.js';
 export { IntelligenceEngine } from './intelligence/engine.js';
+export { TradeVerificationGate } from './verification/trade-gate.js';
+export { SignalBacktestEvaluator } from './backtest/evaluator.js';
 export { TweetStore } from './storage/tweet-store.js';
 export { TweetCollector } from './tweets/collector.js';
 export { TweetIntelligenceProcessor } from './tweets/processor.js';
@@ -303,4 +327,3 @@ export const scanner = new PolySignalScanner();
 if (import.meta.url === `file://${process.argv[1]}`) {
   scanner.start();
 }
-

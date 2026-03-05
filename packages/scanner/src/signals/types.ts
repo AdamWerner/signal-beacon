@@ -23,4 +23,10 @@ export interface GeneratedSignal {
   confidence: number;
   requires_judgment: boolean;
   deduplication_key: string;
+  verification_status: 'pending' | 'approved' | 'rejected' | 'needs_review';
+  verification_score: number;
+  verification_reason: string;
+  verification_flags: string[];
+  verification_source: string;
+  verification_record: string | null;
 }

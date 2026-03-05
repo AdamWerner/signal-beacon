@@ -113,6 +113,11 @@ export class AvanzaSearchClient {
 
       for (const query of queries) {
         const results = await this.searchCertificates(query);
+        if (results.length === 0) {
+          console.warn(`[avanza] no certificate hits for query "${query}"`);
+        } else {
+          console.log(`[avanza] query "${query}" -> ${results.length} candidate certificates`);
+        }
 
         for (const result of results) {
           if (!seenIds.has(result.id)) {

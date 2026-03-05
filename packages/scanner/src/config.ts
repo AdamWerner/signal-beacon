@@ -25,12 +25,18 @@ export interface Config {
   alertPushoverUserKey?: string;
   alertPushoverAppToken?: string;
   alertWebhookUrl?: string;
+  verificationRequiredForPush: boolean;
+
+  // Verification
+  entityConfidenceThreshold: number;
+  unknownPersonLegalEventPolicy: 'block' | 'review';
 
   // Home Assistant
   haUrl: string;
   haToken: string;
   haNotifyService: string;
   alertMinConfidenceHa: number;
+  alertMinConfidenceHaIntraday: number;
 
   // Server
   apiPort: number;
@@ -64,12 +70,20 @@ export function loadConfig(): Config {
     alertPushoverUserKey: process.env.ALERT_PUSHOVER_USER_KEY,
     alertPushoverAppToken: process.env.ALERT_PUSHOVER_APP_TOKEN,
     alertWebhookUrl: process.env.ALERT_WEBHOOK_URL,
+    verificationRequiredForPush: (process.env.VERIFICATION_REQUIRED_FOR_PUSH || 'true').toLowerCase() !== 'false',
+
+    // Verification
+    entityConfidenceThreshold: parseFloat(process.env.ENTITY_CONFIDENCE_THRESHOLD || '0.55'),
+    unknownPersonLegalEventPolicy: (process.env.UNKNOWN_PERSON_LEGAL_EVENT_POLICY || 'block').toLowerCase() === 'review'
+      ? 'review'
+      : 'block',
 
     // Home Assistant
     haUrl: process.env.HA_URL || '',
     haToken: process.env.HA_TOKEN || '',
     haNotifyService: process.env.HA_NOTIFY_SERVICE || 'notify.mobile_app_adamsajphone',
     alertMinConfidenceHa: parseInt(process.env.ALERT_MIN_CONFIDENCE_HA || '65', 10),
+    alertMinConfidenceHaIntraday: parseInt(process.env.ALERT_MIN_CONFIDENCE_HA_INTRADAY || '80', 10),
 
     // Server
     apiPort: parseInt(process.env.API_PORT || '3100', 10),

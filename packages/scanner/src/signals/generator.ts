@@ -5,6 +5,7 @@ import { WhaleDetector } from '../polymarket/whale-detector.js';
 import { SignalStore } from '../storage/signal-store.js';
 import { calculateConfidence } from './scorer.js';
 import { GeneratedSignal } from './types.js';
+import { TradeVerificationGate } from '../verification/trade-gate.js';
 
 const DEDUP_WINDOW_HOURS = 4;
 const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
@@ -15,29 +16,28 @@ export class SignalGenerator {
     private autoMapper: AutoMapper,
     private marketStore: MarketStore,
     private whaleDetector: WhaleDetector,
-    private signalStore: SignalStore
+    private signalStore: SignalStore,
+    private verificationGate: TradeVerificationGate
   ) {}
 
   /**
    * Generate signals from detected odds changes.
-   * Creates one signal per matched asset. For context_dependent polarity,
-   * creates both a BULL and BEAR variant flagged with requires_judgment.
+   * Creates one signal per matched asset. Context-dependent signals are capped
+   * and always require judgment.
    */
   async generateSignals(oddsChanges: OddsChange[]): Promise<GeneratedSignal[]> {
     const signals: GeneratedSignal[] = [];
+    const recentSignals = this.signalStore.findFiltered({ hours: 48, limit: 500 });
 
     console.log(`Generating signals for ${oddsChanges.length} odds changes...`);
 
     for (const change of oddsChanges) {
       const market = this.marketStore.findByConditionId(change.market_condition_id);
-      if (!market) {
-        continue;
-      }
+      if (!market) continue;
 
       const mappings = this.autoMapper.mapMarketToInstruments(market);
-
       if (mappings.length === 0) {
-        console.log(`  ⚠ No instruments found for market: ${market.title}`);
+        console.log(`  [skip] no instruments for market: ${market.title}`);
         continue;
       }
 
@@ -47,11 +47,12 @@ export class SignalGenerator {
       );
       const whaleDetected = whaleActivity.length > 0;
       const whaleAmountUsd = whaleDetected
-        ? whaleActivity.reduce((sum, w) => sum + w.size_usd, 0)
+        ? whaleActivity.reduce((sum, whale) => sum + whale.size_usd, 0)
         : null;
 
-      // Generate a signal for each matched asset
       for (const mapping of mappings) {
+        const keywordEvidence = this.autoMapper.getMatchedKeywordsForAsset(market, mapping.assetId);
+
         const newSignals = this.createSignalsForMapping(
           change,
           market,
@@ -61,7 +62,6 @@ export class SignalGenerator {
         );
 
         for (const signal of newSignals) {
-          // Deduplication check
           const existing = this.signalStore.findRecentByDeduplicationKey(
             signal.deduplication_key,
             DEDUP_WINDOW_HOURS
@@ -70,15 +70,65 @@ export class SignalGenerator {
           if (existing) {
             const deltaIncreased = Math.abs(signal.delta_pct) - Math.abs(existing.delta_pct);
             if (!Number.isFinite(deltaIncreased) || deltaIncreased < DEDUP_ESCALATION_THRESHOLD_PCT) {
-              console.log(`  ⟳ Skipping duplicate signal for ${mapping.assetName} (key: ${signal.deduplication_key})`);
+              console.log(
+                `  [dedup] skipping duplicate signal for ${mapping.assetName} (${signal.deduplication_key})`
+              );
               continue;
             }
-            console.log(`  ↑ Escalation detected (+${deltaIncreased.toFixed(1)}%) for ${mapping.assetName}`);
+            console.log(
+              `  [dedup] escalation +${deltaIncreased.toFixed(1)}% for ${mapping.assetName}`
+            );
+          }
+
+          const verification = await this.verificationGate.verify({
+            marketTitle: signal.market_title,
+            marketDescription: market.description || null,
+            marketCategory: market.category || null,
+            matchedAssetId: signal.matched_asset_id,
+            matchedAssetName: signal.matched_asset_name,
+            polarity: signal.polarity,
+            suggestedAction: signal.suggested_action,
+            oddsBefore: signal.odds_before,
+            oddsNow: signal.odds_now,
+            deltaPct: signal.delta_pct,
+            timeframeMinutes: signal.time_window_minutes,
+            whaleDetected: signal.whale_detected,
+            whaleAmountUsd: signal.whale_amount_usd,
+            ontologyKeywords: keywordEvidence,
+            reinforcingSignals: this.getReinforcingSignals(recentSignals, signal),
+            conflictingSignals: this.getConflictingSignals(recentSignals, signal)
+          });
+
+          signal.verification_status = verification.status;
+          signal.verification_score = verification.score;
+          signal.verification_reason = verification.reason;
+          signal.verification_flags = verification.flags;
+          signal.verification_source = verification.source;
+          signal.verification_record = JSON.stringify(verification.record);
+          signal.confidence = Math.max(
+            0,
+            Math.min(signal.confidence + verification.confidenceAdjustment, 100)
+          );
+
+          if (verification.suggestedActionOverride) {
+            signal.suggested_action = verification.suggestedActionOverride;
           }
 
           signals.push(signal);
           this.signalStore.insert(signal);
-          console.log(`  ✓ Signal: ${signal.suggested_action} for ${mapping.assetName} (confidence: ${signal.confidence}%${signal.requires_judgment ? ', ⚖ judgment required' : ''})`);
+
+          recentSignals.unshift({
+            ...signal,
+            timestamp: new Date().toISOString(),
+            suggested_instruments: JSON.stringify(signal.suggested_instruments),
+            ai_analysis: null,
+            status: 'new'
+          } as any);
+
+          console.log(
+            `  [ok] ${signal.suggested_action} ${mapping.assetName} ` +
+            `(confidence ${signal.confidence}%, verification ${signal.verification_status})`
+          );
         }
       }
     }
@@ -88,7 +138,7 @@ export class SignalGenerator {
 
   /**
    * Create signals for a single mapping.
-   * Returns two signals (BULL + BEAR) for context_dependent polarity, one otherwise.
+   * Context-dependent mappings emit one judgment-required signal.
    */
   private createSignalsForMapping(
     change: OddsChange,
@@ -98,12 +148,15 @@ export class SignalGenerator {
     whaleAmountUsd: number | null
   ): GeneratedSignal[] {
     if (mapping.polarity === 'context_dependent') {
-      // Emit a single BULL signal requiring human judgment — never emit contradictory pairs.
       return [this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, 'bull')];
     }
 
     const oddsIncreasing = change.delta_pct > 0;
-    const direction = this.autoMapper.determineTradingDirection(mapping.polarity, oddsIncreasing) as 'bull' | 'bear';
+    const direction = this.autoMapper.determineTradingDirection(
+      mapping.polarity,
+      oddsIncreasing
+    ) as 'bull' | 'bear';
+
     return [this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, direction)];
   }
 
@@ -132,7 +185,14 @@ export class SignalGenerator {
       confidence = Math.min(confidence, CONTEXT_DEPENDENT_MAX_CONFIDENCE);
     }
 
-    const reasoning = this.generateReasoning(change, mapping, direction, whaleDetected, whaleAmountUsd, requiresJudgment);
+    const reasoning = this.generateReasoning(
+      change,
+      mapping,
+      direction,
+      whaleDetected,
+      whaleAmountUsd,
+      requiresJudgment
+    );
 
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
     const id = `sig_${timestamp}_${Math.random().toString(36).substring(2, 8)}`;
@@ -157,7 +217,13 @@ export class SignalGenerator {
       reasoning,
       confidence,
       requires_judgment: requiresJudgment,
-      deduplication_key
+      deduplication_key,
+      verification_status: 'pending',
+      verification_score: 0,
+      verification_reason: 'Pending verification',
+      verification_flags: [],
+      verification_source: 'none',
+      verification_record: null
     };
   }
 
@@ -174,18 +240,57 @@ export class SignalGenerator {
     const oddsNow = (change.odds_now * 100).toFixed(0);
     const oddsBefore = (change.odds_before * 100).toFixed(0);
 
-    let reason = `Polymarket: "${mapping.explanation}" odds went ${deltaDir} ${absChange}% (${oddsBefore}%→${oddsNow}%) in ${change.time_window_minutes}min.`;
+    let reason =
+      `Polymarket: "${mapping.explanation}" odds ${deltaDir} ${absChange}% ` +
+      `(${oddsBefore}%->${oddsNow}%) in ${change.time_window_minutes}m.`;
 
     if (whaleDetected && whaleAmountUsd) {
-      reason += ` Whale trade: $${(whaleAmountUsd / 1000).toFixed(0)}K.`;
+      reason += ` Whale flow: $${(whaleAmountUsd / 1000).toFixed(0)}K.`;
     }
 
-    reason += ` → ${direction.toUpperCase()} ${mapping.assetName}.`;
+    reason += ` -> ${direction.toUpperCase()} ${mapping.assetName}.`;
 
     if (requiresJudgment) {
-      reason += ' ⚠ Direction depends on context — verify before trading.';
+      reason += ' Context dependent, human validation required.';
     }
 
     return reason;
+  }
+
+  private getReinforcingSignals(recentSignals: Array<{ [key: string]: any }>, signal: GeneratedSignal) {
+    const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+
+    return recentSignals
+      .filter(existing =>
+        existing.matched_asset_id === signal.matched_asset_id &&
+        String(existing.suggested_action || '').toLowerCase().includes(direction) &&
+        existing.id !== signal.id
+      )
+      .slice(0, 6)
+      .map(existing => ({
+        id: String(existing.id),
+        asset: String(existing.matched_asset_name || ''),
+        confidence: Number(existing.confidence || 0),
+        direction
+      }));
+  }
+
+  private getConflictingSignals(recentSignals: Array<{ [key: string]: any }>, signal: GeneratedSignal) {
+    const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+    const opposite = direction === 'bull' ? 'bear' : 'bull';
+
+    return recentSignals
+      .filter(existing =>
+        existing.matched_asset_id === signal.matched_asset_id &&
+        String(existing.suggested_action || '').toLowerCase().includes(opposite) &&
+        existing.id !== signal.id
+      )
+      .slice(0, 6)
+      .map(existing => ({
+        id: String(existing.id),
+        asset: String(existing.matched_asset_name || ''),
+        confidence: Number(existing.confidence || 0),
+        direction: opposite
+      }));
   }
 }

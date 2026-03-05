@@ -10,6 +10,7 @@ interface RankCache {
   rankedIds: string[];
   expiresAt: number;
   signalCount: number;
+  includeUnverified: boolean;
 }
 
 let cache: RankCache | null = null;
@@ -38,6 +39,10 @@ async function callClaude(prompt: string, timeoutMs = 60000): Promise<string> {
 }
 
 export type RankedSignal = Signal & { also_affects: string[] };
+
+function isVerificationApproved(signal: Signal): boolean {
+  return signal.verification_status === 'approved';
+}
 
 /**
  * Deduplicate a raw signal pool:
@@ -129,10 +134,16 @@ function fallbackRank(signals: RankedSignal[]): RankedSignal[] {
   return [...signals].sort((a, b) => {
     const aJudge = a.requires_judgment ? -10 : 0;
     const bJudge = b.requires_judgment ? -10 : 0;
-    const aScore = a.confidence + Math.min(Math.abs(a.delta_pct), 30) + (a.whale_detected ? 10 : 0) + aJudge;
-    const bScore = b.confidence + Math.min(Math.abs(b.delta_pct), 30) + (b.whale_detected ? 10 : 0) + bJudge;
+    const aVerify = isVerificationApproved(a) ? 8 : -12;
+    const bVerify = isVerificationApproved(b) ? 8 : -12;
+    const aScore = a.confidence + Math.min(Math.abs(a.delta_pct), 30) + (a.whale_detected ? 10 : 0) + aJudge + aVerify;
+    const bScore = b.confidence + Math.min(Math.abs(b.delta_pct), 30) + (b.whale_detected ? 10 : 0) + bJudge + bVerify;
     return bScore - aScore;
   });
+}
+
+export function deduplicateSignalsForTopTrades(signals: Signal[]): RankedSignal[] {
+  return deduplicateSignals(signals);
 }
 
 /**
@@ -140,16 +151,28 @@ function fallbackRank(signals: RankedSignal[]): RankedSignal[] {
  * Falls back to confidence-based sorting if Claude is unavailable.
  * Results are cached for 15 minutes.
  */
-export async function getTopSignals(rawSignals: Signal[]): Promise<RankedSignal[]> {
+export async function getTopSignals(
+  rawSignals: Signal[],
+  options?: { includeUnverified?: boolean }
+): Promise<RankedSignal[]> {
   if (rawSignals.length === 0) return [];
+  const includeUnverified = options?.includeUnverified ?? false;
 
-  const deduped = deduplicateSignals(rawSignals);
+  const verifiedPool = includeUnverified
+    ? rawSignals
+    : rawSignals.filter(signal => isVerificationApproved(signal));
+  const deduped = deduplicateSignals(verifiedPool);
   if (deduped.length === 0) return [];
 
   const now = Date.now();
 
   // Return cached ranking if still valid and signal count unchanged
-  if (cache && cache.expiresAt > now && cache.signalCount === deduped.length) {
+  if (
+    cache &&
+    cache.expiresAt > now &&
+    cache.signalCount === deduped.length &&
+    cache.includeUnverified === includeUnverified
+  ) {
     const idOrder = cache.rankedIds;
     const byId = new Map(deduped.map(s => [s.id, s]));
     const ranked = idOrder.map(id => byId.get(id)).filter((s): s is RankedSignal => s !== undefined);
@@ -168,7 +191,12 @@ export async function getTopSignals(rawSignals: Signal[]): Promise<RankedSignal[
       const cleaned = raw.replace(/```[a-z]*\n?/gi, '').trim();
       const ids: string[] = JSON.parse(cleaned);
       if (Array.isArray(ids) && ids.length > 0) {
-        cache = { rankedIds: ids, expiresAt: now + CACHE_TTL_MS, signalCount: deduped.length };
+        cache = {
+          rankedIds: ids,
+          expiresAt: now + CACHE_TTL_MS,
+          signalCount: deduped.length,
+          includeUnverified
+        };
         const byId = new Map(candidates.map(s => [s.id, s]));
         return ids.map(id => byId.get(id)).filter((s): s is RankedSignal => s !== undefined).slice(0, 10);
       }
