@@ -150,17 +150,17 @@
       "name": "NVIDIA",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["ai chip export", "gpu ban", "semiconductor export", "china ai", "chip restriction", "export control", "ai regulation", "ai spending", "ai infrastructure", "gpu demand", "data center", "ai investment", "compute", "cuda", "inference chip"],
-        "categories": ["technology", "regulation", "trade"],
-        "exclude_keywords": []
+        "keywords": ["ai spending", "ai infrastructure", "gpu demand", "data center", "ai investment", "compute", "cuda", "inference chip", "ai chip"],
+        "categories": ["technology", "trade"],
+        "exclude_keywords": ["gpu ban", "export control", "chip restriction", "export ban", "gpu mining", "chip embargo"]
       },
       "avanza_search": {
         "underlying_terms": ["NVIDIA"],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "GPU export bans are BEARISH for NVIDIA (lost sales). AI spending increases are BULLISH. Requires judgment on which direction the event drives demand."
+        "default_polarity": "direct",
+        "explanation": "AI spending and data center demand odds UP = BULL NVIDIA. Export ban markets excluded via exclude_keywords."
       }
     },
     {
@@ -195,8 +195,8 @@
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "Cyber attacks drive demand for CrowdStrike (BULLISH). Major regulatory fines or product failures (like the 2024 outage) are BEARISH. Requires judgment."
+        "default_polarity": "direct",
+        "explanation": "Rising cyber threat odds drive demand for CrowdStrike. Odds UP on cyber attacks or mandated cybersecurity spending = BULL CRWD."
       }
     },
     {
@@ -204,17 +204,17 @@
       "name": "Tesla",
       "category": "ev",
       "polymarket_patterns": {
-        "keywords": ["tesla", "elon musk", "ev subsidy", "ev tariff", "doge", "electric vehicle policy", "ira ev credit", "ev mandate", "autonomous vehicle", "self-driving", "ev market share", "lithium", "spacex", "twitter", "x.com", "electric vehicle sales"],
+        "keywords": ["ev subsidy", "ev tariff", "electric vehicle policy", "ira ev credit", "ev mandate", "autonomous vehicle", "self-driving", "ev market share", "lithium", "electric vehicle sales", "tesla"],
         "categories": ["technology", "politics", "automotive"],
-        "exclude_keywords": ["tesla coil"]
+        "exclude_keywords": ["tesla coil", "elon musk", "doge", "twitter x.com", "spacex stock", "x.com"]
       },
       "avanza_search": {
         "underlying_terms": ["TESLA"],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "EV subsidies are BULLISH for Tesla. Musk political controversy or tariff impacts can be BEARISH. IRA repeal is BEARISH. Requires judgment on each event."
+        "default_polarity": "direct",
+        "explanation": "EV policy and subsidy odds UP = BULL TESLA. Musk-controversy markets excluded via exclude_keywords."
       }
     },
     {
@@ -276,17 +276,17 @@
       "name": "Novo Nordisk B",
       "category": "pharma",
       "polymarket_patterns": {
-        "keywords": ["ozempic", "wegovy", "glp-1", "obesity drug", "medicare drug pricing", "drug price negotiation", "weight loss drug", "diabetes drug", "obesity treatment", "diabetes medication", "semaglutide", "tirzepatide"],
+        "keywords": ["ozempic", "wegovy", "glp-1", "obesity drug", "weight loss drug", "diabetes drug", "obesity treatment", "diabetes medication", "semaglutide", "tirzepatide"],
         "categories": ["healthcare", "regulation"],
-        "exclude_keywords": []
+        "exclude_keywords": ["medicare drug pricing", "drug price negotiation", "price cap", "ira drug"]
       },
       "avanza_search": {
         "underlying_terms": ["NOVO NORDISK B", "NOVO NORDISK"],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "GLP-1 demand growth is BULLISH for Novo Nordisk. Medicare price negotiations or patent threats are BEARISH. Requires judgment on direction."
+        "default_polarity": "direct",
+        "explanation": "GLP-1 demand growth odds UP = BULL Novo Nordisk. Medicare price negotiation markets excluded via exclude_keywords."
       }
     },
     {
@@ -330,17 +330,17 @@
       "name": "Vestas Wind Systems",
       "category": "renewables",
       "polymarket_patterns": {
-        "keywords": ["wind energy", "renewable mandate", "green deal", "offshore wind", "ira repeal", "renewable energy subsidy", "clean energy", "wind turbine", "eu energy", "wind power", "renewable energy target"],
+        "keywords": ["wind energy", "renewable mandate", "green deal", "offshore wind", "renewable energy subsidy", "clean energy", "wind turbine", "eu energy", "wind power", "renewable energy target"],
         "categories": ["energy", "environment", "regulation"],
-        "exclude_keywords": []
+        "exclude_keywords": ["ira repeal", "subsidy cut", "renewable rollback"]
       },
       "avanza_search": {
         "underlying_terms": ["VESTAS WIND SYSTEMS", "VESTAS"],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "Renewable mandates and subsidies are BULLISH for Vestas. IRA repeal or subsidy cuts are BEARISH. Requires judgment on policy direction."
+        "default_polarity": "direct",
+        "explanation": "Renewable mandate odds UP = BULL Vestas. IRA repeal/subsidy-cut markets excluded via exclude_keywords."
       }
     },
     {
@@ -366,17 +366,17 @@
       "name": "Coinbase Global",
       "category": "crypto",
       "polymarket_patterns": {
-        "keywords": ["sec crypto", "bitcoin etf", "crypto regulation", "stablecoin", "crypto ban", "crypto legislation", "defi regulation", "ethereum", "bitcoin", "cryptocurrency", "crypto exchange", "binance"],
+        "keywords": ["sec crypto", "bitcoin etf", "crypto regulation", "stablecoin", "crypto legislation", "defi regulation", "ethereum", "bitcoin", "cryptocurrency", "crypto exchange"],
         "categories": ["crypto", "regulation", "finance"],
-        "exclude_keywords": []
+        "exclude_keywords": ["crypto ban", "ban cryptocurrency", "prohibit crypto", "binance"]
       },
       "avanza_search": {
         "underlying_terms": ["COINBASE GLOBAL", "COINBASE"],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "Crypto-friendly regulation (ETF approvals, stablecoin clarity) is BULLISH. SEC crackdowns or bans are BEARISH. Requires judgment on regulatory direction."
+        "default_polarity": "direct",
+        "explanation": "Crypto-friendly regulation odds UP (ETF approvals, stablecoin clarity) = BULL COIN. Ban and SEC-crackdown markets excluded via exclude_keywords."
       }
     },
     {
@@ -384,17 +384,17 @@
       "name": "Evolution Gaming",
       "category": "gaming",
       "polymarket_patterns": {
-        "keywords": ["online gambling", "igaming", "igaming legalization", "sports betting", "casino regulation", "gambling license", "us gambling", "live casino", "online casino", "gambling ban"],
+        "keywords": ["online gambling", "igaming", "igaming legalization", "sports betting", "casino regulation", "gambling license", "us gambling", "live casino", "online casino"],
         "categories": ["regulation", "gaming"],
-        "exclude_keywords": []
+        "exclude_keywords": ["gambling ban", "prohibit gambling", "ban online gambling"]
       },
       "avanza_search": {
         "underlying_terms": ["EVOLUTION GAMING", "EVOLUTION"],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "iGaming legalization is BULLISH for Evolution. Strict gambling regulation or market bans are BEARISH. Requires judgment on policy direction."
+        "default_polarity": "direct",
+        "explanation": "iGaming legalization odds UP = BULL EVO. Gambling ban markets excluded via exclude_keywords."
       }
     },
     {
@@ -438,7 +438,7 @@
       "name": "Spotify Technology",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["music streaming", "podcast", "audio streaming", "streaming royalties", "music industry", "spotify", "content moderation", "podcast regulation", "digital music license", "streaming market", "music platform"],
+        "keywords": ["streaming royalties", "music industry", "podcast regulation", "digital music license", "content moderation"],
         "categories": ["technology", "regulation", "media"],
         "exclude_keywords": []
       },
@@ -447,8 +447,8 @@
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "context_dependent",
-        "explanation": "Higher streaming royalty requirements are BEARISH for Spotify margins. Market share growth or podcast ad revenue expansion is BULLISH. Requires judgment."
+        "default_polarity": "inverse",
+        "explanation": "Streaming royalty increase odds UP = BEAR Spotify (higher costs hurt margins)."
       }
     },
     {

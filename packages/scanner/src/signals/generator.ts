@@ -98,10 +98,8 @@ export class SignalGenerator {
     whaleAmountUsd: number | null
   ): GeneratedSignal[] {
     if (mapping.polarity === 'context_dependent') {
-      return [
-        this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, 'bull'),
-        this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, 'bear'),
-      ];
+      // Emit a single BULL signal requiring human judgment — never emit contradictory pairs.
+      return [this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, 'bull')];
     }
 
     const oddsIncreasing = change.delta_pct > 0;
