@@ -12,6 +12,8 @@ export function initializeDatabase(): Database.Database {
   const db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('wal_autocheckpoint = 1000');
+  db.pragma('journal_size_limit = 67108864'); // 64MB WAL cap
 
   createTables(db);
   runMigrations(db);
@@ -87,6 +89,7 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE tweet_accounts ADD COLUMN discovery_depth INTEGER DEFAULT 0`,
     `ALTER TABLE tweet_accounts ADD COLUMN collect_enabled BOOLEAN DEFAULT TRUE`,
     `ALTER TABLE tweet_accounts ADD COLUMN last_collected_at DATETIME`,
+    `ALTER TABLE tweet_accounts ADD COLUMN feed_url TEXT`,
   ]) {
     try {
       db.exec(sql);
@@ -116,7 +119,8 @@ function runMigrations(db: Database.Database): void {
         collect_enabled BOOLEAN DEFAULT TRUE,
         last_scraped_at DATETIME,
         last_collected_at DATETIME,
-        scrape_failures INTEGER DEFAULT 0
+        scrape_failures INTEGER DEFAULT 0,
+        feed_url TEXT
       );
 
       CREATE TABLE IF NOT EXISTS tweet_snapshots (
@@ -319,7 +323,8 @@ function createTables(db: Database.Database): void {
       collect_enabled BOOLEAN DEFAULT TRUE,
       last_scraped_at DATETIME,
       last_collected_at DATETIME,
-      scrape_failures INTEGER DEFAULT 0
+      scrape_failures INTEGER DEFAULT 0,
+      feed_url TEXT
     );
 
     CREATE TABLE IF NOT EXISTS tweet_snapshots (

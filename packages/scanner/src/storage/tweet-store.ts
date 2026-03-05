@@ -22,6 +22,7 @@ export interface TweetAccount {
   last_scraped_at: string | null;
   last_collected_at: string | null;
   scrape_failures: number;
+  feed_url: string | null;
 }
 
 export interface TweetSnapshot {
@@ -68,6 +69,7 @@ export interface UpsertTweetAccountInput {
   causalTags?: string[];
   causalThesis?: string;
   isActive?: boolean;
+  feedUrl?: string;
 }
 
 export interface ConnectionDiscoveryResult {
@@ -87,8 +89,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 function loadStrategicSeed(): StrategicSeedAccount[] {
+  // Load from data/news-sources.json (financial RSS feeds replacing the defunct Nitter/Twitter approach)
   try {
-    const seedPath = join(__dirname, '../tweets/strategic-seed.json');
+    const seedPath = join(__dirname, '../../../../data/news-sources.json');
     const raw = readFileSync(seedPath, 'utf8');
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed as StrategicSeedAccount[] : [];
@@ -110,6 +113,7 @@ interface StrategicSeedAccount {
   discovery_depth?: number;
   causal_tags?: string[];
   causal_thesis?: string;
+  feed_url?: string;
 }
 
 const CORE_CAUSAL_ACCOUNTS: Array<{
@@ -120,34 +124,28 @@ const CORE_CAUSAL_ACCOUNTS: Array<{
   weight: number;
   causal_tags: string[];
   causal_thesis: string;
+  feed_url: string;
 }> = [
-  { handle: 'NickTimiraos', display_name: 'Nick Timiraos', category: 'macro', causality_score: 0.98, weight: 2.5, causal_tags: ['rates', 'policy'], causal_thesis: 'Fed signaling reprices rates, broad equity risk, and USD-sensitive assets.' },
-  { handle: 'DeItaone', display_name: 'Walter Bloomberg', category: 'macro', causality_score: 0.96, weight: 2.5, causal_tags: ['macro', 'policy'], causal_thesis: 'Fast macro headlines drive immediate sentiment and volatility repricing.' },
-  { handle: 'FirstSquawk', display_name: 'First Squawk', category: 'macro', causality_score: 0.94, weight: 2.4, causal_tags: ['macro', 'policy'], causal_thesis: 'Low-latency macro headlines change intraday directional bias.' },
-  { handle: 'markets', display_name: 'Bloomberg Markets', category: 'macro', causality_score: 0.94, weight: 2.3, causal_tags: ['macro'], causal_thesis: 'Institutional market headlines influence global risk-on/risk-off rotation.' },
-  { handle: 'ReutersBiz', display_name: 'Reuters Business', category: 'macro', causality_score: 0.92, weight: 2.2, causal_tags: ['macro'], causal_thesis: 'Cross-asset business headlines change market narrative and capital flows.' },
-  { handle: 'financialjuice', display_name: 'FinancialJuice', category: 'macro', causality_score: 0.88, weight: 2.0, causal_tags: ['macro'], causal_thesis: 'Macro event streams reinforce real-time market positioning.' },
-  { handle: 'ForexLive', display_name: 'ForexLive', category: 'macro', causality_score: 0.86, weight: 1.9, causal_tags: ['rates', 'macro'], causal_thesis: 'FX/rates commentary transmits quickly into equity index sentiment.' },
-  { handle: 'unusual_whales', display_name: 'Unusual Whales', category: 'macro', causality_score: 0.84, weight: 1.9, causal_tags: ['options', 'flow'], causal_thesis: 'Options flow and headline synthesis can front-run short-term positioning.' },
-
-  { handle: 'JavierBlas', display_name: 'Javier Blas', category: 'energy', causality_score: 0.95, weight: 2.4, causal_tags: ['energy'], causal_thesis: 'Energy supply commentary can quickly move oil-linked equities.' },
-  { handle: 'Amaborst', display_name: 'Amena Bakr', category: 'energy', causality_score: 0.92, weight: 2.2, causal_tags: ['energy'], causal_thesis: 'OPEC/production signals directly impact energy equity expectations.' },
-  { handle: 'DavidSheppard4', display_name: 'David Sheppard', category: 'energy', causality_score: 0.88, weight: 2.0, causal_tags: ['energy'], causal_thesis: 'Oil market structure updates affect cyclical and commodity-linked assets.' },
-
-  { handle: 'RALee85', display_name: 'Rob Lee', category: 'defense', causality_score: 0.84, weight: 1.8, causal_tags: ['defense', 'geopolitics'], causal_thesis: 'Conflict escalation signals can rerate defense and energy risk premia.' },
-  { handle: 'sentdefender', display_name: 'SentDefender', category: 'defense', causality_score: 0.82, weight: 1.7, causal_tags: ['defense', 'geopolitics'], causal_thesis: 'Breaking geopolitics shifts defense demand expectations and market risk appetite.' },
-  { handle: 'IntelCrab', display_name: 'IntelCrab', category: 'defense', causality_score: 0.78, weight: 1.6, causal_tags: ['defense'], causal_thesis: 'High-frequency conflict updates affect defense/oil beta trade ideas.' },
-
-  { handle: 'sama', display_name: 'Sam Altman', category: 'tech', causality_score: 0.84, weight: 1.9, causal_tags: ['tech', 'ai'], causal_thesis: 'Major AI platform direction can alter semiconductor/software sentiment.' },
-  { handle: 'elonmusk', display_name: 'Elon Musk', category: 'tech', causality_score: 0.86, weight: 2.0, causal_tags: ['tech', 'ev'], causal_thesis: 'High-reach product/policy statements can move EV and AI-adjacent sentiment.' },
-  { handle: 'JensenHuang', display_name: 'Jensen Huang', category: 'tech', causality_score: 0.88, weight: 2.0, causal_tags: ['tech', 'ai'], causal_thesis: 'Semiconductor leadership commentary influences AI equity momentum.' },
-
-  { handle: 'avaborsen', display_name: 'Avanza Borsen', category: 'swedish', causality_score: 0.82, weight: 1.8, causal_tags: ['swedish'], causal_thesis: 'Retail Swedish flow and local narratives can influence OMX-linked setups.' },
-  { handle: 'nordaborsen', display_name: 'Nordnet Borsen', category: 'swedish', causality_score: 0.80, weight: 1.7, causal_tags: ['swedish'], causal_thesis: 'Local Swedish market pulse can sharpen timing for OMX assets.' },
-  { handle: 'didigital', display_name: 'DI Digital', category: 'swedish', causality_score: 0.76, weight: 1.6, causal_tags: ['swedish', 'tech'], causal_thesis: 'Swedish tech/business coverage can impact domestic risk sentiment.' },
-
-  { handle: 'WatcherGuru', display_name: 'Watcher Guru', category: 'crypto', causality_score: 0.72, weight: 1.4, causal_tags: ['crypto'], causal_thesis: 'Crypto headline velocity can spill over into Coinbase proxies.' },
-  { handle: 'whale_alert', display_name: 'Whale Alert', category: 'crypto', causality_score: 0.72, weight: 1.4, causal_tags: ['crypto', 'flow'], causal_thesis: 'Large on-chain flow can influence short-term crypto risk perception.' }
+  { handle: 'reuters_biz', display_name: 'Reuters Business', category: 'macro', causality_score: 0.96, weight: 2.5, causal_tags: ['macro', 'policy'], feed_url: 'https://feeds.reuters.com/reuters/businessNews', causal_thesis: 'Low-latency business headlines drive immediate market repricing.' },
+  { handle: 'reuters_econ', display_name: 'Reuters Economy', category: 'macro', causality_score: 0.93, weight: 2.4, causal_tags: ['macro', 'rates'], feed_url: 'https://feeds.reuters.com/reuters/economy', causal_thesis: 'Economic data and central bank commentary directly move rate-sensitive assets.' },
+  { handle: 'fed_reserve', display_name: 'Federal Reserve', category: 'macro', causality_score: 0.98, weight: 2.5, causal_tags: ['rates', 'policy'], feed_url: 'https://www.federalreserve.gov/feeds/press_all.xml', causal_thesis: 'Fed press releases set rate expectations and reprice all global risk assets.' },
+  { handle: 'ecb_press', display_name: 'ECB Press Releases', category: 'macro', causality_score: 0.96, weight: 2.4, causal_tags: ['rates', 'europe'], feed_url: 'https://www.ecb.europa.eu/rss/press.html', causal_thesis: 'ECB policy moves EUR-denominated assets and European equity risk premia.' },
+  { handle: 'bls_releases', display_name: 'BLS Data Releases', category: 'macro', causality_score: 0.94, weight: 2.3, causal_tags: ['macro', 'inflation'], feed_url: 'https://www.bls.gov/feed/latest_release.rss', causal_thesis: 'CPI/Payrolls data releases are the highest-impact scheduled macro events.' },
+  { handle: 'cnbc_economy', display_name: 'CNBC Economy', category: 'macro', causality_score: 0.91, weight: 2.3, causal_tags: ['macro', 'rates'], feed_url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html', causal_thesis: 'CNBC economic coverage moves retail and institutional sentiment quickly.' },
+  { handle: 'forexlive', display_name: 'ForexLive', category: 'macro', causality_score: 0.89, weight: 2.1, causal_tags: ['rates', 'fx'], feed_url: 'https://www.forexlive.com/feed', causal_thesis: 'FX/rates commentary transmits quickly into equity index and commodity pricing.' },
+  { handle: 'oilprice_rss', display_name: 'OilPrice.com', category: 'energy', causality_score: 0.93, weight: 2.4, causal_tags: ['energy', 'oil'], feed_url: 'https://oilprice.com/rss/main', causal_thesis: 'Energy supply and demand commentary moves oil-linked equities rapidly.' },
+  { handle: 'reuters_energy', display_name: 'Reuters Commodities', category: 'energy', causality_score: 0.92, weight: 2.3, causal_tags: ['energy', 'commodities'], feed_url: 'https://feeds.reuters.com/reuters/commoditiesNews', causal_thesis: 'Reuters commodity news signals supply/demand changes for energy equities.' },
+  { handle: 'eia_news', display_name: 'EIA Energy Data', category: 'energy', causality_score: 0.91, weight: 2.2, causal_tags: ['energy', 'oil'], feed_url: 'https://www.eia.gov/rss/nightly_energy_status.xml', causal_thesis: 'EIA inventory and production data is the primary scheduled oil price catalyst.' },
+  { handle: 'defnews_rss', display_name: 'Defense News', category: 'defense', causality_score: 0.92, weight: 2.3, causal_tags: ['defense', 'procurement'], feed_url: 'https://www.defensenews.com/arc/outboundfeeds/rss/', causal_thesis: 'Defense contract awards and budget news directly drive defense equity valuations.' },
+  { handle: 'break_defense', display_name: 'Breaking Defense', category: 'defense', causality_score: 0.90, weight: 2.2, causal_tags: ['defense', 'policy'], feed_url: 'https://breakingdefense.com/feed/', causal_thesis: 'Breaking defense procurement news moves major defense stocks immediately.' },
+  { handle: 'warzone_rss', display_name: 'The War Zone', category: 'defense', causality_score: 0.86, weight: 2.0, causal_tags: ['defense', 'geopolitics'], feed_url: 'https://www.thedrive.com/the-war-zone/rss', causal_thesis: 'Combat operations and weapons deployment news signals defense demand escalation.' },
+  { handle: 'isw_ukraine', display_name: 'ISW Ukraine', category: 'defense', causality_score: 0.87, weight: 2.0, causal_tags: ['defense', 'geopolitics'], feed_url: 'https://www.understandingwar.org/feeds/news', causal_thesis: 'Conflict analysis informs European defense rearmament sentiment.' },
+  { handle: 'nvidia_blog', display_name: 'NVIDIA Blog', category: 'tech', causality_score: 0.90, weight: 2.1, causal_tags: ['tech', 'ai', 'chips'], feed_url: 'https://blogs.nvidia.com/feed/', causal_thesis: 'NVIDIA product and partnership announcements move GPU and AI infrastructure stocks.' },
+  { handle: 'techcrunch', display_name: 'TechCrunch', category: 'tech', causality_score: 0.88, weight: 2.2, causal_tags: ['tech', 'ai'], feed_url: 'https://techcrunch.com/feed/', causal_thesis: 'TechCrunch funding and AI product news shifts tech sector momentum.' },
+  { handle: 'di_se', display_name: 'Dagens Industri', category: 'swedish', causality_score: 0.92, weight: 2.3, causal_tags: ['swedish', 'omx'], feed_url: 'https://www.di.se/rss', causal_thesis: "Sweden's leading financial daily drives OMX positioning decisions." },
+  { handle: 'breakit_se', display_name: 'Breakit', category: 'swedish', causality_score: 0.86, weight: 2.0, causal_tags: ['swedish', 'tech'], feed_url: 'https://www.breakit.se/feed/artiklar', causal_thesis: 'Swedish tech and startup news affects Nordic tech equity sentiment.' },
+  { handle: 'coindesk', display_name: 'CoinDesk', category: 'crypto', causality_score: 0.88, weight: 2.2, causal_tags: ['crypto', 'regulation'], feed_url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', causal_thesis: 'CoinDesk regulatory news moves Coinbase and crypto-adjacent equities rapidly.' },
+  { handle: 'igaming_gn', display_name: 'iGaming News (GN)', category: 'tech', causality_score: 0.89, weight: 2.1, causal_tags: ['gaming', 'regulation'], feed_url: 'https://news.google.com/rss/search?q=igaming+online+gambling+sports+betting+legalization&hl=en', causal_thesis: 'iGaming legalization news is the primary Evolution Gaming stock catalyst.' }
 ];
 
 function clamp(value: number, min: number, max: number): number {
@@ -218,6 +216,7 @@ export class TweetStore {
         discoveryDepth: 0,
         causalTags: account.causal_tags,
         causalThesis: account.causal_thesis,
+        feedUrl: account.feed_url,
         isActive: true
       });
     }
@@ -256,6 +255,7 @@ export class TweetStore {
         discoveryDepth: Number(seedAccount.discovery_depth ?? 1),
         causalTags: toTagSet(seedAccount.causal_tags),
         causalThesis: seedAccount.causal_thesis || 'Market-relevant news flow contributes to sector-level sentiment shifts.',
+        feedUrl: seedAccount.feed_url,
         isActive: true
       });
 
@@ -295,6 +295,8 @@ export class TweetStore {
       FROM tweet_accounts
       WHERE is_active = TRUE
         AND collect_enabled = TRUE
+        AND feed_url IS NOT NULL
+        AND feed_url != ''
       ORDER BY COALESCE(last_collected_at, last_scraped_at, '1970-01-01') ASC,
                causality_score DESC,
                weight DESC
@@ -466,6 +468,8 @@ export class TweetStore {
       SELECT handle
       FROM tweet_accounts
       WHERE is_active = TRUE
+        AND feed_url IS NOT NULL
+        AND feed_url != ''
       ORDER BY
         CASE WHEN discovery_source = 'seed' THEN 1 ELSE 0 END DESC,
         causality_score DESC,
@@ -601,8 +605,8 @@ export class TweetStore {
         INSERT INTO tweet_accounts (
           handle, display_name, category, weight, is_active,
           discovery_source, causality_score, causal_tags, causal_thesis,
-          discovery_depth, collect_enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          discovery_depth, collect_enabled, feed_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         handle,
         input.displayName || handle,
@@ -614,7 +618,8 @@ export class TweetStore {
         JSON.stringify(tags),
         input.causalThesis || null,
         Number(input.discoveryDepth ?? 0),
-        input.collectEnabled ? 1 : 0
+        input.collectEnabled ? 1 : 0,
+        input.feedUrl || null
       );
       return { inserted: true };
     }
@@ -644,7 +649,8 @@ export class TweetStore {
           causal_tags = ?,
           causal_thesis = COALESCE(?, causal_thesis),
           discovery_depth = ?,
-          collect_enabled = ?
+          collect_enabled = ?,
+          feed_url = COALESCE(?, feed_url)
       WHERE handle = ?
     `).run(
       input.displayName || null,
@@ -657,6 +663,7 @@ export class TweetStore {
       input.causalThesis || null,
       Number.isFinite(mergedDepth) ? mergedDepth : 0,
       mergedCollect ? 1 : 0,
+      input.feedUrl || null,
       handle
     );
 
