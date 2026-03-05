@@ -35,13 +35,16 @@ export class AlertDispatcher {
 
   /**
    * Dispatch alerts for multiple signals, aggregated per market and cycle.
+   * Returns actual counts of pushed and brewed signals.
    */
-  async dispatchBatch(signals: GeneratedSignal[]): Promise<void> {
+  async dispatchBatch(signals: GeneratedSignal[]): Promise<{ pushedSwedish: number; pushedUs: number; brewed: number }> {
     for (const signal of signals) {
       await this.dispatchLegacy(signal);
     }
 
-    if (!this.homeAssistant) return;
+    if (!this.homeAssistant) {
+      return { pushedSwedish: 0, pushedUs: 0, brewed: 0 };
+    }
 
     const swedish: GeneratedSignal[] = [];
     const us: GeneratedSignal[] = [];
@@ -58,26 +61,30 @@ export class AlertDispatcher {
       }
     }
 
-    await this.dispatchAggregated(swedish, 'swedish');
-    await this.dispatchAggregated(us, 'us');
+    const pushedSwedish = await this.dispatchAggregated(swedish, 'swedish');
+    const pushedUs = await this.dispatchAggregated(us, 'us');
+    const brewed = (swedish.length - pushedSwedish) + (us.length - pushedUs);
+
+    return { pushedSwedish, pushedUs, brewed };
   }
 
   /**
    * Send one aggregated notification for all pushable signals in a market.
+   * Returns count of assets actually pushed.
    */
   private async dispatchAggregated(
     signals: GeneratedSignal[],
     market: 'swedish' | 'us'
-  ): Promise<void> {
+  ): Promise<number> {
     const homeAssistant = this.homeAssistant;
-    if (!homeAssistant) return;
-    if (signals.length === 0) return;
+    if (!homeAssistant) return 0;
+    if (signals.length === 0) return 0;
 
     if (!isMarketOpen(market)) {
       for (const signal of signals) {
         console.log(`  Brewing signal ${signal.id} (${signal.matched_asset_name} ${signal.confidence}%) - ${market} market closed`);
       }
-      return;
+      return 0;
     }
 
     const pushable = signals.filter(signal =>
@@ -88,7 +95,7 @@ export class AlertDispatcher {
       for (const signal of signals) {
         console.log(`  Skip push ${signal.id} below HA threshold (${signal.confidence}%, delta ${signal.delta_pct.toFixed(0)}%)`);
       }
-      return;
+      return 0;
     }
 
     const byAsset = new Map<string, GeneratedSignal>();
@@ -110,6 +117,7 @@ export class AlertDispatcher {
     }
 
     console.log(`  Pushed aggregated ${market} HA alert (${dedupedSignals.length} assets)`);
+    return dedupedSignals.length;
   }
 
   /**

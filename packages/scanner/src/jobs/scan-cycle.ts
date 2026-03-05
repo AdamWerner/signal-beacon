@@ -11,7 +11,8 @@ export interface ScanCycleResult {
   oddsChangesDetected: number;
   whalesDetected: number;
   signalsGenerated: number;
-  alertsSent: number;
+  haPushed: number;
+  brewed: number;
   duration: number;
 }
 
@@ -45,9 +46,9 @@ export class ScanCycleJob {
 
       console.log(`Found ${oddsChanges.length} significant odds changes`);
 
-      console.log('\n[3/4] Detecting whale trades (changed markets only)...');
+      console.log('\n[3/4] Detecting whale trades (top movers only)...');
       const changedMarketIds = [...new Set(oddsChanges.map(change => change.market_condition_id))];
-      const whales = await this.whaleDetector.detectForMarkets(changedMarketIds);
+      const whales = await this.whaleDetector.detectForMarkets(changedMarketIds, oddsChanges);
 
       console.log('\n[4/4] Generating signals...');
       const signals = await this.signalGenerator.generateSignals(oddsChanges);
@@ -72,9 +73,13 @@ export class ScanCycleJob {
         }
       }
 
+      let haPushed = 0;
+      let brewed = 0;
       if (signals.length > 0) {
         console.log('\nDispatching alerts...');
-        await this.alertDispatcher.dispatchBatch(signals);
+        const dispatchResult = await this.alertDispatcher.dispatchBatch(signals);
+        haPushed = dispatchResult.pushedSwedish + dispatchResult.pushedUs;
+        brewed = dispatchResult.brewed;
       }
 
       const duration = Date.now() - startTime;
@@ -85,13 +90,15 @@ export class ScanCycleJob {
       console.log(`Whales detected: ${whales.length}`);
       console.log(`Odds changes: ${oddsChanges.length}`);
       console.log(`Signals generated: ${signals.length}`);
+      console.log(`HA pushed: ${haPushed} | Brewed: ${brewed}`);
 
       return {
         marketsTracked,
         oddsChangesDetected: oddsChanges.length,
         whalesDetected: whales.length,
         signalsGenerated: signals.length,
-        alertsSent: signals.filter(signal => signal.confidence >= this.config.alertMinConfidence).length,
+        haPushed,
+        brewed,
         duration
       };
     } catch (error) {

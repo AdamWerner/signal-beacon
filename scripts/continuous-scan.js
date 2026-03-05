@@ -205,7 +205,7 @@ async function runOneCycle() {
 
     logScan(
       `[cycle ${cycleCount}] markets=${result.marketsTracked} changes=${result.oddsChangesDetected} ` +
-      `whales=${result.whalesDetected} signals=${result.signalsGenerated} alerts=${result.alertsSent} duration=${duration}s`
+      `whales=${result.whalesDetected} signals=${result.signalsGenerated} haPushed=${result.haPushed} brewed=${result.brewed} duration=${duration}s`
     );
   } catch (err) {
     logError(`scan cycle ${cycleCount}`, err);
