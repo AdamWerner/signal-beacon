@@ -1,6 +1,6 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
- * Continuous scan loop — runs forever until Ctrl+C.
+ * Continuous scan loop â€” runs forever until Ctrl+C.
  * Every 10 minutes: scan cycle
  * Every 6 hours: market refresh
  * Every 24 hours: cleanup
@@ -40,7 +40,7 @@ function logError(context, err) {
   try { appendFileSync(ERROR_LOG, line); } catch {}
 }
 
-// Import scanner — wrap in try/catch to surface init failures clearly
+// Import scanner â€” wrap in try/catch to surface init failures clearly
 let scanner;
 let IntelligenceEngine;
 let isPreMarketWindow;
@@ -56,16 +56,18 @@ try {
   logScan('[init] Scanner module loaded OK');
 } catch (err) {
   logError('scanner init', err);
-  logScan('[fatal] Cannot load scanner — check build output (run npm run build:scanner)');
+  logScan('[fatal] Cannot load scanner â€” check build output (run npm run build:scanner)');
   process.exit(1);
 }
 
 let lastRefreshAt = 0;
 let lastCleanupAt = 0;
 let lastInstrumentRefreshAt = 0;
+let lastTweetCollectionAt = 0;
 let cycleCount = 0;
 
 const INSTRUMENT_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TWEET_COLLECTION_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 async function runOneCycle() {
   cycleCount++;
@@ -110,6 +112,18 @@ async function runOneCycle() {
   // Morning briefing check (before scan)
   await checkMorningBriefings();
 
+  // Tweet collection (every 30 min)
+  if (Date.now() - lastTweetCollectionAt > TWEET_COLLECTION_INTERVAL_MS) {
+    try {
+      logScan(`[cycle ${cycleCount}] Collecting tweets...`);
+      const tweetResult = await scanner.runTweetCollection();
+      lastTweetCollectionAt = Date.now();
+      logScan(`[cycle ${cycleCount}] Tweets: accounts=${tweetResult.accountsProcessed} collected=${tweetResult.tweetsCollected} errors=${tweetResult.errors}`);
+    } catch (err) {
+      logError(`tweet collection (cycle ${cycleCount})`, err);
+    }
+  }
+
   // Main scan
   try {
     const result = await scanner.runScanCycle();
@@ -140,7 +154,7 @@ async function checkMorningBriefings() {
       // Get db reference from scanner internals
       const services = scanner.getServices();
       if (!services) continue;
-      const db = services.signalStore?.db;
+      const db = services.db;
       if (!db) continue;
 
       const intel = new IntelligenceEngine(db);
@@ -148,10 +162,21 @@ async function checkMorningBriefings() {
       if (existing?.pushed_at) continue; // already sent today
 
       logScan(`[briefing] Generating ${market} morning briefing...`);
+
+      // Process tweet batch before briefing (generates intelligence_memory entries)
+      try {
+        const tweetResult = await scanner.runTweetProcessing();
+        if (tweetResult.insightsGenerated > 0) {
+          logScan(`[briefing] Tweet intelligence: ${tweetResult.insightsGenerated} insights from ${tweetResult.tweetsAnalyzed} tweets`);
+        }
+      } catch (err) {
+        logError(`tweet processing before briefing (${market})`, err);
+      }
+
       const text = await intel.generateMorningBriefing(market);
 
       if (haUrl && haToken && haSvc) {
-        const title = market === 'swedish' ? '🇸🇪 OMX Morning Brief' : '🇺🇸 US Market Brief';
+        const title = market === 'swedish' ? 'ðŸ‡¸ðŸ‡ª OMX Morning Brief' : 'ðŸ‡ºðŸ‡¸ US Market Brief';
         const servicePath = haSvc.replace('.', '/');
         const briefingUrl = `${pubUrl}/api/briefing/${market}`;
         try {
@@ -198,26 +223,27 @@ async function loop() {
 }
 
 process.on('SIGINT', () => {
-  logScan('[stop] Received SIGINT — shutting down gracefully');
+  logScan('[stop] Received SIGINT â€” shutting down gracefully');
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  logScan('[stop] Received SIGTERM — shutting down gracefully');
+  logScan('[stop] Received SIGTERM â€” shutting down gracefully');
   process.exit(0);
 });
 
 process.on('uncaughtException', (err) => {
   logError('uncaughtException', err);
-  // Don't exit — keep the loop alive
+  // Don't exit â€” keep the loop alive
 });
 
 process.on('unhandledRejection', (reason) => {
   logError('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
-  // Don't exit — keep the loop alive
+  // Don't exit â€” keep the loop alive
 });
 
 loop().catch(err => {
   logError('loop crash', err);
   process.exit(1);
 });
+

@@ -1,10 +1,10 @@
-import Avanza from 'avanza';
+﻿import Avanza from 'avanza';
 import { AvanzaCredentials, AvanzaSearchResult, AvanzaInstrument } from './types.js';
 import { isValidCertificate } from './certificate-parser.js';
 
 export class AvanzaSearchClient {
   private avanza: Avanza;
-  private authenticated: boolean = false;
+  private authenticated = false;
   private credentials: AvanzaCredentials;
 
   constructor(credentials: AvanzaCredentials) {
@@ -14,59 +14,90 @@ export class AvanzaSearchClient {
 
   /**
    * Authenticate with Avanza. Must be called before searching.
+   * Retries up to 3 times with backoff: 5s, 10s, 15s.
    */
   async authenticate(): Promise<void> {
-    if (this.authenticated) {
-      return;
-    }
+    if (this.authenticated) return;
 
-    try {
-      await this.avanza.authenticate({
-        username: this.credentials.username,
-        password: this.credentials.password,
-        totpSecret: this.credentials.totpSecret
-      });
+    const backoffsMs = [5000, 10000, 15000];
+    for (let attempt = 0; attempt < backoffsMs.length; attempt++) {
+      try {
+        await this.avanza.authenticate({
+          username: this.credentials.username,
+          password: this.credentials.password,
+          totpSecret: this.credentials.totpSecret
+        });
 
-      this.authenticated = true;
-      console.log('✓ Authenticated with Avanza');
-    } catch (error) {
-      console.error('Failed to authenticate with Avanza:', error);
-      throw new Error('Avanza authentication failed');
+        this.authenticated = true;
+        console.log(`Authenticated with Avanza (attempt ${attempt + 1})`);
+        return;
+      } catch (error) {
+        const isLastAttempt = attempt === backoffsMs.length - 1;
+        console.error(`Avanza auth attempt ${attempt + 1}/${backoffsMs.length} failed:`, error);
+
+        if (isLastAttempt) {
+          throw new Error(`Avanza authentication failed after ${backoffsMs.length} attempts`);
+        }
+
+        const delayMs = backoffsMs[attempt];
+        console.log(`Retrying Avanza auth in ${delayMs / 1000}s...`);
+        await this.delay(delayMs);
+      }
     }
   }
 
   /**
-   * Search for certificates by query term
+   * Search for certificates by query term.
+   * Re-authenticates once on 401 errors.
    */
   async searchCertificates(query: string, limit = 20): Promise<AvanzaInstrument[]> {
+    return this.searchCertificatesInternal(query, limit, true);
+  }
+
+  private async searchCertificatesInternal(
+    query: string,
+    limit: number,
+    allowReauthRetry: boolean
+  ): Promise<AvanzaInstrument[]> {
     if (!this.authenticated) {
       await this.authenticate();
     }
 
     try {
       const results = await this.avanza.search(query, { limit }) as AvanzaSearchResult;
-
-      // Extract certificate hits
       const certificateHit = results.hits?.find(hit => hit.instrumentType === 'CERTIFICATE');
 
       if (!certificateHit) {
         return [];
       }
 
-      // Filter for tradable bull/bear certificates only
-      const validCertificates = certificateHit.topHits.filter(instrument =>
+      return certificateHit.topHits.filter(instrument =>
         isValidCertificate(instrument.name, instrument.tradable)
       );
+    } catch (error: any) {
+      const isUnauthorized = error?.statusCode === 401 || `${error?.message || ''}`.includes('401');
 
-      return validCertificates;
-    } catch (error) {
+      if (isUnauthorized && allowReauthRetry) {
+        console.warn('Avanza session expired, re-authenticating and retrying search once...');
+        this.authenticated = false;
+
+        try {
+          await this.authenticate();
+        } catch (reauthError) {
+          console.error('Avanza re-authentication failed:', reauthError);
+          return [];
+        }
+
+        return this.searchCertificatesInternal(query, limit, false);
+      }
+
       console.error(`Search failed for query "${query}":`, error);
       return [];
     }
   }
 
   /**
-   * Search for all certificate variants of an underlying asset
+   * Search for all certificate variants of an underlying asset.
    */
   async searchUnderlyingAsset(
     underlyingTerms: string[],
@@ -76,8 +107,6 @@ export class AvanzaSearchClient {
     const seenIds = new Set<string>();
 
     for (const term of underlyingTerms) {
-      // Search with explicit direction prefixes — Avanza certificate search works
-      // much better with "bull RHEINMETALL" / "bear RHEINMETALL" than bare term
       const queries = direction
         ? [`${direction} ${term}`]
         : [`bull ${term}`, `bear ${term}`];
@@ -92,7 +121,6 @@ export class AvanzaSearchClient {
           }
         }
 
-        // Rate limiting: wait 2 seconds between requests
         await this.delay(2000);
       }
     }
@@ -101,11 +129,9 @@ export class AvanzaSearchClient {
   }
 
   /**
-   * Disconnect from Avanza
+   * Disconnect from Avanza.
    */
   async disconnect(): Promise<void> {
-    // The avanza library doesn't have an explicit disconnect method,
-    // but we can reset the authentication flag
     this.authenticated = false;
   }
 
@@ -115,7 +141,7 @@ export class AvanzaSearchClient {
 }
 
 /**
- * Create an authenticated Avanza client from environment variables
+ * Create an authenticated Avanza client from environment variables.
  */
 export function createAvanzaClient(): AvanzaSearchClient {
   const credentials: AvanzaCredentials = {

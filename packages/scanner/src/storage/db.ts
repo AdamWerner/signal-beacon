@@ -91,6 +91,40 @@ function runMigrations(db: Database.Database): void {
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_whale_trade_id ON whale_events(trade_id) WHERE trade_id IS NOT NULL`);
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_whale_events_dedup ON whale_events(market_condition_id, trade_id) WHERE trade_id IS NOT NULL`);
   } catch { /* index already exists */ }
+
+  // Tweet tables — safe to re-run (CREATE IF NOT EXISTS)
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS tweet_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        handle TEXT UNIQUE NOT NULL,
+        display_name TEXT,
+        category TEXT NOT NULL,
+        weight REAL DEFAULT 1.0,
+        is_active BOOLEAN DEFAULT TRUE,
+        last_scraped_at DATETIME,
+        scrape_failures INTEGER DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS tweet_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_handle TEXT NOT NULL,
+        tweet_id TEXT UNIQUE,
+        tweet_text TEXT NOT NULL,
+        tweet_url TEXT,
+        posted_at DATETIME,
+        scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        likes INTEGER DEFAULT 0,
+        retweets INTEGER DEFAULT 0,
+        replies INTEGER DEFAULT 0,
+        matched_asset_ids TEXT,
+        sentiment TEXT CHECK(sentiment IN ('bullish', 'bearish', 'neutral', 'mixed')),
+        ai_processed BOOLEAN DEFAULT FALSE,
+        FOREIGN KEY (account_handle) REFERENCES tweet_accounts(handle)
+      );
+      CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_scraped ON tweet_snapshots(scraped_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_unprocessed ON tweet_snapshots(ai_processed) WHERE ai_processed = FALSE;
+    `);
+  } catch { /* already exists */ }
 }
 
 function createTables(db: Database.Database): void {
@@ -232,6 +266,46 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_jobs_name_time
     ON job_executions(job_name, started_at DESC);
+  `);
+
+  // Tweet monitoring infrastructure
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tweet_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      handle TEXT UNIQUE NOT NULL,
+      display_name TEXT,
+      category TEXT NOT NULL,
+      weight REAL DEFAULT 1.0,
+      is_active BOOLEAN DEFAULT TRUE,
+      last_scraped_at DATETIME,
+      scrape_failures INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS tweet_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_handle TEXT NOT NULL,
+      tweet_id TEXT UNIQUE,
+      tweet_text TEXT NOT NULL,
+      tweet_url TEXT,
+      posted_at DATETIME,
+      scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      likes INTEGER DEFAULT 0,
+      retweets INTEGER DEFAULT 0,
+      replies INTEGER DEFAULT 0,
+      matched_asset_ids TEXT,
+      sentiment TEXT CHECK(sentiment IN ('bullish', 'bearish', 'neutral', 'mixed')),
+      ai_processed BOOLEAN DEFAULT FALSE,
+      FOREIGN KEY (account_handle) REFERENCES tweet_accounts(handle)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_scraped
+    ON tweet_snapshots(scraped_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_account
+    ON tweet_snapshots(account_handle, scraped_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_unprocessed
+    ON tweet_snapshots(ai_processed) WHERE ai_processed = FALSE;
   `);
 
   console.log('Database initialized successfully at:', DB_PATH);

@@ -12,6 +12,8 @@ import correlationsRouter from './routes/correlations.js';
 import ontologyRouter from './routes/ontology.js';
 import whalesRouter from './routes/whales.js';
 import healthRouter from './routes/health.js';
+import briefingRouter from './routes/briefing.js';
+import tweetsRouter from './routes/tweets.js';
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3100', 10);
@@ -28,6 +30,8 @@ app.use('/api/correlations', correlationsRouter);
 app.use('/api/ontology', ontologyRouter);
 app.use('/api/whales', whalesRouter);
 app.use('/api/health', healthRouter);
+app.use('/api/briefing', briefingRouter);
+app.use('/api/tweets', tweetsRouter);
 
 // Root route
 app.get('/', (req, res) => {
@@ -41,7 +45,9 @@ app.get('/', (req, res) => {
       '/api/correlations',
       '/api/ontology',
       '/api/whales',
-      '/api/health'
+      '/api/health',
+      '/api/briefing/:market',
+      '/api/tweets'
     ]
   });
 });

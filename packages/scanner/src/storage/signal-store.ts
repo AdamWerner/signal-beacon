@@ -158,6 +158,11 @@ export class SignalStore {
     stmt.run(status, id);
   }
 
+  updateConfidence(id: string, confidence: number): void {
+    const stmt = this.db.prepare('UPDATE signals SET confidence = ? WHERE id = ?');
+    stmt.run(Math.min(confidence, 100), id);
+  }
+
   getAiAnalysis(id: string): string | null {
     const row = this.db.prepare('SELECT ai_analysis FROM signals WHERE id = ?').get(id) as { ai_analysis: string | null } | undefined;
     return row?.ai_analysis ?? null;

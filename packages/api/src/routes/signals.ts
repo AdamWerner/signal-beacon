@@ -274,41 +274,9 @@ router.put('/:id/status', (req, res) => {
   }
 });
 
-// GET /api/briefing/:market - Today's morning briefing
-router.get('/briefing/:market', async (req, res) => {
-  try {
-    const market = req.params.market as 'swedish' | 'us';
-    if (market !== 'swedish' && market !== 'us') {
-      return res.status(400).json({ error: 'Market must be "swedish" or "us"' });
-    }
-    const intel = new IntelligenceEngine((services as any).db);
-    const briefing = intel.getMorningBriefing(market);
-    if (briefing) {
-      res.json({ ...briefing, top_signals: JSON.parse(briefing.top_signals || '[]') });
-    } else {
-      res.json({ message: 'No briefing generated yet today', market });
-    }
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch briefing' });
-  }
-});
+// Note: Briefing routes moved to /api/briefing (see routes/briefing.ts)
 
-// POST /api/briefing/:market/generate - Trigger briefing generation
-router.post('/briefing/:market/generate', async (req, res) => {
-  try {
-    const market = req.params.market as 'swedish' | 'us';
-    if (market !== 'swedish' && market !== 'us') {
-      return res.status(400).json({ error: 'Market must be "swedish" or "us"' });
-    }
-    const intel = new IntelligenceEngine((services as any).db);
-    const text = await intel.generateMorningBriefing(market);
-    res.json({ market, briefing: text });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to generate briefing' });
-  }
-});
-
-// GET /api/intelligence/memory - Active intelligence memories
+// GET /api/signals/intelligence/memory - Active intelligence memories
 router.get('/intelligence/memory', (req, res) => {
   try {
     const intel = new IntelligenceEngine((services as any).db);

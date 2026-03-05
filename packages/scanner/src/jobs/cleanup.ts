@@ -2,6 +2,7 @@ import { SnapshotStore } from '../storage/snapshot-store.js';
 import { SignalStore } from '../storage/signal-store.js';
 import { WhaleStore } from '../storage/whale-store.js';
 import { MarketDiscoverer } from '../polymarket/market-discoverer.js';
+import { TweetStore } from '../storage/tweet-store.js';
 
 export interface CleanupResult {
   snapshotsDeleted: number;
@@ -9,6 +10,7 @@ export interface CleanupResult {
   signalsDeleted: number;
   whalesDeleted: number;
   marketsResolved: number;
+  tweetsDeleted: number;
   duration: number;
 }
 
@@ -17,7 +19,8 @@ export class CleanupJob {
     private snapshotStore: SnapshotStore,
     private signalStore: SignalStore,
     private whaleStore: WhaleStore,
-    private marketDiscoverer: MarketDiscoverer
+    private marketDiscoverer: MarketDiscoverer,
+    private tweetStore?: TweetStore
   ) {}
 
   /**
@@ -69,6 +72,14 @@ export class CleanupJob {
       const marketsResolved = await this.marketDiscoverer.markResolvedMarkets();
       console.log(`  Marked ${marketsResolved} markets as resolved`);
 
+      // Clean up old tweets (keep 7 days)
+      let tweetsDeleted = 0;
+      if (this.tweetStore) {
+        console.log('Cleaning up old tweets...');
+        tweetsDeleted = this.tweetStore.cleanupOld(7);
+        console.log(`  Deleted ${tweetsDeleted} old tweets`);
+      }
+
       const duration = Date.now() - startTime;
 
       console.log('\n=== CLEANUP JOB COMPLETE ===');
@@ -80,6 +91,7 @@ export class CleanupJob {
         signalsDeleted,
         whalesDeleted,
         marketsResolved,
+        tweetsDeleted,
         duration
       };
     } catch (error) {

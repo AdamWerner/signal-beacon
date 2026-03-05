@@ -1,9 +1,31 @@
-import Database from 'better-sqlite3';
+﻿import Database from 'better-sqlite3';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getAssetMarket, SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './trading-hours.js';
+import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './trading-hours.js';
 
 const execFileAsync = promisify(execFile);
+
+interface IntelligenceMemoryRow {
+  id: number;
+  created_at: string;
+  category: string;
+  insight: string;
+  affected_assets: string;
+  confidence_boost: number;
+  decay_days: number;
+  source_signals: string;
+  expires_at: string;
+}
+
+interface DailyBriefingRow {
+  id: number;
+  date: string;
+  market: 'swedish' | 'us';
+  briefing_generated_at: string | null;
+  briefing_text: string | null;
+  top_signals: string;
+  pushed_at: string | null;
+}
 
 export class IntelligenceEngine {
   constructor(private db: Database.Database) {
@@ -47,54 +69,53 @@ export class IntelligenceEngine {
   }
 
   /**
-   * Process new signals — detect reinforcing patterns, link to existing memory,
-   * accumulate for daily briefing.
+   * Process new signals: detect reinforcing patterns and link relationships.
    */
-  processNewSignals(signals: any[]): void {
+  processNewSignals(signals: Array<{ [key: string]: any }>): void {
     if (signals.length === 0) return;
 
-    // Find assets with multiple independent markets pointing the same direction
-    const assetGroups = new Map<string, any[]>();
-    for (const s of signals) {
-      const key = s.matched_asset_id;
-      if (!assetGroups.has(key)) assetGroups.set(key, []);
-      assetGroups.get(key)!.push(s);
+    const assetGroups = new Map<string, Array<{ [key: string]: any }>>();
+    for (const signal of signals) {
+      const key = signal.matched_asset_id;
+      if (!assetGroups.has(key)) {
+        assetGroups.set(key, []);
+      }
+      assetGroups.get(key)!.push(signal);
     }
 
     for (const [assetId, group] of assetGroups) {
       if (group.length < 2) continue;
-      const directions = group.map((s: any) =>
-        s.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear'
+
+      const directions = group.map(signal =>
+        signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear'
       );
-      const allSameDir = directions.every((d: string) => d === directions[0]);
-      if (!allSameDir) continue;
+
+      if (!directions.every(direction => direction === directions[0])) {
+        continue;
+      }
 
       const boost = Math.min(group.length * 5, 20);
       this.addMemory({
         category: assetId.split('-')[0] || 'unknown',
-        insight: `${group.length} markets all point ${directions[0].toUpperCase()} for ${group[0].matched_asset_name}`,
+        insight: `${group.length} markets align ${directions[0].toUpperCase()} for ${group[0].matched_asset_name}`,
         affected_assets: [assetId],
         confidence_boost: boost,
         decay_days: 3,
-        source_signals: group.map((s: any) => s.id)
+        source_signals: group.map(signal => signal.id)
       });
     }
 
-    // Check active memory for assets in new signals
     const activeMemories = this.getActiveMemories();
     for (const signal of signals) {
       for (const memory of activeMemories) {
-        const affected: string[] = JSON.parse(memory.affected_assets);
-        if (affected.includes(signal.matched_asset_id)) {
+        const affectedAssets = this.safeJsonArray(memory.affected_assets);
+        if (affectedAssets.includes(signal.matched_asset_id)) {
           this.addRelationship(signal.id, memory.source_signals, 'reinforces', memory.insight);
         }
       }
     }
   }
 
-  /**
-   * Get confidence boost for an asset from accumulated intelligence
-   */
   getConfidenceBoost(assetId: string): number {
     const result = this.db.prepare(`
       SELECT COALESCE(SUM(confidence_boost), 0) as total_boost
@@ -102,36 +123,33 @@ export class IntelligenceEngine {
       WHERE expires_at > datetime('now')
         AND affected_assets LIKE ?
     `).get(`%${assetId}%`) as { total_boost: number };
+
     return result.total_boost || 0;
   }
 
-  /**
-   * Get today's morning briefing for a market
-   */
-  getMorningBriefing(market: 'swedish' | 'us'): any | null {
-    const today = new Date().toISOString().split('T')[0];
-    return this.db.prepare(`
-      SELECT * FROM daily_briefing WHERE date = ? AND market = ?
-    `).get(today, market) || null;
+  getMorningBriefing(market: 'swedish' | 'us'): DailyBriefingRow | null {
+    const today = this.getStockholmDateString();
+    return this.db.prepare(
+      `SELECT * FROM daily_briefing WHERE date = ? AND market = ?`
+    ).get(today, market) as DailyBriefingRow | null;
   }
 
   /**
-   * Generate a morning briefing using Claude CLI (with text fallback)
+   * Generate market briefing using Claude CLI (with deterministic fallback).
    */
   async generateMorningBriefing(market: 'swedish' | 'us'): Promise<string> {
-    const today = new Date().toISOString().split('T')[0];
-    const assetList = market === 'swedish'
-      ? Array.from(SWEDISH_MARKET_ASSETS)
-      : Array.from(US_MARKET_ASSETS);
+    const today = this.getStockholmDateString();
+    const marketName = market === 'swedish' ? 'Stockholm OMX' : 'US NYSE/NASDAQ';
+    const assetList = market === 'swedish' ? Array.from(SWEDISH_MARKET_ASSETS) : Array.from(US_MARKET_ASSETS);
 
     const placeholders = assetList.map(() => '?').join(',');
-    const recentSignals: any[] = this.db.prepare(`
+    const recentSignals = this.db.prepare(`
       SELECT * FROM signals
       WHERE timestamp >= datetime('now', '-16 hours')
         AND matched_asset_id IN (${placeholders})
         AND requires_judgment = 0
       ORDER BY confidence DESC
-    `).all(...assetList);
+    `).all(...assetList) as Array<{ [key: string]: any }>;
 
     if (recentSignals.length === 0) {
       const fallback = 'No significant overnight signals.';
@@ -139,43 +157,45 @@ export class IntelligenceEngine {
       return fallback;
     }
 
-    // Best signal per asset
-    const byAsset = new Map<string, any>();
-    for (const s of recentSignals) {
-      const existing = byAsset.get(s.matched_asset_id);
-      if (!existing || s.confidence > existing.confidence) byAsset.set(s.matched_asset_id, s);
-    }
-    const topSignals = Array.from(byAsset.values())
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5);
-
+    const topSignals = this.getTopSignalsByAsset(recentSignals, 5);
     const activeMemories = this.getActiveMemories().slice(0, 5);
-    const marketName = market === 'swedish' ? 'Stockholm OMX' : 'US NYSE/NASDAQ';
 
-    const prompt = `You are a trading analyst. Write a pre-market briefing for ${marketName} open. Max 200 words. For each signal state: ASSET → DIRECTION → WHY → CONFIDENCE.
+    let tweetContext = '';
+    try {
+      const { TweetIntelligenceProcessor } = await import('../tweets/processor.js');
+      const tweetProcessor = new TweetIntelligenceProcessor(this.db);
+      tweetContext = tweetProcessor.getTweetContextForBriefing(16);
+    } catch {
+      // Optional module path; continue without tweet context.
+    }
+
+    const prompt = `You are a trading analyst. Write a pre-market briefing for ${marketName} open. Max 200 words.
+For each signal state: ASSET -> DIRECTION -> WHY -> CONFIDENCE.
 
 Overnight signals:
-${topSignals.map((s: any) => `- ${s.matched_asset_name}: ${s.suggested_action} (${s.confidence}%) — ${s.market_title} — odds ${(s.odds_before*100).toFixed(0)}%→${(s.odds_now*100).toFixed(0)}%`).join('\n')}
+${topSignals.map(signal => `- ${signal.matched_asset_name}: ${signal.suggested_action} (${signal.confidence}%) - ${signal.market_title} - odds ${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}%`).join('\n')}
 
 Context:
-${activeMemories.map((m: any) => `- ${m.insight} (boost: +${m.confidence_boost})`).join('\n') || 'None'}
+${activeMemories.map(memory => `- ${memory.insight} (boost: +${memory.confidence_boost})`).join('\n') || 'None'}
+${tweetContext}
 
-Start with the single strongest trade idea. Be direct and punchy.`;
+Start with the single strongest trade idea. Be direct and concise.`;
 
     let briefingText = '';
-    for (const bin of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd']) {
+    for (const binary of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd']) {
       try {
-        const { stdout } = await execFileAsync(bin, ['-p', prompt], { timeout: 60000 });
+        const { stdout } = await execFileAsync(binary, ['-p', prompt], { timeout: 60000 });
         briefingText = stdout.trim();
-        break;
-      } catch { /* try next */ }
+        if (briefingText) break;
+      } catch {
+        // Try next binary.
+      }
     }
 
     if (!briefingText) {
-      // Text fallback
-      briefingText = topSignals.map((s: any, i: number) => {
-        const dir = s.suggested_action.toLowerCase().includes('bull') ? 'BULL' : 'BEAR';
-        return `#${i+1} ${dir} ${s.matched_asset_name} (${s.confidence}%) — ${s.market_title.substring(0, 55)}`;
+      briefingText = topSignals.map((signal, index) => {
+        const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'BULL' : 'BEAR';
+        return `#${index + 1} ${direction} ${signal.matched_asset_name} (${signal.confidence}%) - ${signal.market_title.substring(0, 55)}`;
       }).join('\n');
     }
 
@@ -184,22 +204,35 @@ Start with the single strongest trade idea. Be direct and punchy.`;
   }
 
   markBriefingPushed(market: 'swedish' | 'us'): void {
-    const today = new Date().toISOString().split('T')[0];
-    this.db.prepare(`
-      UPDATE daily_briefing SET pushed_at = datetime('now') WHERE date = ? AND market = ?
-    `).run(today, market);
+    const today = this.getStockholmDateString();
+    this.db.prepare(
+      `UPDATE daily_briefing SET pushed_at = datetime('now') WHERE date = ? AND market = ?`
+    ).run(today, market);
   }
 
-  getActiveMemories(): any[] {
+  getActiveMemories(): IntelligenceMemoryRow[] {
     return this.db.prepare(`
       SELECT * FROM intelligence_memory
       WHERE expires_at > datetime('now')
       ORDER BY confidence_boost DESC
       LIMIT 20
-    `).all();
+    `).all() as IntelligenceMemoryRow[];
   }
 
-  // --- Private helpers ---
+  private getTopSignalsByAsset(signals: Array<{ [key: string]: any }>, limit: number): Array<{ [key: string]: any }> {
+    const byAsset = new Map<string, { [key: string]: any }>();
+
+    for (const signal of signals) {
+      const existing = byAsset.get(signal.matched_asset_id);
+      if (!existing || signal.confidence > existing.confidence) {
+        byAsset.set(signal.matched_asset_id, signal);
+      }
+    }
+
+    return Array.from(byAsset.values())
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, limit);
+  }
 
   private addMemory(params: {
     category: string;
@@ -210,8 +243,9 @@ Start with the single strongest trade idea. Be direct and punchy.`;
     source_signals: string[];
   }): void {
     this.db.prepare(`
-      INSERT INTO intelligence_memory (category, insight, affected_assets, confidence_boost, decay_days, source_signals, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+' || ? || ' days'))
+      INSERT INTO intelligence_memory (
+        category, insight, affected_assets, confidence_boost, decay_days, source_signals, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+' || ? || ' days'))
     `).run(
       params.category,
       params.insight,
@@ -224,21 +258,42 @@ Start with the single strongest trade idea. Be direct and punchy.`;
   }
 
   private addRelationship(signalId: string, sourceSignalsJson: string, type: string, explanation: string): void {
-    let sources: string[];
-    try { sources = JSON.parse(sourceSignalsJson); } catch { return; }
+    const sources = this.safeJsonArray(sourceSignalsJson);
+    if (sources.length === 0) return;
+
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO signal_relationships (signal_id, related_signal_id, relationship_type, explanation)
       VALUES (?, ?, ?, ?)
     `);
-    for (const related of sources) {
-      if (related !== signalId) stmt.run(signalId, related, type, explanation);
+
+    for (const relatedSignalId of sources) {
+      if (relatedSignalId !== signalId) {
+        stmt.run(signalId, relatedSignalId, type, explanation);
+      }
     }
   }
 
-  private storeBriefing(date: string, market: string, text: string, signals: any[]): void {
+  private storeBriefing(date: string, market: string, text: string, signals: Array<{ [key: string]: any }>): void {
     this.db.prepare(`
-      INSERT OR REPLACE INTO daily_briefing (date, market, briefing_generated_at, briefing_text, top_signals)
+      INSERT INTO daily_briefing (date, market, briefing_generated_at, briefing_text, top_signals)
       VALUES (?, ?, datetime('now'), ?, ?)
+      ON CONFLICT(date, market) DO UPDATE SET
+        briefing_generated_at = excluded.briefing_generated_at,
+        briefing_text = excluded.briefing_text,
+        top_signals = excluded.top_signals
     `).run(date, market, text, JSON.stringify(signals));
+  }
+
+  private getStockholmDateString(): string {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+  }
+
+  private safeJsonArray(value: string): string[] {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
   }
 }

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+﻿import Database from 'better-sqlite3';
 import { Config } from '../config.js';
 import { OddsTracker } from '../polymarket/odds-tracker.js';
 import { WhaleDetector } from '../polymarket/whale-detector.js';
@@ -26,7 +26,7 @@ export class ScanCycleJob {
   ) {}
 
   /**
-   * Execute one scan cycle
+   * Execute one scan cycle.
    */
   async execute(): Promise<ScanCycleResult> {
     const startTime = Date.now();
@@ -34,11 +34,9 @@ export class ScanCycleJob {
     console.log(new Date().toISOString());
 
     try {
-      // Step 1: Track current odds for all markets
       console.log('\n[1/4] Tracking odds...');
       const marketsTracked = await this.oddsTracker.trackAllMarkets();
 
-      // Step 2: Detect significant odds changes
       console.log('\n[2/4] Detecting odds changes...');
       const oddsChanges = this.oddsTracker.detectSignificantChanges(
         this.config.polyTimeWindowMinutes,
@@ -47,28 +45,33 @@ export class ScanCycleJob {
 
       console.log(`Found ${oddsChanges.length} significant odds changes`);
 
-      // Step 3: Detect whale activity — only on markets that had odds changes
       console.log('\n[3/4] Detecting whale trades (changed markets only)...');
-      const changedMarketIds = [...new Set(oddsChanges.map(c => c.market_condition_id))];
+      const changedMarketIds = [...new Set(oddsChanges.map(change => change.market_condition_id))];
       const whales = await this.whaleDetector.detectForMarkets(changedMarketIds);
 
-      // Step 4: Generate signals
       console.log('\n[4/4] Generating signals...');
       const signals = await this.signalGenerator.generateSignals(oddsChanges);
 
-      // Step 5: Process through intelligence layer (accumulate context, boost confidence)
       if (this.db && signals.length > 0) {
-        const intel = new IntelligenceEngine(this.db);
-        intel.processNewSignals(signals);
+        const intelligence = new IntelligenceEngine(this.db);
+        intelligence.processNewSignals(signals);
+
         for (const signal of signals) {
-          const boost = intel.getConfidenceBoost(signal.matched_asset_id);
-          if (boost > 0) {
-            signal.confidence = Math.min(signal.confidence + boost, 100);
+          const boost = intelligence.getConfidenceBoost(signal.matched_asset_id);
+          if (boost <= 0) continue;
+
+          signal.confidence = Math.min(signal.confidence + boost, 100);
+
+          // Persist boosted confidence so the DB, API, and notifications stay consistent.
+          try {
+            this.db.prepare('UPDATE signals SET confidence = ? WHERE id = ?').run(signal.confidence, signal.id);
+            console.log(`  Intelligence boost +${boost} for ${signal.matched_asset_name} -> ${signal.confidence}%`);
+          } catch {
+            // Non-fatal, continue scan cycle.
           }
         }
       }
 
-      // Step 6: Dispatch alerts
       if (signals.length > 0) {
         console.log('\nDispatching alerts...');
         await this.alertDispatcher.dispatchBatch(signals);
@@ -88,7 +91,7 @@ export class ScanCycleJob {
         oddsChangesDetected: oddsChanges.length,
         whalesDetected: whales.length,
         signalsGenerated: signals.length,
-        alertsSent: signals.filter(s => s.confidence >= this.config.alertMinConfidence).length,
+        alertsSent: signals.filter(signal => signal.confidence >= this.config.alertMinConfidence).length,
         duration
       };
     } catch (error) {

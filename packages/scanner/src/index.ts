@@ -22,6 +22,9 @@ import { MarketRefreshJob } from './jobs/market-refresh.js';
 import { InstrumentRefreshJob } from './jobs/instrument-refresh.js';
 import { CleanupJob } from './jobs/cleanup.js';
 import { logger } from './utils/logger.js';
+import { TweetStore } from './storage/tweet-store.js';
+import { TweetCollector } from './tweets/collector.js';
+import { TweetIntelligenceProcessor } from './tweets/processor.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -33,6 +36,9 @@ export class PolySignalScanner {
   private snapshotStore = new SnapshotStore(this.db);
   private signalStore = new SignalStore(this.db);
   private whaleStore = new WhaleStore(this.db);
+  private tweetStore = new TweetStore(this.db);
+  private tweetCollector: TweetCollector;
+  private tweetProcessor: TweetIntelligenceProcessor;
 
   // Core services
   private ontology = new OntologyEngine();
@@ -138,7 +144,15 @@ export class PolySignalScanner {
       this.instrumentRefreshJob = new InstrumentRefreshJob(this.avanzaScraper);
     }
 
-    this.cleanupJob = new CleanupJob(this.snapshotStore, this.signalStore, this.whaleStore, this.marketDiscoverer);
+    this.cleanupJob = new CleanupJob(this.snapshotStore, this.signalStore, this.whaleStore, this.marketDiscoverer, this.tweetStore);
+
+    // Tweet monitoring
+    this.tweetCollector = new TweetCollector(this.tweetStore);
+    this.tweetProcessor = new TweetIntelligenceProcessor(this.db);
+    const seeded = this.tweetStore.seedDefaultAccounts();
+    if (seeded > 0) {
+      console.log(`Seeded ${seeded} default tweet accounts for monitoring`);
+    }
 
     logger.info('PolySignal Scanner initialized', {
       environment: this.config.nodeEnv,
@@ -229,6 +243,18 @@ export class PolySignalScanner {
     return this.avanzaAvailable;
   }
 
+  async runTweetCollection() {
+    return await this.tweetCollector.collectAll();
+  }
+
+  async runTweetProcessing() {
+    return await this.tweetProcessor.processTweetBatch();
+  }
+
+  getTweetContextForBriefing(hours = 16): string {
+    return this.tweetProcessor.getTweetContextForBriefing(hours);
+  }
+
   getServices() {
     return {
       instrumentStore: this.instrumentStore,
@@ -236,6 +262,7 @@ export class PolySignalScanner {
       snapshotStore: this.snapshotStore,
       signalStore: this.signalStore,
       whaleStore: this.whaleStore,
+      tweetStore: this.tweetStore,
       ontology: this.ontology,
       instrumentRegistry: this.instrumentRegistry,
       marketDiscoverer: this.marketDiscoverer,
@@ -249,6 +276,9 @@ export class PolySignalScanner {
 export { AutoMapper } from './correlation/auto-mapper.js';
 export { getTopSignals, analyzeSignal } from './signals/ai-ranker.js';
 export { IntelligenceEngine } from './intelligence/engine.js';
+export { TweetStore } from './storage/tweet-store.js';
+export { TweetCollector } from './tweets/collector.js';
+export { TweetIntelligenceProcessor } from './tweets/processor.js';
 
 // Export singleton instance
 export const scanner = new PolySignalScanner();
