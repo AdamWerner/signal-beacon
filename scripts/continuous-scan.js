@@ -333,9 +333,24 @@ async function loop() {
   lastCleanupAt = Date.now();
 
   while (true) {
+    const cycleStart = Date.now();
     await runOneCycle();
-    logScan(`[sleep] next scan in ${SCAN_INTERVAL_MS / 60000} minutes...`);
-    await new Promise(resolve => setTimeout(resolve, SCAN_INTERVAL_MS));
+    const elapsed = Date.now() - cycleStart;
+
+    if (elapsed > 8 * 60 * 1000) {
+      logScan(`[error] cycle runtime ${Math.round(elapsed / 1000)}s exceeded 8-minute threshold`);
+    }
+
+    const sleepMs = Math.max(0, SCAN_INTERVAL_MS - elapsed);
+    if (sleepMs === 0) {
+      logScan(
+        `[warn] cycle exceeded interval by ${Math.round((elapsed - SCAN_INTERVAL_MS) / 1000)}s; starting next cycle immediately`
+      );
+      continue;
+    }
+
+    logScan(`[sleep] next scan in ${(sleepMs / 60000).toFixed(2)} minutes...`);
+    await new Promise(resolve => setTimeout(resolve, sleepMs));
   }
 }
 
