@@ -148,7 +148,8 @@ export class PolySignalScanner {
       this.signalStore,
       this.whaleStore,
       this.marketDiscoverer,
-      this.tweetStore
+      this.tweetStore,
+      this.db
     );
 
     this.tweetCollector = new TweetCollector(this.tweetStore);

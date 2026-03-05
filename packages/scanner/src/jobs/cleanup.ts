@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { SnapshotStore } from '../storage/snapshot-store.js';
 import { SignalStore } from '../storage/signal-store.js';
 import { WhaleStore } from '../storage/whale-store.js';
@@ -20,7 +21,8 @@ export class CleanupJob {
     private signalStore: SignalStore,
     private whaleStore: WhaleStore,
     private marketDiscoverer: MarketDiscoverer,
-    private tweetStore?: TweetStore
+    private tweetStore?: TweetStore,
+    private db?: Database.Database
   ) {}
 
   /**
@@ -78,6 +80,16 @@ export class CleanupJob {
         console.log('Cleaning up old tweets...');
         tweetsDeleted = this.tweetStore.cleanupOld(7);
         console.log(`  Deleted ${tweetsDeleted} old tweets`);
+      }
+
+      // Force WAL checkpoint to prevent unbounded WAL growth (runs daily)
+      if (this.db) {
+        try {
+          this.db.pragma('wal_checkpoint(TRUNCATE)');
+          console.log('  WAL checkpoint completed');
+        } catch {
+          // Non-fatal — checkpoint will retry next cleanup cycle.
+        }
       }
 
       const duration = Date.now() - startTime;
