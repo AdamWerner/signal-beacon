@@ -5,7 +5,8 @@ import { WhaleDetector } from '../polymarket/whale-detector.js';
 import { SignalStore } from '../storage/signal-store.js';
 import { calculateConfidence } from './scorer.js';
 import { GeneratedSignal } from './types.js';
-import { TradeVerificationGate } from '../verification/trade-gate.js';
+import { BatchVerificationCandidate, TradeVerificationGate } from '../verification/trade-gate.js';
+import { VerificationContext } from '../verification/types.js';
 
 const DEDUP_WINDOW_HOURS = 4;
 const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
@@ -28,6 +29,7 @@ export class SignalGenerator {
   async generateSignals(oddsChanges: OddsChange[]): Promise<GeneratedSignal[]> {
     const signals: GeneratedSignal[] = [];
     const recentSignals = this.signalStore.findFiltered({ hours: 48, limit: 500 });
+    const verificationCandidates: BatchVerificationCandidate[] = [];
 
     console.log(`Generating signals for ${oddsChanges.length} odds changes...`);
 
@@ -80,7 +82,7 @@ export class SignalGenerator {
             );
           }
 
-          const verification = await this.verificationGate.verify({
+          const verificationContext: VerificationContext = {
             marketTitle: signal.market_title,
             marketDescription: market.description || null,
             marketCategory: market.category || null,
@@ -97,7 +99,8 @@ export class SignalGenerator {
             ontologyKeywords: keywordEvidence,
             reinforcingSignals: this.getReinforcingSignals(recentSignals, signal),
             conflictingSignals: this.getConflictingSignals(recentSignals, signal)
-          });
+          };
+          const verification = this.verificationGate.guardOnly(verificationContext);
 
           signal.verification_status = verification.status;
           signal.verification_score = verification.score;
@@ -116,6 +119,12 @@ export class SignalGenerator {
 
           signals.push(signal);
           this.signalStore.insert(signal);
+          verificationCandidates.push({
+            signalId: signal.id,
+            confidence: signal.confidence,
+            context: verificationContext,
+            guard: verification.record.guard
+          });
 
           recentSignals.unshift({
             ...signal,
@@ -130,6 +139,43 @@ export class SignalGenerator {
             `(confidence ${signal.confidence}%, verification ${signal.verification_status})`
           );
         }
+      }
+    }
+
+    const batchVerified = await this.verificationGate.batchVerifyTopCandidates(
+      verificationCandidates,
+      5
+    );
+
+    for (const signal of signals) {
+      const verification = batchVerified.get(signal.id);
+      if (!verification) continue;
+
+      signal.verification_status = verification.status;
+      signal.verification_score = verification.score;
+      signal.verification_reason = verification.reason;
+      signal.verification_flags = verification.flags;
+      signal.verification_source = verification.source;
+      signal.verification_record = JSON.stringify(verification.record);
+      signal.confidence = Math.max(
+        0,
+        Math.min(signal.confidence + verification.confidenceAdjustment, 100)
+      );
+      if (verification.suggestedActionOverride) {
+        signal.suggested_action = verification.suggestedActionOverride;
+      }
+
+      this.signalStore.setVerification(signal.id, {
+        status: verification.status,
+        score: verification.score,
+        reason: verification.reason,
+        flags: verification.flags,
+        source: verification.source,
+        record: JSON.stringify(verification.record)
+      });
+      this.signalStore.updateConfidence(signal.id, signal.confidence);
+      if (verification.suggestedActionOverride) {
+        this.signalStore.updateSuggestedAction(signal.id, signal.suggested_action);
       }
     }
 
