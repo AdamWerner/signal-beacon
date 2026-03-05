@@ -21,6 +21,7 @@
     "refresh:markets": "node scripts/refresh-markets.js",
     "setup": "bash scripts/setup.sh",
     "continuous": "node scripts/continuous-scan.js",
+    "self-test": "node scripts/self-test-loop.js",
     "self-improve": "node scripts/self-improve.js"
   },
   "devDependencies": {

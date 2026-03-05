@@ -123,6 +123,17 @@ export class AlertDispatcher {
     const topSignal = dedupedSignals[0];
     if (!topSignal) return 0;
 
+    const DRY_RUN = process.env.DRY_RUN === 'true';
+    if (DRY_RUN) {
+      const dryTitle = `${topSignal.suggested_action} ${topSignal.matched_asset_name} ${topSignal.confidence}%`;
+      const dryMessage = `${topSignal.reasoning} | ${topSignal.verification_reason}`;
+      console.log(`[DRY_RUN] Would push: ${dryTitle} | ${dryMessage}`);
+      if (this.onSignalsPushed) {
+        this.onSignalsPushed([topSignal.id], market);
+      }
+      return 1;
+    }
+
     const sent = await homeAssistant.send(topSignal);
 
     if (!sent) {
