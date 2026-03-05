@@ -1,4 +1,4 @@
-import { PolymarketClient } from './client.js';
+﻿import { PolymarketClient } from './client.js';
 import { SnapshotStore, InsertSnapshot } from '../storage/snapshot-store.js';
 import { MarketStore } from '../storage/market-store.js';
 
@@ -27,31 +27,48 @@ export class OddsTracker {
     if (trackedMarkets.length === 0) return 0;
 
     console.log(`Bulk-fetching prices for ${trackedMarkets.length} tracked markets...`);
+    const fetchStart = Date.now();
 
-    // Single paginated bulk fetch — already returns outcomePrices for each market
+    // Single paginated bulk fetch - already returns outcomePrices for each market.
     const allMarkets = await this.client.fetchAllMarkets(true, false);
+    console.log(
+      `  Bulk fetch returned ${allMarkets.length} markets in ${((Date.now() - fetchStart) / 1000).toFixed(1)}s`
+    );
 
-    // Build lookup: conditionId → [yesPrice, noPrice]
+    // Build lookup: conditionId -> [yesPrice, noPrice]
     const priceMap = new Map<string, [number, number]>();
+    const mapBuildStart = Date.now();
+
     for (const market of allMarkets) {
       if (!market.conditionId || !market.outcomePrices) continue;
       try {
         const pricesArr: string[] = typeof market.outcomePrices === 'string'
           ? JSON.parse(market.outcomePrices as unknown as string)
           : market.outcomePrices;
+
         if (!Array.isArray(pricesArr) || pricesArr.length < 2) continue;
+
         const yes = parseFloat(pricesArr[0]);
         const no = parseFloat(pricesArr[1]);
         if (!isNaN(yes) && !isNaN(no)) {
           priceMap.set(market.conditionId, [yes, no]);
         }
-      } catch { /* skip malformed */ }
+      } catch {
+        // Skip malformed rows.
+      }
     }
 
+    console.log(
+      `  Built price map (${priceMap.size} markets) in ${((Date.now() - mapBuildStart) / 1000).toFixed(1)}s`
+    );
+
     let trackedCount = 0;
+    const writeStart = Date.now();
+
     for (const market of trackedMarkets) {
       const prices = priceMap.get(market.condition_id);
       if (!prices) continue;
+
       this.snapshotStore.insert({
         market_condition_id: market.condition_id,
         odds_yes: prices[0],
@@ -59,10 +76,12 @@ export class OddsTracker {
         volume_24h: null
       });
       this.marketStore.updateLastChecked(market.condition_id);
-      trackedCount++;
+      trackedCount += 1;
     }
 
-    console.log(`✓ Tracked ${trackedCount} markets`);
+    console.log(`  Wrote ${trackedCount} snapshots in ${((Date.now() - writeStart) / 1000).toFixed(1)}s`);
+    console.log(`Tracked ${trackedCount} markets`);
+
     return trackedCount;
   }
 
@@ -76,7 +95,7 @@ export class OddsTracker {
         return false;
       }
 
-      // outcomePrices is a JSON string like '["0.65","0.35"]' or already an array
+      // outcomePrices is a JSON string like '["0.65","0.35"]' or already an array.
       const pricesArr: string[] = typeof gammaMarket.outcomePrices === 'string'
         ? JSON.parse(gammaMarket.outcomePrices as unknown as string)
         : gammaMarket.outcomePrices;
@@ -109,7 +128,7 @@ export class OddsTracker {
   }
 
   /**
-   * Detect significant odds changes
+   * Detect significant odds changes.
    */
   detectSignificantChanges(
     timeWindowMinutes: number,
@@ -125,7 +144,7 @@ export class OddsTracker {
       );
 
       if (!delta) {
-        continue; // Not enough data
+        continue; // Not enough data.
       }
 
       if (Math.abs(delta.delta_pct) >= thresholdPct) {
@@ -141,18 +160,14 @@ export class OddsTracker {
       }
     }
 
-    // Sort by absolute delta descending
+    // Sort by absolute delta descending.
     return changes.sort((a, b) => Math.abs(b.delta_pct) - Math.abs(a.delta_pct));
   }
 
   /**
-   * Get odds history for a market
+   * Get odds history for a market.
    */
   getHistory(conditionId: string, hours = 24) {
     return this.snapshotStore.getHistory(conditionId, hours);
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

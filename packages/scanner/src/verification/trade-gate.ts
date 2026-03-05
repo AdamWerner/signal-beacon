@@ -197,6 +197,9 @@ export class TradeVerificationGate {
     const batch = await this.aiVerifier.batchVerify(contexts, guards);
 
     if (!batch) {
+      console.warn(
+        `[verify] Claude batch verification unavailable; using guard-only fallback for ${shortlist.length} candidates`
+      );
       for (const item of shortlist) {
         result.set(item.signalId, this.guardOnlyFromDecision(item.guard));
       }

@@ -30,6 +30,7 @@ export class SignalGenerator {
     const signals: GeneratedSignal[] = [];
     const recentSignals = this.signalStore.findFiltered({ hours: 48, limit: 500 });
     const verificationCandidates: BatchVerificationCandidate[] = [];
+    let dedupSkipped = 0;
 
     console.log(`Generating signals for ${oddsChanges.length} odds changes...`);
 
@@ -72,9 +73,12 @@ export class SignalGenerator {
           if (existing) {
             const deltaIncreased = Math.abs(signal.delta_pct) - Math.abs(existing.delta_pct);
             if (!Number.isFinite(deltaIncreased) || deltaIncreased < DEDUP_ESCALATION_THRESHOLD_PCT) {
-              console.log(
-                `  [dedup] skipping duplicate signal for ${mapping.assetName} (${signal.deduplication_key})`
-              );
+              dedupSkipped += 1;
+              if (dedupSkipped <= 12) {
+                console.log(
+                  `  [dedup] skipping duplicate signal for ${mapping.assetName} (${signal.deduplication_key})`
+                );
+              }
               continue;
             }
             console.log(
@@ -140,6 +144,10 @@ export class SignalGenerator {
           );
         }
       }
+    }
+
+    if (dedupSkipped > 12) {
+      console.log(`  [dedup] skipped ${dedupSkipped - 12} additional duplicates (suppressed)`);
     }
 
     const batchVerified = await this.verificationGate.batchVerifyTopCandidates(

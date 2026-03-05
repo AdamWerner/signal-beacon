@@ -16,6 +16,12 @@ async function fetchWithTimeout(url: string, timeoutMs = FETCH_TIMEOUT_MS): Prom
 }
 
 export class PolymarketClient {
+  private pageDelayMs: number;
+
+  constructor() {
+    this.pageDelayMs = Math.max(50, parseInt(process.env.POLY_PAGE_DELAY_MS || '200', 10));
+  }
+
   /**
    * Fetch markets from Gamma API with pagination
    */
@@ -50,9 +56,11 @@ export class PolymarketClient {
     const allMarkets: GammaMarket[] = [];
     let offset = 0;
     const limit = 100;
+    let pages = 0;
 
     while (true) {
       const markets = await this.fetchMarkets(active, closed, limit, offset);
+      pages += 1;
 
       if (markets.length === 0) {
         break;
@@ -63,7 +71,11 @@ export class PolymarketClient {
       allMarkets.push(...valid);
       offset += limit;
 
-      await this.delay(500);
+      if (pages % 10 === 0) {
+        logger.info('Gamma pagination progress', { pages, fetched: allMarkets.length });
+      }
+
+      await this.delay(this.pageDelayMs);
 
       if (markets.length < limit) {
         break;

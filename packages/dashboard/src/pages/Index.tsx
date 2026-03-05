@@ -35,40 +35,73 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
   const [open, setOpen] = useState(false);
   const isBull = signal.suggested_action.toLowerCase().includes("bull");
   const dirColor = isBull ? "text-bull" : "text-bear";
-  const emoji = signal.polarity === "context_dependent" ? "⚖" : isBull ? "▲" : "▼";
+  const directionLabel = isBull ? "BULL" : "BEAR";
   const deltaSign = signal.delta_pct > 0 ? "+" : "";
-  const polyUrl = `https://polymarket.com/search?q=${encodeURIComponent(signal.market_title.substring(0, 50))}`;
+  const polyUrl = "https://polymarket.com/search?q=" + encodeURIComponent(signal.market_title.substring(0, 50));
+  const detailUrl = "/api/signals/" + signal.id + "/detail";
   const instrument = signal.suggested_instruments?.[0];
+  const verificationStatus = signal.verification_status || "pending";
+  const verificationSource = signal.verification_source || "none";
+  const verificationReason = signal.verification_reason || "No verification decision";
+
+  const verificationClass =
+    verificationStatus === "approved"
+      ? "text-bull border-bull/40 bg-bull/10"
+      : verificationStatus === "rejected"
+        ? "text-bear border-bear/40 bg-bear/10"
+        : "text-whale border-whale/40 bg-whale/10";
+
+  const cardClass = rank === 1 ? "rounded border border-bull/40 bg-bull/5 overflow-hidden" : "rounded border border-border/50 bg-card/30 overflow-hidden";
+  const directionClass = isBull ? "text-bull border-bull/40" : "text-bear border-bear/40";
 
   return (
-    <div className="rounded border border-border/50 overflow-hidden">
+    <div className={cardClass}>
       <div
         className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-secondary/20 transition-colors"
         onClick={() => setOpen(o => !o)}
       >
         <span className="text-xs font-mono font-bold text-muted-foreground w-4">#{rank}</span>
-        <span className={`text-xs font-mono font-bold ${dirColor}`}>{emoji}</span>
-        <span className="text-sm font-medium flex-1 truncate">{signal.matched_asset_name}</span>
+        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${directionClass}`}>
+          {directionLabel}
+        </span>
+        <span className="text-sm font-semibold flex-1 truncate">{signal.matched_asset_name}</span>
         <span className="text-xs font-mono text-muted-foreground hidden sm:block truncate max-w-[200px]">
           {signal.market_title.substring(0, 55)}
         </span>
         <span className={`text-xs font-mono font-bold ${dirColor} shrink-0`}>
           {deltaSign}{signal.delta_pct?.toFixed(1)}%
         </span>
-        <span className="text-xs font-mono text-muted-foreground shrink-0">{signal.confidence}%</span>
-        <span className="text-[10px] font-mono text-muted-foreground uppercase shrink-0">
-          {(signal.verification_status || "pending").replace("_", " ")}
+        <span className="text-xs font-mono text-foreground shrink-0">{signal.confidence}%</span>
+        <span className={`text-[10px] font-mono uppercase shrink-0 px-1.5 py-0.5 rounded border ${verificationClass}`}>
+          {verificationStatus.replace("_", " ")}
         </span>
         {open ? <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" /> : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />}
       </div>
 
       {open && (
-        <div className="px-3 pb-3 pt-1 border-t border-border/50 bg-secondary/10 space-y-2 text-xs">
+        <div className="px-3 pb-3 pt-2 border-t border-border/50 bg-secondary/10 space-y-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground">Setup:</span>
+            <span className={`font-mono font-bold ${dirColor}`}>{directionLabel}</span>
+            <span className="font-mono">{signal.matched_asset_name}</span>
+            {instrument?.name && (
+              <span className="text-muted-foreground">via {instrument.name}</span>
+            )}
+          </div>
+
           <p className="text-foreground leading-relaxed">{signal.market_title}</p>
+
+          <div className="rounded border border-border/50 bg-background/40 px-2 py-1.5">
+            <span className="text-muted-foreground">Why approved:</span>{" "}
+            <span className="text-foreground">{verificationReason}</span>
+            <span className="text-muted-foreground"> ({verificationSource})</span>
+          </div>
+
           <p className="font-mono text-muted-foreground">
-            Odds: {(signal.odds_before * 100).toFixed(0)}% → {(signal.odds_now * 100).toFixed(0)}%
-            &nbsp;({deltaSign}{signal.delta_pct?.toFixed(1)}%)
+            Odds: {(signal.odds_before * 100).toFixed(0)}% -&gt; {(signal.odds_now * 100).toFixed(0)}%{" "}
+            ({deltaSign}{signal.delta_pct?.toFixed(1)}%)
           </p>
+
           {instrument && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Instrument:</span>
@@ -82,29 +115,30 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
               )}
             </div>
           )}
+
           {signal.also_affects && signal.also_affects.length > 0 && (
             <p className="text-muted-foreground/70">
               Also affects: {signal.also_affects.join(', ')}
             </p>
           )}
-          <p className="text-muted-foreground/80">
-            Verification: {(signal.verification_status || "pending")} ({signal.verification_source || "none"}){signal.verification_reason ? ` - ${signal.verification_reason}` : ""}
-          </p>
-          {polyUrl && (
+
+          <div className="flex flex-wrap gap-3">
+            <a href={detailUrl} target="_blank" rel="noopener noreferrer"
+              className="text-bull hover:underline flex items-center gap-1">
+              Open signal detail <ExternalLink className="h-2.5 w-2.5" />
+            </a>
             <a href={polyUrl} target="_blank" rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground flex items-center gap-1">
-              Open on Polymarket search <ExternalLink className="h-2.5 w-2.5" />
+              Open on Polymarket <ExternalLink className="h-2.5 w-2.5" />
             </a>
-          )}
-          <p className="font-mono text-muted-foreground/60">ID: {signal.id}</p>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Context-dependent single card ───────────────────────────────────────────
-
+// Context-dependent single card
 function ContextCard({ bull, bear }: { bull: Signal; bear: Signal }) {
   const [open, setOpen] = useState(false);
   const polyUrl = `https://polymarket.com/search?q=${encodeURIComponent(bull.market_title.substring(0, 50))}`;
@@ -238,17 +272,17 @@ const SignalFeed = () => {
       <div className="rounded-lg border border-bull/20 bg-bull/5 p-4 space-y-2">
         <div className="flex items-center gap-2 mb-1">
           <Trophy className="h-4 w-4 text-bull" />
-          <h2 className="text-sm font-semibold text-bull">AI Top Trades</h2>
+          <h2 className="text-sm font-semibold text-bull">AI Top Trades - Execution Desk</h2>
           <Button
             size="sm"
             variant={includeUnverified ? "outline" : "default"}
             className="h-6 text-[10px] px-2 font-mono"
             onClick={() => setIncludeUnverified(v => !v)}
           >
-            {includeUnverified ? "Show verified only" : "Show all (debug)"}
+            {includeUnverified ? "Show verified only" : "Include unverified (debug)"}
           </Button>
           <span className="text-xs font-mono text-muted-foreground ml-auto">
-            {topLoading ? "Ranking..." : `${topSignals.length} ranked ${includeUnverified ? "(all)" : "(verified)"}`}
+            {topLoading ? "Ranking..." : `${topSignals.length} highest-conviction ${includeUnverified ? "(debug view)" : "(verified only)"}`}
           </span>
         </div>
         {topLoading ? (

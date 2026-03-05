@@ -41,7 +41,12 @@ async function callClaude(prompt: string, timeoutMs = 60000): Promise<string> {
 export type RankedSignal = Signal & { also_affects: string[] };
 
 function isVerificationApproved(signal: Signal): boolean {
-  return signal.verification_status === 'approved';
+  if (signal.verification_status !== 'approved') return false;
+  return (
+    signal.verification_source === 'claude' ||
+    signal.verification_source === 'guard' ||
+    signal.verification_source === 'guard_allowlist'
+  );
 }
 
 /**

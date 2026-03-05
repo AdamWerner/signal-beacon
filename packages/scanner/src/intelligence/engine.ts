@@ -28,6 +28,8 @@ interface DailyBriefingRow {
 }
 
 export class IntelligenceEngine {
+  private static readonly MAX_CONFIDENCE_BOOST = 25;
+
   constructor(private db: Database.Database) {
     this.ensureTables();
   }
@@ -95,6 +97,19 @@ export class IntelligenceEngine {
       }
 
       const boost = Math.min(group.length * 5, 20);
+      // Avoid re-adding identical reinforcement memory every cycle.
+      const existingMemory = this.db.prepare(`
+        SELECT id
+        FROM intelligence_memory
+        WHERE insight = ?
+          AND expires_at > datetime('now')
+        LIMIT 1
+      `).get(`${group.length} markets align ${directions[0].toUpperCase()} for ${group[0].matched_asset_name}`) as { id: number } | undefined;
+
+      if (existingMemory) {
+        continue;
+      }
+
       this.addMemory({
         category: assetId.split('-')[0] || 'unknown',
         insight: `${group.length} markets align ${directions[0].toUpperCase()} for ${group[0].matched_asset_name}`,
@@ -124,7 +139,7 @@ export class IntelligenceEngine {
         AND affected_assets LIKE ?
     `).get(`%${assetId}%`) as { total_boost: number };
 
-    return result.total_boost || 0;
+    return Math.min(result.total_boost || 0, IntelligenceEngine.MAX_CONFIDENCE_BOOST);
   }
 
   getMorningBriefing(market: 'swedish' | 'us'): DailyBriefingRow | null {
