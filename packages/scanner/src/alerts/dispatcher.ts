@@ -122,28 +122,23 @@ export class AlertDispatcher {
       }
     }
 
-    const dedupedSignals = Array.from(byAsset.values())
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5);
+    const dedupedSignals = Array.from(byAsset.values()).sort((a, b) => b.confidence - a.confidence);
+    const topSignal = dedupedSignals[0];
+    if (!topSignal) return 0;
 
-    let sent = false;
-    if (dedupedSignals.length === 1) {
-      sent = await homeAssistant.send(dedupedSignals[0]);
-    } else {
-      sent = await homeAssistant.sendAggregated(dedupedSignals, market);
-    }
+    const sent = await homeAssistant.send(topSignal);
 
     if (!sent) {
-      console.warn(`  HA push attempt failed for ${market} market (${dedupedSignals.length} assets)`);
+      console.warn(`  HA push attempt failed for ${market} market (${topSignal.matched_asset_name})`);
       return 0;
     }
 
     if (this.onSignalsPushed) {
-      this.onSignalsPushed(dedupedSignals.map(signal => signal.id), market);
+      this.onSignalsPushed([topSignal.id], market);
     }
 
-    console.log(`  Pushed aggregated ${market} HA alert (${dedupedSignals.length} assets)`);
-    return dedupedSignals.length;
+    console.log(`  Pushed top ${market} HA alert (${topSignal.matched_asset_name} ${topSignal.confidence}%)`);
+    return 1;
   }
 
   /**

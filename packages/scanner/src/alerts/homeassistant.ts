@@ -53,7 +53,11 @@ export class HomeAssistantAlert {
     const deltaSign = signal.delta_pct > 0 ? '+' : '';
     const oddsLine = `${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}% (${deltaSign}${signal.delta_pct.toFixed(0)}%)`;
     const reason = this.generateShortReason(signal, isBull);
-    const message = `${reason}\n${oddsLine}`;
+    const verificationReason = this.truncateLine(
+      signal.verification_reason || 'Verification pending',
+      100
+    );
+    const message = `${reason}\n${verificationReason}\n${oddsLine}`;
 
     const publicUrl = process.env.PUBLIC_URL || 'http://192.168.0.15:3100';
     const detailUrl = `${publicUrl}/api/signals/${signal.id}/detail`;
@@ -152,5 +156,11 @@ export class HomeAssistantAlert {
 
   private getTicker(assetName: string, fallbackSlice: number): string {
     return TICKER_MAP[assetName] ?? assetName.substring(0, fallbackSlice).toUpperCase();
+  }
+
+  private truncateLine(value: string, maxLength: number): string {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength - 3)}...`;
   }
 }
