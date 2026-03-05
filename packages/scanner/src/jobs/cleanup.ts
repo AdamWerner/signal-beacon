@@ -80,6 +80,18 @@ export class CleanupJob {
         console.log('Cleaning up old tweets...');
         tweetsDeleted = this.tweetStore.cleanupOld(7);
         console.log(`  Deleted ${tweetsDeleted} old tweets`);
+
+        if (this.db) {
+          const legacyDeleted = this.db.prepare(`
+            DELETE FROM tweet_accounts
+            WHERE feed_url IS NULL
+              AND discovery_source IN ('dataset', 'graph')
+              AND handle NOT IN (SELECT DISTINCT account_handle FROM tweet_snapshots)
+          `).run().changes;
+          if (legacyDeleted > 0) {
+            console.log(`  Removed ${legacyDeleted} legacy tweet handles without feed URLs`);
+          }
+        }
       }
 
       // Force WAL checkpoint to prevent unbounded WAL growth (runs daily)

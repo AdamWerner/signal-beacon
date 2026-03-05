@@ -45,3 +45,4 @@ data/*.lock
 # Temp
 .tmp/
 temp/
+packages/scanner/src/tweets/strategic-seed.json

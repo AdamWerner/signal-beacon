@@ -88,21 +88,21 @@ export interface UniverseExpansionResult {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-function loadStrategicSeed(): StrategicSeedAccount[] {
+function loadNewsSources(): NewsSourceAccount[] {
   // Load from data/news-sources.json (financial RSS feeds replacing the defunct Nitter/Twitter approach)
   try {
     const seedPath = join(__dirname, '../../../../data/news-sources.json');
     const raw = readFileSync(seedPath, 'utf8');
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as StrategicSeedAccount[] : [];
+    return Array.isArray(parsed) ? parsed as NewsSourceAccount[] : [];
   } catch {
     return [];
   }
 }
 
-const strategicSeed: StrategicSeedAccount[] = loadStrategicSeed();
+const newsSources: NewsSourceAccount[] = loadNewsSources();
 
-interface StrategicSeedAccount {
+interface NewsSourceAccount {
   handle: string;
   display_name?: string;
   category?: string;
@@ -234,7 +234,7 @@ export class TweetStore {
     let currentCount = previousCount;
 
     const targetSeedPopulation = Math.max(targetUniverse, 1200);
-    const seedAccounts = (strategicSeed as StrategicSeedAccount[]).slice(0, maxSeedInserts);
+    const seedAccounts = (newsSources as NewsSourceAccount[]).slice(0, maxSeedInserts);
 
     for (const seedAccount of seedAccounts) {
       if (currentCount >= targetSeedPopulation && insertedFromSeed > 0) break;
