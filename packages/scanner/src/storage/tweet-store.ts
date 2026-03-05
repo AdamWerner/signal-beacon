@@ -1,13 +1,26 @@
 ﻿import Database from 'better-sqlite3';
+import { readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+export type TweetCategory = 'macro' | 'energy' | 'defense' | 'tech' | 'swedish' | 'crypto' | 'unknown';
+export type TweetDiscoverySource = 'seed' | 'dataset' | 'graph' | 'manual';
 
 export interface TweetAccount {
   id: number;
   handle: string;
   display_name: string | null;
-  category: 'macro' | 'energy' | 'defense' | 'tech' | 'swedish' | 'crypto';
+  category: TweetCategory;
   weight: number;
   is_active: boolean;
+  discovery_source: TweetDiscoverySource;
+  causality_score: number;
+  causal_tags: string;
+  causal_thesis: string | null;
+  discovery_depth: number;
+  collect_enabled: boolean;
   last_scraped_at: string | null;
+  last_collected_at: string | null;
   scrape_failures: number;
 }
 
@@ -28,7 +41,7 @@ export interface TweetSnapshot {
 }
 
 export interface UnprocessedTweet extends TweetSnapshot {
-  category: TweetAccount['category'];
+  category: TweetCategory;
   weight: number;
 }
 
@@ -43,83 +56,284 @@ export interface InsertTweet {
   replies?: number;
 }
 
-export const DEFAULT_TWEET_ACCOUNTS: Array<{
+export interface UpsertTweetAccountInput {
+  handle: string;
+  displayName?: string;
+  category: TweetCategory;
+  weight: number;
+  causalityScore: number;
+  discoverySource: TweetDiscoverySource;
+  collectEnabled?: boolean;
+  discoveryDepth?: number;
+  causalTags?: string[];
+  causalThesis?: string;
+  isActive?: boolean;
+}
+
+export interface ConnectionDiscoveryResult {
+  accountsAdded: number;
+  connectionsAdded: number;
+}
+
+export interface UniverseExpansionResult {
+  previousCount: number;
+  currentCount: number;
+  insertedFromSeed: number;
+  discoveredFromConnections: number;
+  collectionSetSize: number;
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+function loadStrategicSeed(): StrategicSeedAccount[] {
+  try {
+    const seedPath = join(__dirname, '../tweets/strategic-seed.json');
+    const raw = readFileSync(seedPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as StrategicSeedAccount[] : [];
+  } catch {
+    return [];
+  }
+}
+
+const strategicSeed: StrategicSeedAccount[] = loadStrategicSeed();
+
+interface StrategicSeedAccount {
+  handle: string;
+  display_name?: string;
+  category?: string;
+  weight?: number;
+  causality_score?: number;
+  discovery_source?: string;
+  collect_enabled?: boolean;
+  discovery_depth?: number;
+  causal_tags?: string[];
+  causal_thesis?: string;
+}
+
+const CORE_CAUSAL_ACCOUNTS: Array<{
   handle: string;
   display_name: string;
-  category: TweetAccount['category'];
+  category: TweetCategory;
+  causality_score: number;
   weight: number;
+  causal_tags: string[];
+  causal_thesis: string;
 }> = [
-  // Macro
-  { handle: 'NickTimiraos', display_name: 'Nick Timiraos', category: 'macro', weight: 2.5 },
-  { handle: 'DeItaone', display_name: 'Walter Bloomberg', category: 'macro', weight: 2.4 },
-  { handle: 'FirstSquawk', display_name: 'First Squawk', category: 'macro', weight: 2.0 },
-  { handle: 'markets', display_name: 'Bloomberg Markets', category: 'macro', weight: 2.0 },
-  { handle: 'ReutersBiz', display_name: 'Reuters Business', category: 'macro', weight: 2.0 },
-  { handle: 'financialjuice', display_name: 'FinancialJuice', category: 'macro', weight: 1.6 },
-  { handle: 'ForexLive', display_name: 'ForexLive', category: 'macro', weight: 1.5 },
-  { handle: 'unusual_whales', display_name: 'Unusual Whales', category: 'macro', weight: 1.8 },
+  { handle: 'NickTimiraos', display_name: 'Nick Timiraos', category: 'macro', causality_score: 0.98, weight: 2.5, causal_tags: ['rates', 'policy'], causal_thesis: 'Fed signaling reprices rates, broad equity risk, and USD-sensitive assets.' },
+  { handle: 'DeItaone', display_name: 'Walter Bloomberg', category: 'macro', causality_score: 0.96, weight: 2.5, causal_tags: ['macro', 'policy'], causal_thesis: 'Fast macro headlines drive immediate sentiment and volatility repricing.' },
+  { handle: 'FirstSquawk', display_name: 'First Squawk', category: 'macro', causality_score: 0.94, weight: 2.4, causal_tags: ['macro', 'policy'], causal_thesis: 'Low-latency macro headlines change intraday directional bias.' },
+  { handle: 'markets', display_name: 'Bloomberg Markets', category: 'macro', causality_score: 0.94, weight: 2.3, causal_tags: ['macro'], causal_thesis: 'Institutional market headlines influence global risk-on/risk-off rotation.' },
+  { handle: 'ReutersBiz', display_name: 'Reuters Business', category: 'macro', causality_score: 0.92, weight: 2.2, causal_tags: ['macro'], causal_thesis: 'Cross-asset business headlines change market narrative and capital flows.' },
+  { handle: 'financialjuice', display_name: 'FinancialJuice', category: 'macro', causality_score: 0.88, weight: 2.0, causal_tags: ['macro'], causal_thesis: 'Macro event streams reinforce real-time market positioning.' },
+  { handle: 'ForexLive', display_name: 'ForexLive', category: 'macro', causality_score: 0.86, weight: 1.9, causal_tags: ['rates', 'macro'], causal_thesis: 'FX/rates commentary transmits quickly into equity index sentiment.' },
+  { handle: 'unusual_whales', display_name: 'Unusual Whales', category: 'macro', causality_score: 0.84, weight: 1.9, causal_tags: ['options', 'flow'], causal_thesis: 'Options flow and headline synthesis can front-run short-term positioning.' },
 
-  // Energy
-  { handle: 'JavierBlas', display_name: 'Javier Blas', category: 'energy', weight: 2.5 },
-  { handle: 'Amaborst', display_name: 'Amena Bakr', category: 'energy', weight: 2.0 },
-  { handle: 'DavidSheppard4', display_name: 'David Sheppard', category: 'energy', weight: 1.8 },
+  { handle: 'JavierBlas', display_name: 'Javier Blas', category: 'energy', causality_score: 0.95, weight: 2.4, causal_tags: ['energy'], causal_thesis: 'Energy supply commentary can quickly move oil-linked equities.' },
+  { handle: 'Amaborst', display_name: 'Amena Bakr', category: 'energy', causality_score: 0.92, weight: 2.2, causal_tags: ['energy'], causal_thesis: 'OPEC/production signals directly impact energy equity expectations.' },
+  { handle: 'DavidSheppard4', display_name: 'David Sheppard', category: 'energy', causality_score: 0.88, weight: 2.0, causal_tags: ['energy'], causal_thesis: 'Oil market structure updates affect cyclical and commodity-linked assets.' },
 
-  // Defense
-  { handle: 'RALee85', display_name: 'Rob Lee', category: 'defense', weight: 1.7 },
-  { handle: 'sentdefender', display_name: 'SentDefender', category: 'defense', weight: 1.6 },
-  { handle: 'IntelCrab', display_name: 'IntelCrab', category: 'defense', weight: 1.4 },
-  { handle: 'Faytuks', display_name: 'Faytuks News', category: 'defense', weight: 1.2 },
+  { handle: 'RALee85', display_name: 'Rob Lee', category: 'defense', causality_score: 0.84, weight: 1.8, causal_tags: ['defense', 'geopolitics'], causal_thesis: 'Conflict escalation signals can rerate defense and energy risk premia.' },
+  { handle: 'sentdefender', display_name: 'SentDefender', category: 'defense', causality_score: 0.82, weight: 1.7, causal_tags: ['defense', 'geopolitics'], causal_thesis: 'Breaking geopolitics shifts defense demand expectations and market risk appetite.' },
+  { handle: 'IntelCrab', display_name: 'IntelCrab', category: 'defense', causality_score: 0.78, weight: 1.6, causal_tags: ['defense'], causal_thesis: 'High-frequency conflict updates affect defense/oil beta trade ideas.' },
 
-  // Tech
-  { handle: 'sama', display_name: 'Sam Altman', category: 'tech', weight: 2.1 },
-  { handle: 'elonmusk', display_name: 'Elon Musk', category: 'tech', weight: 2.3 },
-  { handle: 'JensenHuang', display_name: 'Jensen Huang', category: 'tech', weight: 2.0 },
-  { handle: 'StockMKTNewz', display_name: 'StockMKTNewz', category: 'tech', weight: 1.1 },
+  { handle: 'sama', display_name: 'Sam Altman', category: 'tech', causality_score: 0.84, weight: 1.9, causal_tags: ['tech', 'ai'], causal_thesis: 'Major AI platform direction can alter semiconductor/software sentiment.' },
+  { handle: 'elonmusk', display_name: 'Elon Musk', category: 'tech', causality_score: 0.86, weight: 2.0, causal_tags: ['tech', 'ev'], causal_thesis: 'High-reach product/policy statements can move EV and AI-adjacent sentiment.' },
+  { handle: 'JensenHuang', display_name: 'Jensen Huang', category: 'tech', causality_score: 0.88, weight: 2.0, causal_tags: ['tech', 'ai'], causal_thesis: 'Semiconductor leadership commentary influences AI equity momentum.' },
 
-  // Swedish
-  { handle: 'avaborsen', display_name: 'Avanza Borsen', category: 'swedish', weight: 1.7 },
-  { handle: 'nordaborsen', display_name: 'Nordnet Borsen', category: 'swedish', weight: 1.6 },
-  { handle: 'didigital', display_name: 'DI Digital', category: 'swedish', weight: 1.4 },
-  { handle: 'Placera', display_name: 'Placera', category: 'swedish', weight: 1.2 },
-  { handle: 'Affarsvarlden', display_name: 'Affarsvarlden', category: 'swedish', weight: 1.2 },
+  { handle: 'avaborsen', display_name: 'Avanza Borsen', category: 'swedish', causality_score: 0.82, weight: 1.8, causal_tags: ['swedish'], causal_thesis: 'Retail Swedish flow and local narratives can influence OMX-linked setups.' },
+  { handle: 'nordaborsen', display_name: 'Nordnet Borsen', category: 'swedish', causality_score: 0.80, weight: 1.7, causal_tags: ['swedish'], causal_thesis: 'Local Swedish market pulse can sharpen timing for OMX assets.' },
+  { handle: 'didigital', display_name: 'DI Digital', category: 'swedish', causality_score: 0.76, weight: 1.6, causal_tags: ['swedish', 'tech'], causal_thesis: 'Swedish tech/business coverage can impact domestic risk sentiment.' },
 
-  // Crypto
-  { handle: 'WatcherGuru', display_name: 'Watcher Guru', category: 'crypto', weight: 1.0 },
-  { handle: 'whale_alert', display_name: 'Whale Alert', category: 'crypto', weight: 1.0 }
+  { handle: 'WatcherGuru', display_name: 'Watcher Guru', category: 'crypto', causality_score: 0.72, weight: 1.4, causal_tags: ['crypto'], causal_thesis: 'Crypto headline velocity can spill over into Coinbase proxies.' },
+  { handle: 'whale_alert', display_name: 'Whale Alert', category: 'crypto', causality_score: 0.72, weight: 1.4, causal_tags: ['crypto', 'flow'], causal_thesis: 'Large on-chain flow can influence short-term crypto risk perception.' }
 ];
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeHandle(handle: string): string | null {
+  const cleaned = `${handle || ''}`.trim().replace(/^@+/, '');
+  if (!/^[A-Za-z0-9_]{2,15}$/.test(cleaned)) return null;
+  return cleaned;
+}
+
+function inferCategoryFromText(text: string, fallback: TweetCategory): TweetCategory {
+  const t = text.toLowerCase();
+  if (/(sweden|swedish|stockholm|nordic|omx)/.test(t)) return 'swedish';
+  if (/(crypto|bitcoin|ethereum|token|coinbase)/.test(t)) return 'crypto';
+  if (/(oil|energy|gas|opec|brent|crude|lng)/.test(t)) return 'energy';
+  if (/(defense|military|nato|war|missile|conflict)/.test(t)) return 'defense';
+  if (/(ai|tech|semiconductor|chip|software|cloud|nvidia|tesla|palantir)/.test(t)) return 'tech';
+  if (/(fed|ecb|inflation|rates|payroll|treasury|yield|macro|market)/.test(t)) return 'macro';
+  return fallback;
+}
+
+function computeGraphScore(sourceScore: number, tweetText: string): number {
+  const t = tweetText.toLowerCase();
+  let bonus = 0;
+  if (/(breaking|exclusive|urgent|confirmed)/.test(t)) bonus += 0.06;
+  if (/(fed|ecb|inflation|rates|jobs|treasury|yield)/.test(t)) bonus += 0.08;
+  if (/(oil|energy|opec|defense|war|nato|ai|semiconductor|earnings|guidance)/.test(t)) bonus += 0.08;
+  return clamp(sourceScore * 0.78 + bonus, 0.25, 0.92);
+}
+
+function toWeight(causalityScore: number): number {
+  return Number(clamp(0.5 + causalityScore * 2.0, 0.5, 2.5).toFixed(2));
+}
+
+function toTagSet(tags?: string[]): string[] {
+  if (!Array.isArray(tags)) return [];
+  return [...new Set(tags.filter(tag => typeof tag === 'string' && tag.trim().length > 0))];
+}
+
+function mergeTagJson(existingJson: string | null, nextTags: string[]): string {
+  let existing: string[] = [];
+  try {
+    existing = JSON.parse(existingJson || '[]');
+  } catch {
+    existing = [];
+  }
+  const merged = [...new Set([...existing, ...nextTags])];
+  return JSON.stringify(merged);
+}
 
 export class TweetStore {
   constructor(private db: Database.Database) {}
 
-  /**
-   * Seed default accounts if table is empty.
-   */
-  seedDefaultAccounts(): number {
-    const count = (this.db.prepare('SELECT COUNT(*) as c FROM tweet_accounts').get() as { c: number }).c;
-    if (count > 0) return 0;
+  seedDefaultAccounts(targetUniverse = 1200): UniverseExpansionResult {
+    const previousCount = this.getAccountCount();
 
-    const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO tweet_accounts (handle, display_name, category, weight)
-      VALUES (?, ?, ?, ?)
-    `);
-
-    let inserted = 0;
-    for (const account of DEFAULT_TWEET_ACCOUNTS) {
-      stmt.run(account.handle, account.display_name, account.category, account.weight);
-      inserted += 1;
+    for (const account of CORE_CAUSAL_ACCOUNTS) {
+      this.upsertTweetAccount({
+        handle: account.handle,
+        displayName: account.display_name,
+        category: account.category,
+        weight: account.weight,
+        causalityScore: account.causality_score,
+        discoverySource: 'seed',
+        collectEnabled: true,
+        discoveryDepth: 0,
+        causalTags: account.causal_tags,
+        causalThesis: account.causal_thesis,
+        isActive: true
+      });
     }
 
-    return inserted;
+    return this.expandUniverseToTarget(targetUniverse, 2200, previousCount);
   }
 
-  getActiveAccounts(): TweetAccount[] {
+  expandUniverseToTarget(
+    targetUniverse = 1200,
+    maxSeedInserts = 2200,
+    baselineCount?: number
+  ): UniverseExpansionResult {
+    let insertedFromSeed = 0;
+    const previousCount = baselineCount ?? this.getAccountCount();
+    let currentCount = previousCount;
+
+    const targetSeedPopulation = Math.max(targetUniverse, 1200);
+    const seedAccounts = (strategicSeed as StrategicSeedAccount[]).slice(0, maxSeedInserts);
+
+    for (const seedAccount of seedAccounts) {
+      if (currentCount >= targetSeedPopulation && insertedFromSeed > 0) break;
+
+      const handle = normalizeHandle(seedAccount.handle || '');
+      if (!handle) continue;
+
+      const category = this.normalizeCategory(seedAccount.category || 'macro');
+      const score = clamp(Number(seedAccount.causality_score ?? 0.35), 0.10, 0.98);
+      const result = this.upsertTweetAccount({
+        handle,
+        displayName: seedAccount.display_name || handle,
+        category,
+        weight: clamp(Number(seedAccount.weight ?? toWeight(score)), 0.5, 2.5),
+        causalityScore: score,
+        discoverySource: (seedAccount.discovery_source as TweetDiscoverySource) || 'dataset',
+        collectEnabled: Boolean(seedAccount.collect_enabled) && score >= 0.68,
+        discoveryDepth: Number(seedAccount.discovery_depth ?? 1),
+        causalTags: toTagSet(seedAccount.causal_tags),
+        causalThesis: seedAccount.causal_thesis || 'Market-relevant news flow contributes to sector-level sentiment shifts.',
+        isActive: true
+      });
+
+      if (result.inserted) {
+        insertedFromSeed += 1;
+        currentCount += 1;
+      }
+    }
+
+    const discoveryResult = this.discoverConnectionsFromRecentTweets(48, 500);
+    currentCount = this.getAccountCount();
+    const collectionSetSize = this.rebalanceCollectionSet(140);
+
+    return {
+      previousCount,
+      currentCount,
+      insertedFromSeed,
+      discoveredFromConnections: discoveryResult.accountsAdded,
+      collectionSetSize
+    };
+  }
+
+  getAccountCount(): number {
+    const row = this.db.prepare('SELECT COUNT(*) as c FROM tweet_accounts').get() as { c: number };
+    return row.c;
+  }
+
+  getActiveAccounts(limit = 1000): TweetAccount[] {
     return this.db.prepare(
-      'SELECT * FROM tweet_accounts WHERE is_active = TRUE ORDER BY weight DESC'
-    ).all() as TweetAccount[];
+      `SELECT * FROM tweet_accounts WHERE is_active = TRUE ORDER BY causality_score DESC, weight DESC LIMIT ?`
+    ).all(limit) as TweetAccount[];
   }
 
-  insertTweet(tweet: InsertTweet): void {
-    this.db.prepare(`
+  getAccountsForCollection(limit = 120): TweetAccount[] {
+    return this.db.prepare(`
+      SELECT *
+      FROM tweet_accounts
+      WHERE is_active = TRUE
+        AND collect_enabled = TRUE
+      ORDER BY COALESCE(last_collected_at, last_scraped_at, '1970-01-01') ASC,
+               causality_score DESC,
+               weight DESC
+      LIMIT ?
+    `).all(limit) as TweetAccount[];
+  }
+
+  getUniverseStats() {
+    const total = this.getAccountCount();
+    const collectEnabled = (this.db.prepare(
+      `SELECT COUNT(*) as c FROM tweet_accounts WHERE collect_enabled = TRUE`
+    ).get() as { c: number }).c;
+
+    const bySource = Object.fromEntries(
+      (this.db.prepare(`
+        SELECT discovery_source as source, COUNT(*) as c
+        FROM tweet_accounts
+        GROUP BY discovery_source
+      `).all() as Array<{ source: string; c: number }>).map(row => [row.source, row.c])
+    );
+
+    const byCategory = Object.fromEntries(
+      (this.db.prepare(`
+        SELECT category, COUNT(*) as c
+        FROM tweet_accounts
+        GROUP BY category
+      `).all() as Array<{ category: string; c: number }>).map(row => [row.category, row.c])
+    );
+
+    return {
+      total,
+      collect_enabled: collectEnabled,
+      by_source: bySource,
+      by_category: byCategory
+    };
+  }
+
+  insertTweet(tweet: InsertTweet): boolean {
+    const info = this.db.prepare(`
       INSERT OR IGNORE INTO tweet_snapshots (
         account_handle, tweet_id, tweet_text, tweet_url, posted_at,
         likes, retweets, replies
@@ -134,11 +348,17 @@ export class TweetStore {
       tweet.retweets || 0,
       tweet.replies || 0
     );
+
+    return info.changes > 0;
   }
 
   markAccountScraped(handle: string): void {
     this.db.prepare(
-      `UPDATE tweet_accounts SET last_scraped_at = datetime('now'), scrape_failures = 0 WHERE handle = ?`
+      `UPDATE tweet_accounts
+       SET last_scraped_at = datetime('now'),
+           last_collected_at = datetime('now'),
+           scrape_failures = 0
+       WHERE handle = ?`
     ).run(handle);
   }
 
@@ -148,9 +368,121 @@ export class TweetStore {
     ).run(handle);
   }
 
-  /**
-   * Get recent unprocessed tweets for batch AI analysis.
-   */
+  recordConnectionsFromTweet(sourceHandle: string, tweetText: string): ConnectionDiscoveryResult {
+    const source = this.db.prepare(
+      `SELECT handle, category, causality_score, discovery_depth FROM tweet_accounts WHERE handle = ?`
+    ).get(sourceHandle) as { handle: string; category: TweetCategory; causality_score: number; discovery_depth: number } | undefined;
+
+    if (!source) {
+      return { accountsAdded: 0, connectionsAdded: 0 };
+    }
+
+    const mentions = new Set<string>();
+    const regex = /@([A-Za-z0-9_]{2,15})/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(tweetText)) !== null) {
+      const handle = normalizeHandle(match[1]);
+      if (!handle) continue;
+      if (handle.toLowerCase() === sourceHandle.toLowerCase()) continue;
+      mentions.add(handle);
+    }
+
+    if (mentions.size === 0) {
+      return { accountsAdded: 0, connectionsAdded: 0 };
+    }
+
+    let accountsAdded = 0;
+    let connectionsAdded = 0;
+
+    for (const targetHandle of mentions) {
+      const evidence = tweetText.length > 240 ? `${tweetText.slice(0, 237)}...` : tweetText;
+
+      const connectionInfo = this.db.prepare(`
+        INSERT INTO tweet_account_connections (
+          source_handle, target_handle, connection_type, evidence_text, weight, first_seen_at, last_seen_at
+        ) VALUES (?, ?, 'mention', ?, 1.0, datetime('now'), datetime('now'))
+        ON CONFLICT(source_handle, target_handle, connection_type)
+        DO UPDATE SET
+          weight = tweet_account_connections.weight + 1.0,
+          evidence_text = excluded.evidence_text,
+          last_seen_at = datetime('now')
+      `).run(sourceHandle, targetHandle, evidence);
+
+      if (connectionInfo.changes > 0) {
+        connectionsAdded += 1;
+      }
+
+      const inferredCategory = inferCategoryFromText(tweetText, source.category || 'unknown');
+      const inferredScore = computeGraphScore(source.causality_score || 0.35, tweetText);
+      const upsert = this.upsertTweetAccount({
+        handle: targetHandle,
+        displayName: targetHandle,
+        category: inferredCategory,
+        weight: toWeight(inferredScore),
+        causalityScore: inferredScore,
+        discoverySource: 'graph',
+        collectEnabled: inferredScore >= 0.82,
+        discoveryDepth: Number(source.discovery_depth || 0) + 1,
+        causalTags: ['graph', inferredCategory],
+        causalThesis: `Mentioned by @${sourceHandle}; may transmit ${inferredCategory} signal flow.`,
+        isActive: true
+      });
+
+      if (upsert.inserted) {
+        accountsAdded += 1;
+      }
+    }
+
+    return { accountsAdded, connectionsAdded };
+  }
+
+  discoverConnectionsFromRecentTweets(hours = 48, maxAccountsToAdd = 250): ConnectionDiscoveryResult {
+    const tweets = this.db.prepare(`
+      SELECT account_handle, tweet_text
+      FROM tweet_snapshots
+      WHERE scraped_at >= datetime('now', '-' || ? || ' hours')
+      ORDER BY scraped_at DESC
+      LIMIT 1200
+    `).all(hours) as Array<{ account_handle: string; tweet_text: string }>;
+
+    let accountsAdded = 0;
+    let connectionsAdded = 0;
+
+    for (const tweet of tweets) {
+      if (accountsAdded >= maxAccountsToAdd) break;
+      const result = this.recordConnectionsFromTweet(tweet.account_handle, tweet.tweet_text);
+      accountsAdded += result.accountsAdded;
+      connectionsAdded += result.connectionsAdded;
+    }
+
+    return { accountsAdded, connectionsAdded };
+  }
+
+  rebalanceCollectionSet(maxCollect = 120): number {
+    this.db.prepare(`UPDATE tweet_accounts SET collect_enabled = FALSE WHERE is_active = TRUE`).run();
+
+    const coreHandles = CORE_CAUSAL_ACCOUNTS.map(account => account.handle);
+    const topHandles = this.db.prepare(`
+      SELECT handle
+      FROM tweet_accounts
+      WHERE is_active = TRUE
+      ORDER BY
+        CASE WHEN discovery_source = 'seed' THEN 1 ELSE 0 END DESC,
+        causality_score DESC,
+        weight DESC,
+        scrape_failures ASC
+      LIMIT ?
+    `).all(maxCollect) as Array<{ handle: string }>;
+
+    const selected = new Set<string>([...coreHandles, ...topHandles.map(row => row.handle)]);
+    const stmt = this.db.prepare(`UPDATE tweet_accounts SET collect_enabled = TRUE WHERE handle = ?`);
+    for (const handle of selected) {
+      stmt.run(handle);
+    }
+
+    return selected.size;
+  }
+
   getUnprocessedTweets(limit = 200): UnprocessedTweet[] {
     return this.db.prepare(`
       SELECT ts.*, ta.category, ta.weight
@@ -158,12 +490,12 @@ export class TweetStore {
       JOIN tweet_accounts ta ON ta.handle = ts.account_handle
       WHERE ts.ai_processed = FALSE
         AND ts.scraped_at >= datetime('now', '-24 hours')
-      ORDER BY ta.weight DESC, ts.scraped_at DESC
+      ORDER BY ta.causality_score DESC, ta.weight DESC, ts.scraped_at DESC
       LIMIT ?
     `).all(limit) as UnprocessedTweet[];
   }
 
-  getRecentByCategory(category: TweetAccount['category'], hours = 24): TweetSnapshot[] {
+  getRecentByCategory(category: TweetCategory, hours = 24): TweetSnapshot[] {
     return this.db.prepare(`
       SELECT ts.*
       FROM tweet_snapshots ts
@@ -192,6 +524,7 @@ export class TweetStore {
     byCategory: Record<string, number>;
     bySentiment: Record<string, number>;
     topAccountActivity: Array<{ handle: string; count: number; weight: number }>;
+    universe: ReturnType<TweetStore['getUniverseStats']>;
   } {
     const total = (this.db.prepare(`
       SELECT COUNT(*) as c FROM tweet_snapshots
@@ -228,12 +561,113 @@ export class TweetStore {
       LIMIT 10
     `).all(hours) as Array<{ handle: string; count: number; weight: number }>;
 
-    return { total, byCategory, bySentiment, topAccountActivity };
+    return {
+      total,
+      byCategory,
+      bySentiment,
+      topAccountActivity,
+      universe: this.getUniverseStats()
+    };
   }
 
   cleanupOld(daysToKeep: number): number {
-    return this.db.prepare(
+    const deletedTweets = this.db.prepare(
       `DELETE FROM tweet_snapshots WHERE scraped_at < datetime('now', '-' || ? || ' days')`
     ).run(daysToKeep).changes;
+
+    // Prune very low-confidence graph accounts with no collected tweets to keep universe healthy.
+    this.db.prepare(`
+      DELETE FROM tweet_accounts
+      WHERE discovery_source = 'graph'
+        AND causality_score < 0.30
+        AND handle NOT IN (SELECT DISTINCT account_handle FROM tweet_snapshots)
+    `).run();
+
+    return deletedTweets;
+  }
+
+  private upsertTweetAccount(input: UpsertTweetAccountInput): { inserted: boolean } {
+    const handle = normalizeHandle(input.handle);
+    if (!handle) return { inserted: false };
+
+    const existing = this.db.prepare(`SELECT * FROM tweet_accounts WHERE handle = ?`).get(handle) as TweetAccount | undefined;
+    const category = this.normalizeCategory(input.category);
+    const score = clamp(input.causalityScore, 0.10, 0.99);
+    const weight = clamp(input.weight, 0.5, 2.5);
+    const tags = toTagSet(input.causalTags);
+
+    if (!existing) {
+      this.db.prepare(`
+        INSERT INTO tweet_accounts (
+          handle, display_name, category, weight, is_active,
+          discovery_source, causality_score, causal_tags, causal_thesis,
+          discovery_depth, collect_enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        handle,
+        input.displayName || handle,
+        category,
+        weight,
+        input.isActive === false ? 0 : 1,
+        input.discoverySource,
+        score,
+        JSON.stringify(tags),
+        input.causalThesis || null,
+        Number(input.discoveryDepth ?? 0),
+        input.collectEnabled ? 1 : 0
+      );
+      return { inserted: true };
+    }
+
+    const mergedTags = mergeTagJson(existing.causal_tags, tags);
+    const mergedSource: TweetDiscoverySource = existing.discovery_source === 'seed'
+      ? 'seed'
+      : (existing.discovery_source || input.discoverySource);
+
+    const mergedCategory: TweetCategory = existing.discovery_source === 'seed'
+      ? this.normalizeCategory(existing.category)
+      : category;
+
+    const mergedScore = Math.max(existing.causality_score || 0.0, score);
+    const mergedWeight = Math.max(existing.weight || 0.5, weight);
+    const mergedDepth = Math.min(Number(existing.discovery_depth || 0), Number(input.discoveryDepth ?? existing.discovery_depth ?? 0));
+    const mergedCollect = Boolean(existing.collect_enabled) || Boolean(input.collectEnabled) || mergedScore >= 0.82;
+
+    this.db.prepare(`
+      UPDATE tweet_accounts
+      SET display_name = COALESCE(?, display_name),
+          category = ?,
+          weight = ?,
+          is_active = ?,
+          discovery_source = ?,
+          causality_score = ?,
+          causal_tags = ?,
+          causal_thesis = COALESCE(?, causal_thesis),
+          discovery_depth = ?,
+          collect_enabled = ?
+      WHERE handle = ?
+    `).run(
+      input.displayName || null,
+      mergedCategory,
+      mergedWeight,
+      input.isActive === false ? 0 : 1,
+      mergedSource,
+      mergedScore,
+      mergedTags,
+      input.causalThesis || null,
+      Number.isFinite(mergedDepth) ? mergedDepth : 0,
+      mergedCollect ? 1 : 0,
+      handle
+    );
+
+    return { inserted: false };
+  }
+
+  private normalizeCategory(category: string): TweetCategory {
+    if (category === 'macro' || category === 'energy' || category === 'defense' || category === 'tech' || category === 'swedish' || category === 'crypto') {
+      return category;
+    }
+    return 'unknown';
   }
 }
+

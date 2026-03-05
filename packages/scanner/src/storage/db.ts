@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+﻿import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -19,13 +19,11 @@ export function initializeDatabase(): Database.Database {
 }
 
 function runMigrations(db: Database.Database): void {
-  // If the signals table has the old polarity CHECK (direct|inverse only), recreate it
   const tableInfo = db.prepare(
     `SELECT sql FROM sqlite_master WHERE type='table' AND name='signals'`
   ).get() as { sql: string } | undefined;
 
   if (tableInfo?.sql && !tableInfo.sql.includes('context_dependent')) {
-    // Old schema — recreate signals table to support context_dependent polarity
     db.exec(`
       ALTER TABLE signals RENAME TO signals_old;
 
@@ -74,26 +72,34 @@ function runMigrations(db: Database.Database): void {
     `);
   }
 
-  // Add new columns to existing databases (fails silently if column already exists)
   for (const sql of [
     `ALTER TABLE signals ADD COLUMN requires_judgment BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE signals ADD COLUMN deduplication_key TEXT`,
     `ALTER TABLE signals ADD COLUMN ai_analysis TEXT`,
     `ALTER TABLE whale_events ADD COLUMN trade_id TEXT`,
     `ALTER TABLE tracked_markets ADD COLUMN gamma_id TEXT`,
+
+    // Tweet account enrichment
+    `ALTER TABLE tweet_accounts ADD COLUMN discovery_source TEXT DEFAULT 'seed'`,
+    `ALTER TABLE tweet_accounts ADD COLUMN causality_score REAL DEFAULT 0.35`,
+    `ALTER TABLE tweet_accounts ADD COLUMN causal_tags TEXT DEFAULT '[]'`,
+    `ALTER TABLE tweet_accounts ADD COLUMN causal_thesis TEXT`,
+    `ALTER TABLE tweet_accounts ADD COLUMN discovery_depth INTEGER DEFAULT 0`,
+    `ALTER TABLE tweet_accounts ADD COLUMN collect_enabled BOOLEAN DEFAULT TRUE`,
+    `ALTER TABLE tweet_accounts ADD COLUMN last_collected_at DATETIME`,
   ]) {
-    try { db.exec(sql); } catch { /* column already exists */ }
+    try {
+      db.exec(sql);
+    } catch {
+      // Column already exists.
+    }
   }
 
-  // Indexes — safe to re-run
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_signals_dedup ON signals(deduplication_key, timestamp DESC)`);
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_whale_trade_id ON whale_events(trade_id) WHERE trade_id IS NOT NULL`);
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_whale_events_dedup ON whale_events(market_condition_id, trade_id) WHERE trade_id IS NOT NULL`);
-  } catch { /* index already exists */ }
 
-  // Tweet tables — safe to re-run (CREATE IF NOT EXISTS)
-  try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS tweet_accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,9 +108,17 @@ function runMigrations(db: Database.Database): void {
         category TEXT NOT NULL,
         weight REAL DEFAULT 1.0,
         is_active BOOLEAN DEFAULT TRUE,
+        discovery_source TEXT DEFAULT 'seed',
+        causality_score REAL DEFAULT 0.35,
+        causal_tags TEXT DEFAULT '[]',
+        causal_thesis TEXT,
+        discovery_depth INTEGER DEFAULT 0,
+        collect_enabled BOOLEAN DEFAULT TRUE,
         last_scraped_at DATETIME,
+        last_collected_at DATETIME,
         scrape_failures INTEGER DEFAULT 0
       );
+
       CREATE TABLE IF NOT EXISTS tweet_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         account_handle TEXT NOT NULL,
@@ -121,14 +135,40 @@ function runMigrations(db: Database.Database): void {
         ai_processed BOOLEAN DEFAULT FALSE,
         FOREIGN KEY (account_handle) REFERENCES tweet_accounts(handle)
       );
-      CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_scraped ON tweet_snapshots(scraped_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_unprocessed ON tweet_snapshots(ai_processed) WHERE ai_processed = FALSE;
+
+      CREATE TABLE IF NOT EXISTS tweet_account_connections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_handle TEXT NOT NULL,
+        target_handle TEXT NOT NULL,
+        connection_type TEXT NOT NULL,
+        evidence_text TEXT,
+        weight REAL DEFAULT 1.0,
+        first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(source_handle, target_handle, connection_type)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tweet_accounts_collect
+      ON tweet_accounts(collect_enabled, causality_score DESC, last_collected_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_tweet_accounts_source
+      ON tweet_accounts(discovery_source, causality_score DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_scraped
+      ON tweet_snapshots(scraped_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_unprocessed
+      ON tweet_snapshots(ai_processed) WHERE ai_processed = FALSE;
+
+      CREATE INDEX IF NOT EXISTS idx_tweet_connections_target
+      ON tweet_account_connections(target_handle, last_seen_at DESC);
     `);
-  } catch { /* already exists */ }
+  } catch {
+    // Tables/indexes already exist.
+  }
 }
 
 function createTables(db: Database.Database): void {
-  // Avanza instruments (certificates) registry
   db.exec(`
     CREATE TABLE IF NOT EXISTS instruments (
       id TEXT PRIMARY KEY,
@@ -152,7 +192,6 @@ function createTables(db: Database.Database): void {
     ON instruments(is_active) WHERE is_active = TRUE;
   `);
 
-  // Tracked Polymarket markets
   db.exec(`
     CREATE TABLE IF NOT EXISTS tracked_markets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,7 +217,6 @@ function createTables(db: Database.Database): void {
     ON tracked_markets(is_active) WHERE is_active = TRUE;
   `);
 
-  // Odds snapshots (historical odds tracking)
   db.exec(`
     CREATE TABLE IF NOT EXISTS odds_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,7 +232,6 @@ function createTables(db: Database.Database): void {
     ON odds_snapshots(market_condition_id, timestamp DESC);
   `);
 
-  // Whale events (large trades detected)
   db.exec(`
     CREATE TABLE IF NOT EXISTS whale_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,7 +252,6 @@ function createTables(db: Database.Database): void {
     ON whale_events(trade_id) WHERE trade_id IS NOT NULL;
   `);
 
-  // Generated trade signals
   db.exec(`
     CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY,
@@ -252,7 +288,6 @@ function createTables(db: Database.Database): void {
     ON signals(deduplication_key, timestamp DESC);
   `);
 
-  // Job execution log (for monitoring scheduled jobs)
   db.exec(`
     CREATE TABLE IF NOT EXISTS job_executions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -268,7 +303,6 @@ function createTables(db: Database.Database): void {
     ON job_executions(job_name, started_at DESC);
   `);
 
-  // Tweet monitoring infrastructure
   db.exec(`
     CREATE TABLE IF NOT EXISTS tweet_accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,7 +311,14 @@ function createTables(db: Database.Database): void {
       category TEXT NOT NULL,
       weight REAL DEFAULT 1.0,
       is_active BOOLEAN DEFAULT TRUE,
+      discovery_source TEXT DEFAULT 'seed',
+      causality_score REAL DEFAULT 0.35,
+      causal_tags TEXT DEFAULT '[]',
+      causal_thesis TEXT,
+      discovery_depth INTEGER DEFAULT 0,
+      collect_enabled BOOLEAN DEFAULT TRUE,
       last_scraped_at DATETIME,
+      last_collected_at DATETIME,
       scrape_failures INTEGER DEFAULT 0
     );
 
@@ -298,6 +339,19 @@ function createTables(db: Database.Database): void {
       FOREIGN KEY (account_handle) REFERENCES tweet_accounts(handle)
     );
 
+    CREATE TABLE IF NOT EXISTS tweet_account_connections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_handle TEXT NOT NULL,
+      target_handle TEXT NOT NULL,
+      connection_type TEXT NOT NULL,
+      evidence_text TEXT,
+      weight REAL DEFAULT 1.0,
+      first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(source_handle, target_handle, connection_type)
+    );
+
+
     CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_scraped
     ON tweet_snapshots(scraped_at DESC);
 
@@ -306,6 +360,9 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_tweet_snapshots_unprocessed
     ON tweet_snapshots(ai_processed) WHERE ai_processed = FALSE;
+
+    CREATE INDEX IF NOT EXISTS idx_tweet_connections_target
+    ON tweet_account_connections(target_handle, last_seen_at DESC);
   `);
 
   console.log('Database initialized successfully at:', DB_PATH);
@@ -314,3 +371,5 @@ function createTables(db: Database.Database): void {
 export function getDatabase(): Database.Database {
   return new Database(DB_PATH);
 }
+
+

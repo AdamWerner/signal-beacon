@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+﻿import cron from 'node-cron';
 import { loadConfig, validateConfig } from './config.js';
 import { initializeDatabase } from './storage/db.js';
 import { InstrumentStore } from './storage/instrument-store.js';
@@ -30,7 +30,6 @@ export class PolySignalScanner {
   private config = loadConfig();
   private db = initializeDatabase();
 
-  // Stores
   private instrumentStore = new InstrumentStore(this.db);
   private marketStore = new MarketStore(this.db);
   private snapshotStore = new SnapshotStore(this.db);
@@ -40,7 +39,6 @@ export class PolySignalScanner {
   private tweetCollector: TweetCollector;
   private tweetProcessor: TweetIntelligenceProcessor;
 
-  // Core services
   private ontology = new OntologyEngine();
   private avanzaClient: ReturnType<typeof createAvanzaClient> | null = null;
   private avanzaAvailable = false;
@@ -54,7 +52,6 @@ export class PolySignalScanner {
   private signalGenerator: SignalGenerator;
   private alertDispatcher: AlertDispatcher;
 
-  // Jobs
   private scanCycleJob: ScanCycleJob;
   private marketRefreshJob: MarketRefreshJob;
   private instrumentRefreshJob: InstrumentRefreshJob | null = null;
@@ -63,7 +60,6 @@ export class PolySignalScanner {
   constructor() {
     validateConfig(this.config);
 
-    // Graceful degradation: only initialise Avanza when credentials are present
     if (process.env.AVANZA_USERNAME) {
       console.log('Avanza credentials found, attempting connection...');
       try {
@@ -71,16 +67,16 @@ export class PolySignalScanner {
         this.avanzaAvailable = true;
         this.instrumentRegistry = new InstrumentRegistry(this.instrumentStore, this.avanzaClient);
         this.avanzaScraper = new AvanzaScraper(this.instrumentRegistry, this.ontology);
-        console.log('Avanza client created successfully (auth is lazy — happens on first instrument search)');
+        console.log('Avanza client created successfully (auth is lazy - happens on first instrument search)');
       } catch (err) {
-        console.error('Avanza setup failed — instrument discovery disabled:', err);
-        logger.warn('Avanza authentication setup failed — instrument discovery disabled', {
+        console.error('Avanza setup failed - instrument discovery disabled:', err);
+        logger.warn('Avanza authentication setup failed - instrument discovery disabled', {
           error: String(err)
         });
       }
     } else {
       logger.info(
-        'Running without Avanza credentials — instrument discovery disabled, using ontology-based suggestions'
+        'Running without Avanza credentials - instrument discovery disabled, using ontology-based suggestions'
       );
     }
 
@@ -90,6 +86,7 @@ export class PolySignalScanner {
       this.marketStore,
       this.config.polyMarketRelevanceThreshold
     );
+
     this.oddsTracker = new OddsTracker(this.polymarketClient, this.snapshotStore, this.marketStore);
     this.whaleDetector = new WhaleDetector(
       this.polymarketClient,
@@ -97,6 +94,7 @@ export class PolySignalScanner {
       this.marketStore,
       this.config.polyWhaleThresholdUsd
     );
+
     this.autoMapper = new AutoMapper(this.ontology, this.instrumentRegistry);
     this.signalGenerator = new SignalGenerator(
       this.autoMapper,
@@ -104,6 +102,7 @@ export class PolySignalScanner {
       this.whaleDetector,
       this.signalStore
     );
+
     this.alertDispatcher = new AlertDispatcher({
       minConfidence: this.config.alertMinConfidence,
       pushover: this.config.alertPushoverUserKey && this.config.alertPushoverAppToken
@@ -138,21 +137,28 @@ export class PolySignalScanner {
       this.alertDispatcher,
       this.db
     );
-    this.marketRefreshJob = new MarketRefreshJob(this.marketDiscoverer);
 
+    this.marketRefreshJob = new MarketRefreshJob(this.marketDiscoverer);
     if (this.avanzaScraper) {
       this.instrumentRefreshJob = new InstrumentRefreshJob(this.avanzaScraper);
     }
 
-    this.cleanupJob = new CleanupJob(this.snapshotStore, this.signalStore, this.whaleStore, this.marketDiscoverer, this.tweetStore);
+    this.cleanupJob = new CleanupJob(
+      this.snapshotStore,
+      this.signalStore,
+      this.whaleStore,
+      this.marketDiscoverer,
+      this.tweetStore
+    );
 
-    // Tweet monitoring
     this.tweetCollector = new TweetCollector(this.tweetStore);
     this.tweetProcessor = new TweetIntelligenceProcessor(this.db);
-    const seeded = this.tweetStore.seedDefaultAccounts();
-    if (seeded > 0) {
-      console.log(`Seeded ${seeded} default tweet accounts for monitoring`);
-    }
+
+    const seedResult = this.tweetStore.seedDefaultAccounts(1200);
+    console.log(
+      `Tweet universe ready: ${seedResult.currentCount} accounts ` +
+      `(seed +${seedResult.insertedFromSeed}, graph +${seedResult.discoveredFromConnections}, collect_set=${seedResult.collectionSetSize})`
+    );
 
     logger.info('PolySignal Scanner initialized', {
       environment: this.config.nodeEnv,
@@ -160,9 +166,6 @@ export class PolySignalScanner {
     });
   }
 
-  /**
-   * Start the scanner with scheduled jobs
-   */
   start() {
     logger.info('Starting PolySignal Scanner');
 
@@ -185,20 +188,21 @@ export class PolySignalScanner {
     logger.info('Market refresh scheduled', { cron: this.config.jobMarketRefreshCron });
 
     if (this.instrumentRefreshJob) {
+      const instrumentRefreshJob = this.instrumentRefreshJob;
+
       cron.schedule(this.config.jobInstrumentRefreshCron, async () => {
         try {
-          await this.instrumentRefreshJob!.execute();
+          await instrumentRefreshJob.execute();
         } catch (error) {
           logger.error('Instrument refresh error', { error: String(error) });
         }
       });
       logger.info('Instrument refresh scheduled', { cron: this.config.jobInstrumentRefreshCron });
 
-      // Run once at startup so instruments are populated immediately (fire-and-forget)
       setImmediate(async () => {
         try {
           console.log('Running startup instrument refresh...');
-          await this.instrumentRefreshJob!.execute();
+          await instrumentRefreshJob.execute();
           console.log('Startup instrument refresh complete');
         } catch (err) {
           console.error('Startup instrument refresh failed:', err);
@@ -244,11 +248,25 @@ export class PolySignalScanner {
   }
 
   async runTweetCollection() {
-    return await this.tweetCollector.collectAll();
+    const collected = await this.tweetCollector.collectAll(120);
+    const discovered = this.tweetStore.discoverConnectionsFromRecentTweets(48, 300);
+    const collectionSetSize = this.tweetStore.rebalanceCollectionSet(140);
+
+    return {
+      ...collected,
+      accountsAdded: collected.accountsAdded + discovered.accountsAdded,
+      connectionsAdded: collected.connectionsAdded + discovered.connectionsAdded,
+      collectionSetSize,
+      universeCount: this.tweetStore.getAccountCount()
+    };
   }
 
   async runTweetProcessing() {
     return await this.tweetProcessor.processTweetBatch();
+  }
+
+  runTweetUniverseExpansion(target = 1200) {
+    return this.tweetStore.expandUniverseToTarget(target);
   }
 
   getTweetContextForBriefing(hours = 16): string {
@@ -272,7 +290,6 @@ export class PolySignalScanner {
   }
 }
 
-// Named export for use in API routes
 export { AutoMapper } from './correlation/auto-mapper.js';
 export { getTopSignals, analyzeSignal } from './signals/ai-ranker.js';
 export { IntelligenceEngine } from './intelligence/engine.js';
@@ -280,10 +297,9 @@ export { TweetStore } from './storage/tweet-store.js';
 export { TweetCollector } from './tweets/collector.js';
 export { TweetIntelligenceProcessor } from './tweets/processor.js';
 
-// Export singleton instance
 export const scanner = new PolySignalScanner();
 
-// Start scanner if running directly
 if (import.meta.url === `file://${process.argv[1]}`) {
   scanner.start();
 }
+

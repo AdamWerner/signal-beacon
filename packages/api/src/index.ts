@@ -1,10 +1,9 @@
-import 'dotenv/config';
+﻿import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { scanner } from '@polysignal/scanner';
 import { errorHandler } from './middleware/error-handler.js';
 
-// Import routes
 import signalsRouter from './routes/signals.js';
 import marketsRouter from './routes/markets.js';
 import instrumentsRouter from './routes/instruments.js';
@@ -17,12 +16,11 @@ import tweetsRouter from './routes/tweets.js';
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3100', 10);
+const START_SCANNER_IN_API = process.env.API_START_SCANNER === 'true';
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Routes
 app.use('/api/signals', signalsRouter);
 app.use('/api/markets', marketsRouter);
 app.use('/api/instruments', instrumentsRouter);
@@ -33,11 +31,11 @@ app.use('/api/health', healthRouter);
 app.use('/api/briefing', briefingRouter);
 app.use('/api/tweets', tweetsRouter);
 
-// Root route
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     name: 'PolySignal API',
     version: '1.0.0',
+    embedded_scanner: START_SCANNER_IN_API,
     endpoints: [
       '/api/signals',
       '/api/markets',
@@ -52,17 +50,18 @@ app.get('/', (req, res) => {
   });
 });
 
-// Error handler
 app.use(errorHandler);
 
-// Start server
 app.listen(PORT, () => {
-  console.log(`\n✓ PolySignal API server running on http://localhost:${PORT}`);
-  console.log(`✓ Health check: http://localhost:${PORT}/api/health`);
-  console.log('\nStarting scanner...\n');
+  console.log(`PolySignal API server running on http://localhost:${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/api/health`);
 
-  // Start the scanner
-  scanner.start();
+  if (START_SCANNER_IN_API) {
+    console.log('API_START_SCANNER=true -> starting embedded scanner jobs in API process');
+    scanner.start();
+  } else {
+    console.log('Embedded scanner disabled in API process (run npm run continuous separately).');
+  }
 });
 
 export { app };
