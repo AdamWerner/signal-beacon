@@ -13,6 +13,9 @@ export interface WhaleDetection {
 }
 
 export class WhaleDetector {
+  /** Per-session cache: skip markets checked in the last 30 minutes to avoid 429s */
+  private recentlyChecked = new Map<string, number>();
+
   constructor(
     private client: PolymarketClient,
     private whaleStore: WhaleStore,
@@ -30,21 +33,51 @@ export class WhaleDetector {
 
   /**
    * Detect whale trades for a specific set of markets (targeted scan).
-   * Use this after odds tracking to only scan markets with significant changes.
+   * Prioritises by |delta_pct|, caps at 20 markets, respects 30-min per-market cache.
    */
-  async detectForMarkets(conditionIds: string[]): Promise<WhaleDetection[]> {
+  async detectForMarkets(
+    conditionIds: string[],
+    oddsChanges?: Array<{ market_condition_id: string; delta_pct: number }>
+  ): Promise<WhaleDetection[]> {
     if (conditionIds.length === 0) return [];
+
+    // Sort by |delta_pct| descending so the biggest movers are checked first
+    let prioritized: string[];
+    if (oddsChanges && oddsChanges.length > 0) {
+      const deltaMap = new Map(oddsChanges.map(c => [c.market_condition_id, Math.abs(c.delta_pct)]));
+      prioritized = conditionIds
+        .filter(id => (deltaMap.get(id) ?? 0) >= 10) // skip tiny moves
+        .sort((a, b) => (deltaMap.get(b) ?? 0) - (deltaMap.get(a) ?? 0))
+        .slice(0, 20); // top 20 only
+    } else {
+      prioritized = conditionIds.slice(0, 20);
+    }
+
+    // Apply 30-minute per-session cache
+    const now = Date.now();
+    const CACHE_MS = 30 * 60 * 1000;
+    const toCheck = prioritized.filter(id => {
+      const last = this.recentlyChecked.get(id);
+      return !last || now - last > CACHE_MS;
+    });
+
+    if (toCheck.length === 0) {
+      console.log(`Whale check: all markets in 30-min cache, skipping.`);
+      return [];
+    }
+
     const detections: WhaleDetection[] = [];
+    console.log(`Scanning ${toCheck.length} top markets for whale activity (threshold: $${this.thresholdUsd.toLocaleString()})...`);
 
-    console.log(`Scanning ${conditionIds.length} markets for whale activity (threshold: $${this.thresholdUsd.toLocaleString()})...`);
-
-    // Process in parallel batches of 10 with 200ms between batches
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < conditionIds.length; i += BATCH_SIZE) {
-      const batch = conditionIds.slice(i, i + BATCH_SIZE);
+    // Smaller batches (3) with longer delays (2s) to stay well under rate limits
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < toCheck.length; i += BATCH_SIZE) {
+      const batch = toCheck.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(batch.map(id => this.detectForMarket(id)));
       for (const whales of results) detections.push(...whales);
-      if (i + BATCH_SIZE < conditionIds.length) await this.delay(200);
+      // Mark as checked
+      for (const id of batch) this.recentlyChecked.set(id, Date.now());
+      if (i + BATCH_SIZE < toCheck.length) await this.delay(2000);
     }
 
     console.log(`✓ Detected ${detections.length} whale trades`);
