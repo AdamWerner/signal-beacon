@@ -193,6 +193,19 @@ export class TradeVerificationGate {
       return result;
     }
 
+    // Skip Claude when fewer than 2 signals fully passed the entity guard —
+    // not worth a CLI call for borderline/rejected candidates.
+    const guardApprovedCount = shortlist.filter(c => c.guard.status === 'approved').length;
+    if (guardApprovedCount < 2) {
+      console.log(
+        `[verify] Skipping Claude batch — only ${guardApprovedCount} guard-approved candidates (need 2+); using guard-only fallback`
+      );
+      for (const item of shortlist) {
+        result.set(item.signalId, this.guardOnlyFromDecision(item.guard));
+      }
+      return result;
+    }
+
     const contexts = shortlist.map(item => item.context);
     const guards = shortlist.map(item => item.guard);
     const batch = await this.aiVerifier.batchVerify(contexts, guards, newsContext);

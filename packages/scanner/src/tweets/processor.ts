@@ -32,7 +32,8 @@ export class TweetIntelligenceProcessor {
   async processTweetBatch(): Promise<TweetIntelResult> {
     const tweets = this.tweetStore.getUnprocessedTweets(200);
 
-    if (tweets.length < 5) {
+    if (tweets.length < 10) {
+      console.log(`[tweet-intel] Only ${tweets.length} unprocessed items — skipping Claude (need 10+)`);
       return { tweetsAnalyzed: 0, insightsGenerated: 0, tokensUsed: 0 };
     }
 

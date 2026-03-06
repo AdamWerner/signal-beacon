@@ -188,8 +188,15 @@ export async function getTopSignals(
 
   // Use at most 20 signals as input to Claude
   const candidates = deduped.slice(0, 20);
-  const prompt = buildRankPrompt(candidates);
 
+  // Skip Claude when no high-quality candidates — saves tokens on low-signal cycles
+  const highQuality = candidates.filter(s => s.confidence >= 50).length;
+  if (highQuality < 3) {
+    console.log(`Skipping AI ranking — only ${highQuality} high-quality candidates (need 3+)`);
+    return fallbackRank(candidates).slice(0, 10);
+  }
+
+  const prompt = buildRankPrompt(candidates);
   const raw = await callClaude(prompt);
 
   if (raw) {
