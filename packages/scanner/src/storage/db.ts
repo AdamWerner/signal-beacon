@@ -118,6 +118,13 @@ function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Cap historical signals at 92 (retroactive one-time correction)
+  try {
+    db.exec(`UPDATE signals SET confidence = 92 WHERE confidence > 92`);
+  } catch {
+    // signals table/column may not exist in very old schemas
+  }
+
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_signals_dedup ON signals(deduplication_key, timestamp DESC)`);
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_whale_trade_id ON whale_events(trade_id) WHERE trade_id IS NOT NULL`);
