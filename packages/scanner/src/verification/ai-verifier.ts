@@ -125,7 +125,7 @@ function buildPrompt(context: VerificationContext, guard: GuardDecision): string
   return `${JSON.stringify(payload, null, 2)}\nRespond with JSON only.`;
 }
 
-function buildBatchPrompt(contexts: VerificationContext[], guards: GuardDecision[]): string {
+function buildBatchPrompt(contexts: VerificationContext[], guards: GuardDecision[], newsContext?: string): string {
   const signals = contexts.map((context, index) => ({
     index,
     market_title: context.marketTitle,
@@ -150,24 +150,32 @@ function buildBatchPrompt(contexts: VerificationContext[], guards: GuardDecision
     }
   }));
 
-  const payload = {
-    task: `Here are ${signals.length} trading signals. For each, return a verdict.`,
+  const payload: Record<string, unknown> = {
+    task: `Here are ${signals.length} trading signals from Polymarket. For each, return a verdict. Rank them from most to least actionable.`,
     policy: [
       'Reject unknown-entity noise and weak causal links.',
       'Use needs_review when linkage is plausible but not specific enough.',
       'Only approve when there is a clear and plausible causal channel.',
-      'Respond with a JSON array only.'
+      'Cross-reference each signal against the recent news headlines below.',
+      'If news confirms the signal direction, increase confidence_adjustment by +5 to +10.',
+      'If news contradicts, decrease by -5 to -15 or reject.',
+      'Ask: would a professional trader act on this within 2-4 minutes? Only approve if yes.',
+      'Respond with a JSON array only, ordered from most actionable to least.'
     ],
     signals,
     response_schema: {
-      index: '0-based index from the input item',
+      index: '0-based index from the input item (preserve original index)',
       verdict: 'approve|reject|needs_review',
       confidence_adjustment: '-20..20',
-      reason: 'short',
-      flags: ['unknown_entity', 'no_link', 'macro_only', 'meme_noise'],
+      reason: 'short — include news cross-reference if relevant',
+      flags: ['unknown_entity', 'no_link', 'macro_only', 'meme_noise', 'news_confirms', 'news_contradicts'],
       suggested_action_override: 'optional'
     }
   };
+
+  if (newsContext) {
+    payload.recent_news_headlines_6h = newsContext;
+  }
 
   return `${JSON.stringify(payload, null, 2)}\nRespond with JSON array only.`;
 }
@@ -199,11 +207,12 @@ export class AiTradeVerifier {
 
   async batchVerify(
     contexts: VerificationContext[],
-    guards: GuardDecision[]
+    guards: GuardDecision[],
+    newsContext?: string
   ): Promise<Array<ClaudeVerificationResult | null> | null> {
     if (contexts.length === 0) return [];
 
-    const prompt = buildBatchPrompt(contexts, guards);
+    const prompt = buildBatchPrompt(contexts, guards, newsContext);
 
     for (const binary of CLAUDE_CANDIDATES) {
       try {

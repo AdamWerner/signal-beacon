@@ -180,7 +180,8 @@ export class TradeVerificationGate {
 
   async batchVerifyTopCandidates(
     candidates: BatchVerificationCandidate[],
-    maxCount = 5
+    maxCount = 5,
+    newsContext?: string
   ): Promise<Map<string, VerificationDecision>> {
     const result = new Map<string, VerificationDecision>();
     const shortlist = candidates
@@ -194,7 +195,7 @@ export class TradeVerificationGate {
 
     const contexts = shortlist.map(item => item.context);
     const guards = shortlist.map(item => item.guard);
-    const batch = await this.aiVerifier.batchVerify(contexts, guards);
+    const batch = await this.aiVerifier.batchVerify(contexts, guards, newsContext);
 
     if (!batch) {
       console.warn(

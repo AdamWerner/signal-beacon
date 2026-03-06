@@ -26,7 +26,7 @@ export class SignalGenerator {
    * Creates one signal per matched asset. Context-dependent signals are capped
    * and always require judgment.
    */
-  async generateSignals(oddsChanges: OddsChange[]): Promise<GeneratedSignal[]> {
+  async generateSignals(oddsChanges: OddsChange[], opts?: { newsContext?: string }): Promise<GeneratedSignal[]> {
     const signals: GeneratedSignal[] = [];
     const recentSignals = this.signalStore.findFiltered({ hours: 48, limit: 500 });
     const verificationCandidates: BatchVerificationCandidate[] = [];
@@ -152,7 +152,8 @@ export class SignalGenerator {
 
     const batchVerified = await this.verificationGate.batchVerifyTopCandidates(
       verificationCandidates,
-      5
+      5,
+      opts?.newsContext
     );
 
     for (const signal of signals) {

@@ -5,6 +5,7 @@ import { WhaleDetector } from '../polymarket/whale-detector.js';
 import { SignalGenerator } from '../signals/generator.js';
 import { AlertDispatcher } from '../alerts/dispatcher.js';
 import { IntelligenceEngine } from '../intelligence/engine.js';
+import { TweetIntelligenceProcessor } from '../tweets/processor.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -51,7 +52,15 @@ export class ScanCycleJob {
       const whales = await this.whaleDetector.detectForMarkets(changedMarketIds, oddsChanges);
 
       console.log('\n[4/4] Generating signals...');
-      const signals = await this.signalGenerator.generateSignals(oddsChanges);
+      let newsContext: string | undefined;
+      if (this.db) {
+        try {
+          newsContext = new TweetIntelligenceProcessor(this.db).getTweetContextForBriefing(6);
+        } catch {
+          // Non-fatal — verification will proceed without news cross-reference.
+        }
+      }
+      const signals = await this.signalGenerator.generateSignals(oddsChanges, { newsContext });
 
       if (this.db && signals.length > 0) {
         const intelligence = new IntelligenceEngine(this.db);
