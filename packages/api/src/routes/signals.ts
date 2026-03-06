@@ -193,6 +193,22 @@ router.get('/:id/detail', async (req, res) => {
       .filter(s => s.matched_asset_id === signal.matched_asset_id && s.id !== signal.id && s.market_condition_id !== signal.market_condition_id)
       .slice(0, 5);
 
+    const db = (services as any).db;
+    const assetPerf = db ? (db.prepare(`
+      SELECT samples, hit_rate_30m, hit_rate_60m, reliability_score, suggested_confidence_adjustment
+      FROM asset_performance WHERE asset_id = ? LIMIT 1
+    `).get(signal.matched_asset_id) as {
+      samples: number; hit_rate_30m: number; hit_rate_60m: number;
+      reliability_score: number; suggested_confidence_adjustment: number;
+    } | undefined) : undefined;
+
+    const recentOutcomes: Array<{ date: string; direction: string; hit_30m: number; price_change_30m: number }> = db
+      ? (db.prepare(`
+          SELECT DATE(entry_time) as date, direction, hit_30m, price_change_30m
+          FROM signal_outcomes WHERE asset_id = ? ORDER BY entry_time DESC LIMIT 6
+        `).all(signal.matched_asset_id) as any[])
+      : [];
+
     const marketMeta = services.marketStore.findByConditionId(signal.market_condition_id);
     const eventSlug = marketMeta?.event_slug || null;
     const polyUrl = eventSlug
@@ -321,6 +337,24 @@ ${relatedByAsset.length > 0 ? `
       return `<li><a href="/api/signals/${s.id}/detail">${d} ${s.market_title.substring(0, 55)} ${ds}${s.delta_pct.toFixed(1)}% (${s.confidence}%)</a></li>`;
     }).join('')}
   </ul>
+</div>
+` : ''}
+
+${assetPerf && assetPerf.samples >= 2 ? `
+<div class="box">
+  <div class="label">Asset Track Record — ${signal.matched_asset_name}</div>
+  <p style="margin:0;line-height:1.8;font-size:0.9rem">
+    Signals evaluated: ${assetPerf.samples}<br>
+    Hit rate 30m: ${(assetPerf.hit_rate_30m * 100).toFixed(0)}%
+    &nbsp;|&nbsp; 60m: ${(assetPerf.hit_rate_60m * 100).toFixed(0)}%<br>
+    Reliability: ${(assetPerf.reliability_score * 100).toFixed(0)}%
+    &nbsp;|&nbsp; Confidence adj: ${assetPerf.suggested_confidence_adjustment > 0 ? '+' : ''}${assetPerf.suggested_confidence_adjustment}
+  </p>
+  ${recentOutcomes.length > 0 ? `<ul style="margin-top:8px">${recentOutcomes.map(o => {
+    const hit = o.hit_30m === 1;
+    const chg = (o.price_change_30m ?? 0) * 100;
+    return `<li>${o.date} ${o.direction} — ${hit ? '✓ hit' : '✗ miss'} (${chg > 0 ? '+' : ''}${chg.toFixed(1)}% at 30m)</li>`;
+  }).join('')}</ul>` : ''}
 </div>
 ` : ''}
 

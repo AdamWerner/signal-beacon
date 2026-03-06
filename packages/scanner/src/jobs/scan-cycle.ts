@@ -90,7 +90,7 @@ export class ScanCycleJob {
               reliability_score: number;
             } | undefined;
 
-            if (perf && perf.samples >= 4 && perf.suggested_confidence_adjustment !== 0) {
+            if (perf && perf.samples >= 2 && perf.suggested_confidence_adjustment !== 0) {
               signal.confidence = Math.max(
                 0,
                 Math.min(signal.confidence + perf.suggested_confidence_adjustment, 100)
