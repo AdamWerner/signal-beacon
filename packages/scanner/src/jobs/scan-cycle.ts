@@ -5,6 +5,7 @@ import { WhaleDetector } from '../polymarket/whale-detector.js';
 import { SignalGenerator } from '../signals/generator.js';
 import { AlertDispatcher } from '../alerts/dispatcher.js';
 import { IntelligenceEngine } from '../intelligence/engine.js';
+import { NewsCorrelator } from '../intelligence/news-correlator.js';
 import { TweetIntelligenceProcessor } from '../tweets/processor.js';
 
 export interface ScanCycleResult {
@@ -64,6 +65,7 @@ export class ScanCycleJob {
 
       if (this.db && signals.length > 0) {
         const intelligence = new IntelligenceEngine(this.db);
+        const newsCorrelator = new NewsCorrelator(this.db);
         intelligence.processNewSignals(signals);
 
         for (const signal of signals) {
@@ -105,6 +107,17 @@ export class ScanCycleJob {
 
           // Hard ceiling — stacked boosts (intelligence + backtest) must never hit 100%
           signal.confidence = Math.min(signal.confidence, 92);
+
+          // News correlator boost (deterministic, post-ceiling so it can push up to 92)
+          const newsBoost = newsCorrelator.getBoostForAsset(signal.matched_asset_id);
+          if (newsBoost.boost > 0) {
+            signal.confidence = Math.min(signal.confidence + newsBoost.boost, 92);
+            changed = true;
+            console.log(
+              `  News boost +${newsBoost.boost} for ${signal.matched_asset_name} ` +
+              `(${newsBoost.sourceCount} sources) -> ${signal.confidence}%`
+            );
+          }
 
           if (changed) {
             try {
