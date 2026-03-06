@@ -42,7 +42,9 @@ try {
 }
 
 function logScan(msg) {
-  const line = `${new Date().toISOString()} ${msg}\n`;
+  const now = new Date();
+  const cet = now.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', hour12: false });
+  const line = `${now.toISOString()} [${cet}] ${msg}\n`;
   process.stdout.write(line);
   try {
     appendFileSync(SCAN_LOG, line);
@@ -338,18 +340,12 @@ async function loop() {
     const elapsed = Date.now() - cycleStart;
 
     if (elapsed > 8 * 60 * 1000) {
-      logScan(`[error] cycle runtime ${Math.round(elapsed / 1000)}s exceeded 8-minute threshold`);
+      logScan(`[WARNING] cycle took ${(elapsed / 1000).toFixed(0)}s — exceeds 8-minute budget. Check Claude CLI or network latency.`);
     }
 
-    const sleepMs = Math.max(0, SCAN_INTERVAL_MS - elapsed);
-    if (sleepMs === 0) {
-      logScan(
-        `[warn] cycle exceeded interval by ${Math.round((elapsed - SCAN_INTERVAL_MS) / 1000)}s; starting next cycle immediately`
-      );
-      continue;
-    }
-
-    logScan(`[sleep] next scan in ${(sleepMs / 60000).toFixed(2)} minutes...`);
+    // At least 30s rest between cycles regardless of how fast the cycle ran
+    const sleepMs = Math.max(30_000, SCAN_INTERVAL_MS - elapsed);
+    logScan(`[sleep] next scan in ${(sleepMs / 60000).toFixed(1)} minutes (cycle took ${(elapsed / 1000).toFixed(0)}s)...`);
     await new Promise(resolve => setTimeout(resolve, sleepMs));
   }
 }
