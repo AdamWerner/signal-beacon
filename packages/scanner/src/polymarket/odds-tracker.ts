@@ -148,12 +148,27 @@ export class OddsTracker {
       }
 
       if (Math.abs(delta.delta_pct) >= thresholdPct) {
+        const oddsNow = delta.odds_now;
+        const oddsBefore = delta.odds_before;
+
+        // Skip markets where both endpoints are in the noise zone (< 5% or > 95%).
+        // A 0.3%→1% move looks like +233% relative but is completely meaningless.
+        if ((oddsNow < 0.05 && oddsBefore < 0.05) || (oddsNow > 0.95 && oddsBefore > 0.95)) {
+          continue;
+        }
+
+        // Require at least 3 percentage-point absolute change.
+        // Filters out sub-cent twitches that produce absurd relative percentages.
+        if (Math.abs(oddsNow - oddsBefore) < 0.03) {
+          continue;
+        }
+
         changes.push({
           market_condition_id: market.condition_id,
           market_slug: market.slug,
           market_title: market.title,
-          odds_before: delta.odds_before,
-          odds_now: delta.odds_now,
+          odds_before: oddsBefore,
+          odds_now: oddsNow,
           delta_pct: delta.delta_pct,
           time_window_minutes: timeWindowMinutes
         });
