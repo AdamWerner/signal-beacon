@@ -1,4 +1,5 @@
 ﻿import { GeneratedSignal } from '../signals/types.js';
+import { buildHumanReason } from '../signals/reason-builder.js';
 
 const TICKER_MAP: Record<string, string> = {
   'Lockheed Martin': 'LMT',
@@ -49,13 +50,7 @@ export class HomeAssistantAlert {
 
     const ticker = this.getTicker(signal.matched_asset_name, 6);
     const title = `PS: ${emoji} ${direction} ${ticker} ${signal.confidence}%`;
-
-    const deltaSign = signal.delta_pct > 0 ? '+' : '';
-    const oddsLine = `${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}% (${deltaSign}${signal.delta_pct.toFixed(0)}%)`;
-    const reason = this.generateShortReason(signal, isBull);
-    const verificationReason = this.truncateLine(this.pickBestReason(signal), 100);
-    const rawMessage = `${reason}\n${verificationReason}\n${oddsLine}`;
-    const message = rawMessage.substring(0, 255);
+    const message = buildHumanReason(signal);
 
     const publicUrl = process.env.PUBLIC_URL || 'http://192.168.0.15:3100';
     const detailUrl = `${publicUrl}/api/signals/${signal.id}/detail`;
@@ -147,37 +142,7 @@ export class HomeAssistantAlert {
     }
   }
 
-  /**
-   * Prefer Claude's AI reason; fall back to signal.reasoning if it's guard boilerplate.
-   */
-  private pickBestReason(signal: GeneratedSignal): string {
-    const vr = signal.verification_reason || '';
-    const isBoilerplate =
-      !vr ||
-      vr.startsWith('Pending') ||
-      vr.includes('Known entity') ||
-      vr.includes('entity-asset relationship') ||
-      vr.includes('AI unavailable');
-    return isBoilerplate ? signal.reasoning : vr;
-  }
-
-  private generateShortReason(signal: GeneratedSignal, isBull: boolean): string {
-    const marketTitle = signal.market_title
-      .replace(/^Will /, '')
-      .replace(/\?$/, '')
-      .substring(0, 55);
-
-    const direction = isBull ? 'UP' : 'DOWN';
-    return `${marketTitle} -> ${signal.matched_asset_name} likely ${direction}`;
-  }
-
   private getTicker(assetName: string, fallbackSlice: number): string {
     return TICKER_MAP[assetName] ?? assetName.substring(0, fallbackSlice).toUpperCase();
-  }
-
-  private truncateLine(value: string, maxLength: number): string {
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    if (normalized.length <= maxLength) return normalized;
-    return `${normalized.slice(0, maxLength - 3)}...`;
   }
 }
