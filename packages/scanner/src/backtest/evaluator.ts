@@ -96,9 +96,10 @@ export class SignalBacktestEvaluator {
 
   async runDailyBacktest(
     market: 'swedish' | 'us',
-    date = getStockholmDateString()
+    date = getStockholmDateString(),
+    force = false
   ): Promise<BacktestRunResult> {
-    const alreadyRan = this.db.prepare(`
+    const alreadyRan = force ? undefined : this.db.prepare(`
       SELECT signals_evaluated, hit_rate_30m, hit_rate_60m, avg_move_30m, avg_move_60m, ai_notes
       FROM daily_backtest_runs
       WHERE date = ? AND market = ?
@@ -126,7 +127,20 @@ export class SignalBacktestEvaluator {
       };
     }
 
-    const candidates = this.getCandidatesForDate(market, date);
+    // Bug A: If no signals for today yet (early morning or new filters), fall back to yesterday.
+    let candidates = this.getCandidatesForDate(market, date);
+    if (candidates.length === 0 && date === getStockholmDateString()) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yDate = getStockholmDateString(yesterday);
+      const yCandidates = this.getCandidatesForDate(market, yDate);
+      if (yCandidates.length > 0) {
+        date = yDate;
+        candidates = yCandidates;
+        console.log(`[backtest] No signals for today, falling back to yesterday (${yDate})`);
+      }
+    }
+
     const nowMs = Date.now();
     let evaluated = 0;
 
@@ -215,10 +229,10 @@ export class SignalBacktestEvaluator {
              suggested_action, confidence, verification_score
       FROM signals
       WHERE matched_asset_id IN (${placeholders})
-        AND verification_status = 'approved'
+        AND verification_status IN ('approved', 'needs_review')
         AND requires_judgment = 0
-        AND timestamp >= datetime('now', '-2 days')
-        AND (push_sent_at IS NOT NULL OR confidence >= 75)
+        AND timestamp >= datetime('now', '-8 days')
+        AND (push_sent_at IS NOT NULL OR confidence >= 40)
       ORDER BY confidence DESC, timestamp ASC
       LIMIT 220
     `).all(...assetIds) as SignalCandidate[];

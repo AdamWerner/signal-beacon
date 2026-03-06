@@ -283,8 +283,8 @@ export class PolySignalScanner {
     return await this.tweetProcessor.processTweetBatch();
   }
 
-  async runDailyBacktest(market: 'swedish' | 'us', date?: string) {
-    return await this.backtestEvaluator.runDailyBacktest(market, date);
+  async runDailyBacktest(market: 'swedish' | 'us', date?: string, force = false) {
+    return await this.backtestEvaluator.runDailyBacktest(market, date, force);
   }
 
   runTweetUniverseExpansion(target = 1200) {

@@ -80,4 +80,44 @@ router.post('/run/:market', async (req, res) => {
   }
 });
 
+// POST /api/backtest/run/:market/:date  (e.g. /run/us/2026-03-05)
+// Always force-re-evaluates (ignores cached run for that date)
+router.post('/run/:market/:date', async (req, res) => {
+  try {
+    const market = req.params.market as 'swedish' | 'us';
+    if (market !== 'swedish' && market !== 'us') {
+      return res.status(400).json({ error: 'Market must be "swedish" or "us"' });
+    }
+
+    const date = req.params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
+    }
+
+    const result = await scanner.runDailyBacktest(market, date, true);
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Backtest run failed', message: error?.message });
+  }
+});
+
+// POST /api/backtest/catchup — evaluate last 7 days for both markets
+router.post('/catchup', async (req, res) => {
+  try {
+    const results = [];
+    for (let daysAgo = 1; daysAgo <= 7; daysAgo++) {
+      const d = new Date();
+      d.setDate(d.getDate() - daysAgo);
+      const date = d.toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+      for (const market of ['swedish', 'us'] as const) {
+        const result = await scanner.runDailyBacktest(market, date, true);
+        results.push(result);
+      }
+    }
+    return res.json({ evaluated: results.length, results });
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Catchup failed', message: error?.message });
+  }
+});
+
 export default router;
