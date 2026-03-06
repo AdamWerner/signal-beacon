@@ -185,17 +185,45 @@ export class IntelligenceEngine {
       // Optional module path; continue without tweet context.
     }
 
-    const prompt = `You are a trading analyst. Write a pre-market briefing for ${marketName} open. Max 200 words.
-For each signal state: ASSET -> DIRECTION -> WHY -> CONFIDENCE.
+    // Fetch yesterday's backtest summary for this market.
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yDate = yesterday.toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+    const backtestRow = this.db.prepare(`
+      SELECT signals_evaluated, hit_rate_30m, hit_rate_60m, avg_move_30m, ai_notes
+      FROM daily_backtest_runs WHERE date = ? AND market = ? LIMIT 1
+    `).get(yDate, market) as {
+      signals_evaluated: number; hit_rate_30m: number; hit_rate_60m: number;
+      avg_move_30m: number; ai_notes: string | null;
+    } | undefined;
 
-Overnight signals:
-${topSignals.map(signal => `- ${signal.matched_asset_name}: ${signal.suggested_action} (${signal.confidence}%) - ${signal.market_title} - odds ${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}%`).join('\n')}
+    const backtestSummary = backtestRow
+      ? `${yDate}: ${backtestRow.signals_evaluated} signals evaluated, ` +
+        `hit rate 30m=${(backtestRow.hit_rate_30m * 100).toFixed(0)}% ` +
+        `60m=${(backtestRow.hit_rate_60m * 100).toFixed(0)}%, ` +
+        `avg move=${backtestRow.avg_move_30m?.toFixed(1) ?? '?'}%. ` +
+        (backtestRow.ai_notes ? backtestRow.ai_notes.slice(0, 150) : '')
+      : 'No backtest data for yesterday.';
 
-Context:
+    const prompt = `You are advising a Swedish trader on Avanza who trades leveraged certificates (BULL/BEAR X3-X10). Write a pre-market briefing for ${marketName} open. Max 200 words.
+
+OVERNIGHT POLYMARKET SIGNALS (sorted by confidence):
+${topSignals.map(signal => `- ${signal.matched_asset_name}: ${signal.suggested_action} (${signal.confidence}%) — "${signal.market_title}" odds ${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}%`).join('\n')}
+
+OVERNIGHT NEWS (from financial RSS feeds):
+${tweetContext || 'No news context available.'}
+
+YESTERDAY'S BACKTEST:
+${backtestSummary}
+
+ACTIVE INTELLIGENCE (reinforcing patterns):
 ${activeMemories.map(memory => `- ${memory.insight} (boost: +${memory.confidence_boost})`).join('\n') || 'None'}
-${tweetContext}
 
-Start with the single strongest trade idea. Be direct and concise.`;
+Rules:
+- Start with the #1 trade if there is one genuinely actionable signal. If nothing is strong enough, say "No clear trades today — stay flat."
+- For each trade: state the specific Avanza instrument (e.g. "BULL EQUINOR X3 AVA"), the entry reasoning, and expected holding time (5-30 min).
+- Be brutally honest about confidence. Do not hype weak signals.
+- Max 200 words.`;
 
     let briefingText = '';
     for (const binary of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd']) {
