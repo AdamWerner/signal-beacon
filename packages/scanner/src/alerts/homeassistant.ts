@@ -53,11 +53,9 @@ export class HomeAssistantAlert {
     const deltaSign = signal.delta_pct > 0 ? '+' : '';
     const oddsLine = `${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}% (${deltaSign}${signal.delta_pct.toFixed(0)}%)`;
     const reason = this.generateShortReason(signal, isBull);
-    const verificationReason = this.truncateLine(
-      signal.verification_reason || 'Verification pending',
-      100
-    );
-    const message = `${reason}\n${verificationReason}\n${oddsLine}`;
+    const verificationReason = this.truncateLine(this.pickBestReason(signal), 100);
+    const rawMessage = `${reason}\n${verificationReason}\n${oddsLine}`;
+    const message = rawMessage.substring(0, 255);
 
     const publicUrl = process.env.PUBLIC_URL || 'http://192.168.0.15:3100';
     const detailUrl = `${publicUrl}/api/signals/${signal.id}/detail`;
@@ -104,6 +102,11 @@ export class HomeAssistantAlert {
     url: string,
     tag: string
   ): Promise<boolean> {
+    if (process.env.DRY_RUN === 'true') {
+      console.log(`[DRY_RUN] Would push: ${title} | ${message.substring(0, 100)}`);
+      return true;
+    }
+
     const servicePath = this.notifyService.replace('.', '/');
     const endpoint = `${this.haUrl}/api/services/${servicePath}`;
     console.log(`Sending HA notification: ${title} -> ${endpoint}`);
@@ -142,6 +145,20 @@ export class HomeAssistantAlert {
       console.error('Home Assistant notification error:', error);
       return false;
     }
+  }
+
+  /**
+   * Prefer Claude's AI reason; fall back to signal.reasoning if it's guard boilerplate.
+   */
+  private pickBestReason(signal: GeneratedSignal): string {
+    const vr = signal.verification_reason || '';
+    const isBoilerplate =
+      !vr ||
+      vr.startsWith('Pending') ||
+      vr.includes('Known entity') ||
+      vr.includes('entity-asset relationship') ||
+      vr.includes('AI unavailable');
+    return isBoilerplate ? signal.reasoning : vr;
   }
 
   private generateShortReason(signal: GeneratedSignal, isBull: boolean): string {
