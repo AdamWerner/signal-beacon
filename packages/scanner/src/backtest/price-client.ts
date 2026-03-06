@@ -17,16 +17,27 @@ export class YahooPriceClient {
     try {
       const response = await fetch(url.toString(), {
         headers: {
-          'User-Agent': 'PolySignal/1.0'
+          'User-Agent': 'Mozilla/5.0 (compatible; PolySignal/1.0)',
+          'Accept': 'application/json'
         }
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        console.warn(`[price] Yahoo ${response.status} for ${symbol}: ${url.toString()}`);
+        return [];
+      }
 
       const data = await response.json() as any;
       const result = data?.chart?.result?.[0];
+      if (!result) {
+        console.warn(`[price] No chart result for ${symbol} (error: ${JSON.stringify(data?.chart?.error)})`);
+        return [];
+      }
       const timestamps = result?.timestamp as number[] | undefined;
       const closes = result?.indicators?.quote?.[0]?.close as Array<number | null> | undefined;
-      if (!Array.isArray(timestamps) || !Array.isArray(closes)) return [];
+      if (!Array.isArray(timestamps) || !Array.isArray(closes)) {
+        console.warn(`[price] Missing timestamps/closes for ${symbol}`);
+        return [];
+      }
 
       const points: PricePoint[] = [];
       for (let i = 0; i < timestamps.length; i++) {
