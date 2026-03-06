@@ -113,8 +113,16 @@ router.get('/top', async (req, res) => {
 });
 
 // Swedish assets
-const SWEDISH_ASSET_IDS = new Set(['defense-saab', 'steel-ssab', 'mining-boliden', 'telecom-ericsson', 'gaming-evolution', 'retail-hm', 'auto-volvo', 'tech-spotify']);
-const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution', 'h&m', 'hennes', 'volvo', 'spotify'];
+const SWEDISH_ASSET_IDS = new Set([
+  'defense-saab',
+  'steel-ssab',
+  'mining-boliden',
+  'telecom-ericsson',
+  'gaming-evolution',
+  'retail-hm',
+  'auto-volvo'
+]);
+const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution', 'h&m', 'hennes', 'volvo'];
 
 // GET /api/signals/top/swedish - Top 5 Swedish-asset signals (must be before /:id)
 router.get('/top/swedish', (req, res) => {

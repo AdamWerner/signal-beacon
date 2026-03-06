@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getAssetMarket,
   isMarketOpenAt,
-  isPreMarketWindowAt
+  isPreMarketWindowAt,
+  SWEDISH_MARKET_ASSETS
 } from './trading-hours.js';
 
 describe('trading-hours per asset/market', () => {
@@ -22,5 +23,10 @@ describe('trading-hours per asset/market', () => {
   it('recognizes US cash market open after 15:30 CET', () => {
     const date = new Date('2026-03-05T14:35:00Z'); // 15:35 CET
     expect(isMarketOpenAt('us', date)).toBe(true);
+  });
+
+  it('treats Spotify as US-hours and not OMX-hours', () => {
+    expect(getAssetMarket('tech-spotify')).toBe('us');
+    expect(SWEDISH_MARKET_ASSETS.has('tech-spotify')).toBe(false);
   });
 });

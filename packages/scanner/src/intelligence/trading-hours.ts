@@ -14,7 +14,7 @@ export const TRADING_HOURS = {
 
 export const SWEDISH_MARKET_ASSETS = new Set([
   'defense-saab', 'steel-ssab', 'mining-boliden', 'telecom-ericsson',
-  'gaming-evolution', 'retail-hm', 'auto-volvo', 'tech-spotify', 'omx30'
+  'gaming-evolution', 'retail-hm', 'auto-volvo', 'omx30'
 ]);
 
 export const US_MARKET_ASSETS = new Set([
@@ -23,7 +23,7 @@ export const US_MARKET_ASSETS = new Set([
   'ai-nvidia', 'ai-palantir', 'ai-crowdstrike',
   'ev-tesla', 'mining-freeport', 'pharma-novo',
   'shipping-zim', 'renewables-vestas', 'nuclear-sprott',
-  'crypto-coinbase', 'sp500', 'nasdaq100'
+  'crypto-coinbase', 'sp500', 'nasdaq100', 'tech-spotify'
 ]);
 
 export function getAssetMarket(assetId: string): 'swedish' | 'us' {
