@@ -51,6 +51,17 @@ export const NOISE_PATTERNS: RegExp[] = [
   /be the (top|\#\d+) (song|artist|track|album|show|movie) on/i,
   /monthly (spotify|apple music) listeners/i,
   /top spotify artist/i,
+  // Podcast / media appearances (not market-moving)
+  /appear on .+ (podcast|show|stream)/i,
+  /\b(podcast|episode|interview|livestream)\b.*(by|before|december|january)/i,
+  /uponly|bankless pod|unchained pod/i,
+  // More entertainment/social noise
+  /\bfollowers?\b.*\b(million|thousand|[0-9]+[mk])\b/i,
+  /\bretweet|like|subscribe|view count\b/i,
+  /will .+ (join|leave|sign with|transfer to)/i,
+  /\b(grammy|emmy|oscar|tony|golden globe)\s*(award|winner|nominee)/i,
+  /\brap\s*beef\b|\bdiss\s*track\b/i,
+  /\bbreakup\b|\brelationship\b.*\bcelebrit/i,
 ];
 
 export interface DiscoveryResult {

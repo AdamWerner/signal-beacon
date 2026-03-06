@@ -438,7 +438,7 @@
       "name": "Spotify Technology",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["streaming royalties", "music industry", "podcast regulation", "digital music license", "content moderation"],
+        "keywords": ["spotify", "streaming royalty", "music royalty", "music licensing", "digital music license", "music industry"],
         "categories": ["technology", "regulation", "media"],
         "exclude_keywords": []
       },
