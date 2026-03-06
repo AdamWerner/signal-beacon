@@ -94,6 +94,9 @@ export class ScanCycleJob {
             // Ignore performance adjustment read issues.
           }
 
+          // Hard ceiling — stacked boosts (intelligence + backtest) must never hit 100%
+          signal.confidence = Math.min(signal.confidence, 92);
+
           if (changed) {
             try {
               this.db.prepare('UPDATE signals SET confidence = ? WHERE id = ?').run(signal.confidence, signal.id);

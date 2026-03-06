@@ -231,7 +231,9 @@ export class SignalGenerator {
       whale_usd: whaleAmountUsd || undefined,
       volume: market.volume,
       relevance_score: market.relevance_score,
-      abs_change_pp: change.odds_now - change.odds_before
+      abs_change_pp: change.odds_now - change.odds_before,
+      odds_now: change.odds_now,
+      odds_before: change.odds_before
     });
 
     const requiresJudgment = mapping.polarity === 'context_dependent';

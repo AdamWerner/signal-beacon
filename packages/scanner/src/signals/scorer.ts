@@ -9,6 +9,8 @@ export function calculateConfidence(params: {
   volume?: number;
   relevance_score?: number;
   abs_change_pp?: number; // absolute percentage-point change (odds_now - odds_before)
+  odds_now?: number;
+  odds_before?: number;
 }): number {
   let score = 0;
 
@@ -88,8 +90,22 @@ export function calculateConfidence(params: {
     }
   }
 
-  // Cap at 100
-  return Math.min(score, 100);
+  // Penalty for low-probability markets (peak odds < 10% or < 20%).
+  // A market at 3% odds is barely real — big relative moves are still noise.
+  if (params.abs_change_pp !== undefined) {
+    const maxOdds = Math.max(
+      typeof params.odds_now === 'number' ? params.odds_now : 1,
+      typeof params.odds_before === 'number' ? params.odds_before : 1
+    );
+    if (maxOdds < 0.10) {
+      score -= 20; // Heavy penalty — fringe market
+    } else if (maxOdds < 0.20) {
+      score -= 10; // Moderate penalty — still speculative
+    }
+  }
+
+  // Cap at 92 — nothing in a prediction market warrants absolute certainty
+  return Math.min(Math.max(score, 0), 92);
 }
 
 /**
