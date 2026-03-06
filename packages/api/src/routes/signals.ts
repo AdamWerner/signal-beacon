@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { scanner, getTopSignals, analyzeSignal, IntelligenceEngine, isNoiseMarketQuestion } from '@polysignal/scanner';
+import { scanner, getTopSignals, analyzeSignal, IntelligenceEngine, isNoiseMarketQuestion, SWEDISH_MARKET_ASSETS } from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
@@ -112,16 +112,8 @@ router.get('/top', async (req, res) => {
   }
 });
 
-// Swedish assets
-const SWEDISH_ASSET_IDS = new Set([
-  'defense-saab',
-  'steel-ssab',
-  'mining-boliden',
-  'telecom-ericsson',
-  'gaming-evolution',
-  'retail-hm',
-  'auto-volvo'
-]);
+// Swedish assets — use canonical set from trading-hours.ts (single source of truth)
+const SWEDISH_ASSET_IDS = SWEDISH_MARKET_ASSETS;
 const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution', 'h&m', 'hennes', 'volvo'];
 
 // GET /api/signals/top/swedish - Top 5 Swedish-asset signals (must be before /:id)
