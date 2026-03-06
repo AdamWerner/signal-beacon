@@ -150,16 +150,19 @@ export class OddsTracker {
       if (Math.abs(delta.delta_pct) >= thresholdPct) {
         const oddsNow = delta.odds_now;
         const oddsBefore = delta.odds_before;
+        const absChangePp = Math.abs(oddsNow - oddsBefore);
+        const midOdds = (oddsNow + oddsBefore) / 2;
 
-        // Skip markets where both endpoints are in the noise zone (< 5% or > 95%).
-        // A 0.3%→1% move looks like +233% relative but is completely meaningless.
+        // Skip markets where both endpoints are in the noise zone (<5% or >95%).
         if ((oddsNow < 0.05 && oddsBefore < 0.05) || (oddsNow > 0.95 && oddsBefore > 0.95)) {
           continue;
         }
 
-        // Require at least 3 percentage-point absolute change.
-        // Filters out sub-cent twitches that produce absurd relative percentages.
-        if (Math.abs(oddsNow - oddsBefore) < 0.03) {
+        // Tiered absolute floor:
+        // - Near extremes (<10% or >90%): require 3pp move
+        // - Mid-range (10%-90%): require 1.5pp move
+        const minAbsChange = (midOdds < 0.10 || midOdds > 0.90) ? 0.03 : 0.015;
+        if (absChangePp < minAbsChange) {
           continue;
         }
 
