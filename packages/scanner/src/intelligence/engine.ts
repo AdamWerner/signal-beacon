@@ -28,6 +28,28 @@ interface DailyBriefingRow {
   pushed_at: string | null;
 }
 
+const SECTOR_PEERS: Record<string, string[]> = {
+  defense:    ['defense-rheinmetall', 'defense-saab', 'defense-bae', 'defense-lockheed'],
+  energy:     ['oil-equinor', 'oil-conocophillips', 'oil-shell', 'oil-exxon'],
+  technology: ['ai-nvidia', 'ai-palantir', 'ai-crowdstrike', 'tech-spotify'],
+  mining:     ['mining-boliden', 'mining-freeport'],
+  index:      ['sp500', 'nasdaq100', 'omx30'],
+};
+
+// Sector pairs that co-move due to shared macro drivers
+const CROSS_SECTOR_PAIRS: [string, string][] = [
+  ['defense', 'energy'],   // geopolitical conflict drives both
+  ['defense', 'mining'],   // rearmament demand for metals
+  ['energy', 'mining'],    // commodities co-move
+];
+
+function getSectorForAsset(assetId: string): string | null {
+  for (const [sector, peers] of Object.entries(SECTOR_PEERS)) {
+    if (peers.includes(assetId)) return sector;
+  }
+  return null;
+}
+
 export class IntelligenceEngine {
   private static readonly MAX_CONFIDENCE_BOOST = 25;
 
@@ -73,54 +95,124 @@ export class IntelligenceEngine {
 
   /**
    * Process new signals: detect reinforcing patterns and link relationships.
+   * Boosts: +5/mkt same asset (max 20), +3/peer same sector (max 9), +2 cross-sector pair.
    */
   processNewSignals(signals: Array<{ [key: string]: any }>): void {
     if (signals.length === 0) return;
 
+    const getDir = (s: { [key: string]: any }) =>
+      s.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+
+    // ── 1. Same-asset reinforcement (+5 per market, max 20) ─────────────────
     const assetGroups = new Map<string, Array<{ [key: string]: any }>>();
     for (const signal of signals) {
       const key = signal.matched_asset_id;
-      if (!assetGroups.has(key)) {
-        assetGroups.set(key, []);
-      }
+      if (!assetGroups.has(key)) assetGroups.set(key, []);
       assetGroups.get(key)!.push(signal);
     }
 
     for (const [assetId, group] of assetGroups) {
       if (group.length < 2) continue;
-
-      const directions = group.map(signal =>
-        signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear'
-      );
-
-      if (!directions.every(direction => direction === directions[0])) {
-        continue;
-      }
+      const dirs = group.map(getDir);
+      if (!dirs.every(d => d === dirs[0])) continue;
 
       const boost = Math.min(group.length * 5, 20);
-      // Avoid re-adding identical reinforcement memory every cycle.
-      const existingMemory = this.db.prepare(`
-        SELECT id
-        FROM intelligence_memory
-        WHERE insight = ?
-          AND expires_at > datetime('now')
-        LIMIT 1
-      `).get(`${group.length} markets align ${directions[0].toUpperCase()} for ${group[0].matched_asset_name}`) as { id: number } | undefined;
+      const insight = `${group.length} markets align ${dirs[0].toUpperCase()} for ${group[0].matched_asset_name}`;
+      const existing = this.db.prepare(
+        `SELECT id FROM intelligence_memory WHERE insight = ? AND expires_at > datetime('now') LIMIT 1`
+      ).get(insight) as { id: number } | undefined;
 
-      if (existingMemory) {
-        continue;
+      if (!existing) {
+        this.addMemory({
+          category: assetId.split('-')[0] || 'unknown',
+          insight,
+          affected_assets: [assetId],
+          confidence_boost: boost,
+          decay_days: 3,
+          source_signals: group.map(s => s.id)
+        });
       }
+    }
+
+    // ── 2. Same-sector reinforcement (+3 per peer signal, max 9) ────────────
+    // Group signals by sector × direction, keeping only distinct assets.
+    const sectorDirGroups = new Map<string, Array<{ [key: string]: any }>>();
+    for (const signal of signals) {
+      const sector = getSectorForAsset(signal.matched_asset_id);
+      if (!sector) continue;
+      const key = `${sector}:${getDir(signal)}`;
+      if (!sectorDirGroups.has(key)) sectorDirGroups.set(key, []);
+      const group = sectorDirGroups.get(key)!;
+      // One representative signal per asset is enough.
+      if (!group.some(s => s.matched_asset_id === signal.matched_asset_id)) {
+        group.push(signal);
+      }
+    }
+
+    for (const [key, group] of sectorDirGroups) {
+      if (group.length < 2) continue; // need 2+ distinct assets in sector
+      const [sector, dir] = key.split(':');
+      const boost = Math.min((group.length - 1) * 3, 9);
+      const affectedIds = SECTOR_PEERS[sector] ?? group.map(s => s.matched_asset_id);
+      const insight = `${group.length} ${sector} assets align ${dir.toUpperCase()}`;
+      const existing = this.db.prepare(
+        `SELECT id FROM intelligence_memory WHERE insight = ? AND expires_at > datetime('now') LIMIT 1`
+      ).get(insight) as { id: number } | undefined;
+
+      if (!existing) {
+        this.addMemory({
+          category: sector,
+          insight,
+          affected_assets: affectedIds,
+          confidence_boost: boost,
+          decay_days: 2,
+          source_signals: group.map(s => s.id)
+        });
+      }
+    }
+
+    // ── 3. Cross-sector reinforcement (+2 per pair) ──────────────────────────
+    const activeSectors = new Map<string, string>(); // sector → direction
+    for (const [key, group] of sectorDirGroups) {
+      if (group.length === 0) continue;
+      const [sector, dir] = key.split(':');
+      // Only sectors with 1+ signal (not requiring 2 — macro drivers span any count)
+      if (!activeSectors.has(sector)) activeSectors.set(sector, dir);
+    }
+
+    for (const [sectorA, sectorB] of CROSS_SECTOR_PAIRS) {
+      const dirA = activeSectors.get(sectorA);
+      const dirB = activeSectors.get(sectorB);
+      if (!dirA || !dirB || dirA !== dirB) continue;
+
+      const insight = `${sectorA}+${sectorB} cross-sector ${dirA.toUpperCase()} macro`;
+      const existing = this.db.prepare(
+        `SELECT id FROM intelligence_memory WHERE insight = ? AND expires_at > datetime('now') LIMIT 1`
+      ).get(insight) as { id: number } | undefined;
+      if (existing) continue;
+
+      const affected = [
+        ...(SECTOR_PEERS[sectorA] ?? []),
+        ...(SECTOR_PEERS[sectorB] ?? [])
+      ];
+      const sourceSignals = signals
+        .filter(s => {
+          const sec = getSectorForAsset(s.matched_asset_id);
+          return sec === sectorA || sec === sectorB;
+        })
+        .map(s => s.id);
 
       this.addMemory({
-        category: assetId.split('-')[0] || 'unknown',
-        insight: `${group.length} markets align ${directions[0].toUpperCase()} for ${group[0].matched_asset_name}`,
-        affected_assets: [assetId],
-        confidence_boost: boost,
-        decay_days: 3,
-        source_signals: group.map(signal => signal.id)
+        category: `${sectorA}-${sectorB}`,
+        insight,
+        affected_assets: affected,
+        confidence_boost: 2,
+        decay_days: 2,
+        source_signals: sourceSignals
       });
     }
 
+    // ── 4. Link signals to active memories ──────────────────────────────────
     const activeMemories = this.getActiveMemories();
     for (const signal of signals) {
       for (const memory of activeMemories) {
