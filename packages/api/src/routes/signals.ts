@@ -327,6 +327,117 @@ router.put('/:id/status', (req, res) => {
   }
 });
 
+// GET /api/signals/quality-report — pipeline health summary
+router.get('/quality-report', (req, res) => {
+  try {
+    const db = (services as any).db;
+
+    // Last 24h signal counts by status
+    const statusRows = db.prepare(`
+      SELECT verification_status, COUNT(*) as cnt,
+             AVG(confidence) as avg_confidence
+      FROM signals
+      WHERE timestamp >= datetime('now', '-24 hours')
+      GROUP BY verification_status
+    `).all() as Array<{ verification_status: string; cnt: number; avg_confidence: number }>;
+
+    const byStatus: Record<string, { count: number; avg_confidence: number }> = {};
+    let totalSignals = 0;
+    for (const row of statusRows) {
+      byStatus[row.verification_status] = {
+        count: row.cnt,
+        avg_confidence: Math.round(row.avg_confidence || 0)
+      };
+      totalSignals += row.cnt;
+    }
+
+    const pushedRow = db.prepare(`
+      SELECT COUNT(*) as cnt FROM signals
+      WHERE timestamp >= datetime('now', '-24 hours')
+        AND push_sent_at IS NOT NULL
+    `).get() as { cnt: number };
+
+    // Top rejection flags from rejected signals
+    const rejectedRows = db.prepare(`
+      SELECT verification_flags FROM signals
+      WHERE timestamp >= datetime('now', '-24 hours')
+        AND verification_status = 'rejected'
+        AND verification_flags IS NOT NULL AND verification_flags != '[]'
+    `).all() as Array<{ verification_flags: string }>;
+
+    const flagCounts: Record<string, number> = {};
+    for (const row of rejectedRows) {
+      try {
+        const flags: string[] = JSON.parse(row.verification_flags);
+        for (const flag of flags) {
+          flagCounts[flag] = (flagCounts[flag] || 0) + 1;
+        }
+      } catch { /* skip malformed */ }
+    }
+    const topRejectionFlags = Object.entries(flagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([flag, count]) => ({ flag, count }));
+
+    // Backtest summary (last 7 days)
+    const backtestRows = db.prepare(`
+      SELECT market, date, signals_evaluated, hit_rate_30m, hit_rate_60m
+      FROM daily_backtest_runs
+      WHERE executed_at >= datetime('now', '-7 days')
+      ORDER BY date DESC
+    `).all() as Array<{
+      market: string; date: string; signals_evaluated: number;
+      hit_rate_30m: number; hit_rate_60m: number;
+    }>;
+
+    const bestAsset = db.prepare(`
+      SELECT asset_name, hit_rate_60m FROM asset_performance
+      ORDER BY hit_rate_60m DESC, samples DESC LIMIT 1
+    `).get() as { asset_name: string; hit_rate_60m: number } | undefined;
+
+    const worstAsset = db.prepare(`
+      SELECT asset_name, hit_rate_60m FROM asset_performance
+      WHERE samples >= 3 ORDER BY hit_rate_60m ASC LIMIT 1
+    `).get() as { asset_name: string; hit_rate_60m: number } | undefined;
+
+    // Feed health
+    const feedTotal = db.prepare(`SELECT COUNT(*) as cnt FROM tweet_accounts WHERE collect_enabled = 1`).get() as { cnt: number };
+    const feedActive = db.prepare(`
+      SELECT COUNT(DISTINCT account_handle) as cnt FROM tweet_snapshots
+      WHERE collected_at >= datetime('now', '-24 hours')
+    `).get() as { cnt: number };
+
+    res.json({
+      last24h: {
+        total_signals: totalSignals,
+        approved: byStatus['approved']?.count ?? 0,
+        rejected: byStatus['rejected']?.count ?? 0,
+        needs_review: byStatus['needs_review']?.count ?? 0,
+        pending: byStatus['pending']?.count ?? 0,
+        pushed_to_ha: pushedRow.cnt,
+        avg_confidence_approved: byStatus['approved']?.avg_confidence ?? 0,
+        avg_confidence_rejected: byStatus['rejected']?.avg_confidence ?? 0,
+        top_rejection_flags: topRejectionFlags
+      },
+      backtest_summary: {
+        days_evaluated: [...new Set(backtestRows.map(r => r.date))].length,
+        overall_hit_rate_30m: backtestRows.length
+          ? +(backtestRows.reduce((s, r) => s + r.hit_rate_30m, 0) / backtestRows.length).toFixed(2)
+          : null,
+        best_asset: bestAsset?.asset_name ?? null,
+        worst_asset: worstAsset?.asset_name ?? null
+      },
+      feed_health: {
+        total_feeds_enabled: feedTotal.cnt,
+        active_last_24h: feedActive.cnt,
+        inactive: Math.max(0, feedTotal.cnt - feedActive.cnt)
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to generate quality report', message: error?.message });
+  }
+});
+
 // Note: Briefing routes moved to /api/briefing (see routes/briefing.ts)
 
 // GET /api/signals/intelligence/memory - Active intelligence memories
