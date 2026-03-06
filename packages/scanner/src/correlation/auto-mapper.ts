@@ -114,11 +114,16 @@ export class AutoMapper {
    * instruments have been discovered (Avanza not connected).
    */
   private ontologyFallback(assetName: string, direction: 'bull' | 'bear'): MappedInstrument {
+    const dir = direction.toUpperCase();
+    const shortName = assetName
+      .replace(/\s+(Technology|Holdings|Integrated|Services|Systems|Group)\b/gi, '')
+      .trim();
+
     return {
-      name: `${direction.toUpperCase()} ${assetName}`,
+      name: `${dir} ${shortName} X3 AVA`,
       avanza_id: '',
-      leverage: null,
-      avanza_url: '',
+      leverage: 3,
+      avanza_url: `https://www.avanza.se/sok?query=${encodeURIComponent(`${dir} ${shortName}`)}`,
       issuer: null
     };
   }
