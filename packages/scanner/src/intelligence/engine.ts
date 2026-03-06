@@ -2,6 +2,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './trading-hours.js';
+import { NewsCorrelator } from './news-correlator.js';
 import { trackClaudeCall } from '../utils/claude-usage.js';
 
 const execFileAsync = promisify(execFile);
@@ -267,7 +268,9 @@ export class IntelligenceEngine {
     }
 
     const topSignals = this.getTopSignalsByAsset(recentSignals, 5);
-    const activeMemories = this.getActiveMemories().slice(0, 5);
+    const activeMemories = this.getActiveMemories().slice(0, 8);
+    const crossSectorMemories = activeMemories.filter(m => m.category.includes('-'));
+    const reinforcingMemories = activeMemories.filter(m => !m.category.includes('-')).slice(0, 5);
 
     let tweetContext = '';
     try {
@@ -277,6 +280,16 @@ export class IntelligenceEngine {
     } catch {
       // Optional module path; continue without tweet context.
     }
+
+    // News reinforcement counts per top signal.
+    const newsCorrelator = new NewsCorrelator(this.db);
+    let totalNewsReinforced = 0;
+    const signalLines = topSignals.map(signal => {
+      const nb = newsCorrelator.getBoostForAsset(signal.matched_asset_id, 16);
+      const newsTag = nb.sourceCount >= 2 ? ` [${nb.sourceCount} news sources, +${nb.boost}]` : '';
+      if (nb.sourceCount >= 2) totalNewsReinforced++;
+      return `- ${signal.matched_asset_name}: ${signal.suggested_action} (${signal.confidence}%) — "${signal.market_title}" odds ${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}%${newsTag}`;
+    });
 
     // Fetch yesterday's backtest summary for this market.
     const yesterday = new Date();
@@ -301,7 +314,8 @@ export class IntelligenceEngine {
     const prompt = `You are advising a Swedish trader on Avanza who trades leveraged certificates (BULL/BEAR X3-X10). Write a pre-market briefing for ${marketName} open. Max 200 words.
 
 OVERNIGHT POLYMARKET SIGNALS (sorted by confidence):
-${topSignals.map(signal => `- ${signal.matched_asset_name}: ${signal.suggested_action} (${signal.confidence}%) — "${signal.market_title}" odds ${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}%`).join('\n')}
+${signalLines.join('\n')}
+News reinforcement: ${totalNewsReinforced} of ${topSignals.length} signals confirmed by 2+ independent news sources.
 
 OVERNIGHT NEWS (from financial RSS feeds):
 ${tweetContext || 'No news context available.'}
@@ -309,12 +323,16 @@ ${tweetContext || 'No news context available.'}
 YESTERDAY'S BACKTEST:
 ${backtestSummary}
 
-ACTIVE INTELLIGENCE (reinforcing patterns):
-${activeMemories.map(memory => `- ${memory.insight} (boost: +${memory.confidence_boost})`).join('\n') || 'None'}
+ACTIVE REINFORCING PATTERNS:
+${reinforcingMemories.map(m => `- ${m.insight} (+${m.confidence_boost})`).join('\n') || 'None'}
+
+CROSS-SECTOR MACRO PATTERNS:
+${crossSectorMemories.map(m => `- ${m.insight} (+${m.confidence_boost})`).join('\n') || 'None'}
 
 Rules:
 - Start with the #1 trade if there is one genuinely actionable signal. If nothing is strong enough, say "No clear trades today — stay flat."
 - For each trade: state the specific Avanza instrument (e.g. "BULL EQUINOR X3 AVA"), the entry reasoning, and expected holding time (5-30 min).
+- Weight signals higher if they appear in both Polymarket odds and news (news-reinforced tag).
 - Be brutally honest about confidence. Do not hype weak signals.
 - Max 200 words.`;
 
