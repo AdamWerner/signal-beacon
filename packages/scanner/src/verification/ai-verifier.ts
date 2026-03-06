@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { ClaudeVerificationResult, GuardDecision, VerificationContext } from './types.js';
+import { trackClaudeCall } from '../utils/claude-usage.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -188,6 +189,7 @@ export class AiTradeVerifier {
 
   async verify(context: VerificationContext, guard: GuardDecision): Promise<ClaudeVerificationResult | null> {
     const prompt = buildPrompt(context, guard);
+    trackClaudeCall('verify-single');
 
     for (const binary of CLAUDE_CANDIDATES) {
       try {
@@ -213,6 +215,7 @@ export class AiTradeVerifier {
     if (contexts.length === 0) return [];
 
     const prompt = buildBatchPrompt(contexts, guards, newsContext);
+    trackClaudeCall('batch-verify');
 
     for (const binary of CLAUDE_CANDIDATES) {
       try {

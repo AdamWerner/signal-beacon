@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { Signal } from '../storage/signal-store.js';
 import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
+import { trackClaudeCall } from '../utils/claude-usage.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -197,6 +198,7 @@ export async function getTopSignals(
   }
 
   const prompt = buildRankPrompt(candidates);
+  trackClaudeCall('ai-ranking');
   const raw = await callClaude(prompt);
 
   if (raw) {

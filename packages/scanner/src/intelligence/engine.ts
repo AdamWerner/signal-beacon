@@ -2,6 +2,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './trading-hours.js';
+import { trackClaudeCall } from '../utils/claude-usage.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -226,6 +227,7 @@ Rules:
 - Max 200 words.`;
 
     let briefingText = '';
+    trackClaudeCall('morning-briefing');
     for (const binary of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd']) {
       try {
         const { stdout } = await execFileAsync(binary, ['-p', prompt], { timeout: 60000 });

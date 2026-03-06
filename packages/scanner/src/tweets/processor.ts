@@ -2,6 +2,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { TweetStore, UnprocessedTweet } from '../storage/tweet-store.js';
+import { trackClaudeCall } from '../utils/claude-usage.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -130,6 +131,7 @@ Rules:
   }
 
   private async runClaudePrompt(prompt: string): Promise<ParsedInsight[]> {
+    trackClaudeCall('tweet-process');
     for (const bin of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd']) {
       try {
         const { stdout } = await execFileAsync(bin, ['-p', prompt], {
