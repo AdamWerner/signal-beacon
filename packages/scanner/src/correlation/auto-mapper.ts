@@ -64,7 +64,7 @@ export class AutoMapper {
             avanza_url: inst.instrument_url,
             issuer: inst.issuer
           }))
-        : [this.ontologyFallback(asset.name, 'bull')];
+        : [this.ontologyFallback(asset.name, 'bull', asset.avanza_search.underlying_terms[0])];
 
       const bearInstruments: MappedInstrument[] = instruments.bear.length > 0
         ? instruments.bear.map(inst => ({
@@ -74,7 +74,7 @@ export class AutoMapper {
             avanza_url: inst.instrument_url,
             issuer: inst.issuer
           }))
-        : [this.ontologyFallback(asset.name, 'bear')];
+        : [this.ontologyFallback(asset.name, 'bear', asset.avanza_search.underlying_terms[0])];
 
       mappings.push({
         assetId: asset.id,
@@ -113,17 +113,23 @@ export class AutoMapper {
    * Fallback instrument suggestion from ontology asset name when no real
    * instruments have been discovered (Avanza not connected).
    */
-  private ontologyFallback(assetName: string, direction: 'bull' | 'bear'): MappedInstrument {
+  private ontologyFallback(
+    assetName: string,
+    direction: 'bull' | 'bear',
+    preferredSearchTerm?: string
+  ): MappedInstrument {
     const dir = direction.toUpperCase();
     const shortName = assetName
       .replace(/\s+(Technology|Holdings|Integrated|Services|Systems|Group)\b/gi, '')
       .trim();
+    const baseSearchTerm = (preferredSearchTerm || shortName).trim();
+    const searchQuery = `${baseSearchTerm} certifikat`;
 
     return {
       name: `${dir} ${shortName} X3 AVA`,
       avanza_id: '',
       leverage: 3,
-      avanza_url: `https://www.avanza.se/sok?query=${encodeURIComponent(`${dir} ${shortName}`)}`,
+      avanza_url: `https://www.avanza.se/sok.html?query=${encodeURIComponent(searchQuery)}`,
       issuer: null
     };
   }

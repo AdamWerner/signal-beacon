@@ -1,0 +1,64 @@
+// Markets matching these patterns are entertainment/gambling with no stock-price signal value.
+export const NOISE_PATTERNS: RegExp[] = [
+  /will .+ post \d+.+tweets/i,
+  /will .+ tweet .+ times/i,
+  /how many .+ tweets/i,
+  /will .+ reach \d+ followers/i,
+  /price of .+ on .+ at/i,
+  /will .+ score \d+/i,
+  /will .+ win .+ game/i,
+  /temperature/i,
+  /subscriber/i,
+  /\bviews\b/i,
+  // Crypto meme / token noise
+  /\$[A-Z]{2,10}\s+reach\s+\$/i,
+  /listed on binance/i,
+  /listed on coinbase/i,
+  /memecoin/i,
+  /meme coin/i,
+  /token (launch|listing|price)/i,
+  /nft (floor|price|volume)/i,
+  // Streaming / social media
+  /will .+ (stream|viewers|viewership)/i,
+  /youtube|twitch|tiktok/i,
+  // Entertainment
+  /\b(superbowl|super bowl|oscar|grammy|emmy)\b/i,
+  /box office/i,
+  /album sales/i,
+  /\bdating\b/i,
+  /baby|pregnant|marriage|divorce/i,
+  /reality\s*tv/i,
+  /will .+ die /i,
+  /onlyfans/i,
+  /mukbang/i,
+  // Entertainment / celebrity
+  /bridgerton/i,
+  /release an? (album|single|ep|song)/i,
+  /\b(film|movie|season \d|episode)\b/i,
+  /taylor swift|beyonce|drake|kanye|rihanna/i,
+  /celebrity|famous|influencer/i,
+  /\b(nba|nfl|nhl|mlb|fifa|champions league)\b/i,
+  /will .+ (score|win|beat|defeat|qualify)/i,
+  /\bpenguin\b/i,
+  /\bmemecoin\b|\bshitcoin\b/i,
+  /\$[A-Z]{3,10} (hit|reach|touch|cross) \$/i,
+  // Music charts (mention streaming services but are NOT about the company)
+  /be the (top|\#\d+) (song|artist|track|album|show|movie) on/i,
+  /monthly (spotify|apple music) listeners/i,
+  /top spotify artist/i,
+  // Podcast / media appearances (not market-moving)
+  /appear on .+ (podcast|show|stream)/i,
+  /\b(podcast|episode|interview|livestream)\b.*(by|before|december|january)/i,
+  /uponly|bankless pod|unchained pod/i,
+  // More entertainment/social noise
+  /\bfollowers?\b.*\b(million|thousand|[0-9]+[mk])\b/i,
+  /\bretweet|like|subscribe|view count\b/i,
+  /will .+ (join|leave|sign with|transfer to)/i,
+  /\b(grammy|emmy|oscar|tony|golden globe)\s*(award|winner|nominee)/i,
+  /\brap\s*beef\b|\bdiss\s*track\b/i,
+  /\bbreakup\b|\brelationship\b.*\bcelebrit/i
+];
+
+export function isNoiseMarketQuestion(question: string): boolean {
+  return NOISE_PATTERNS.some(pattern => pattern.test(question));
+}

@@ -7,6 +7,7 @@ import { calculateConfidence } from './scorer.js';
 import { GeneratedSignal } from './types.js';
 import { BatchVerificationCandidate, TradeVerificationGate } from '../verification/trade-gate.js';
 import { VerificationContext } from '../verification/types.js';
+import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
 
 const DEDUP_WINDOW_HOURS = 4;
 const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
@@ -37,6 +38,9 @@ export class SignalGenerator {
     for (const change of oddsChanges) {
       const market = this.marketStore.findByConditionId(change.market_condition_id);
       if (!market) continue;
+      if (isNoiseMarketQuestion(market.title)) {
+        continue;
+      }
 
       const mappings = this.autoMapper.mapMarketToInstruments(market);
       if (mappings.length === 0) {

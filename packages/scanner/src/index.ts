@@ -320,6 +320,7 @@ export { SignalBacktestEvaluator } from './backtest/evaluator.js';
 export { TweetStore } from './storage/tweet-store.js';
 export { TweetCollector } from './tweets/collector.js';
 export { TweetIntelligenceProcessor } from './tweets/processor.js';
+export { isNoiseMarketQuestion } from './polymarket/noise-filter.js';
 
 export const scanner = new PolySignalScanner();
 

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { scanner, getTopSignals, analyzeSignal, IntelligenceEngine } from '@polysignal/scanner';
+import { scanner, getTopSignals, analyzeSignal, IntelligenceEngine, isNoiseMarketQuestion } from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
@@ -23,10 +23,45 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+function isApprovedForRanking(signal: any): boolean {
+  return signal.verification_status === 'approved' &&
+    ['claude', 'guard', 'guard_allowlist'].includes(String(signal.verification_source || ''));
+}
+
 function parseSignal(signal: any) {
+  const parsedInstruments = safeJsonParse(signal.suggested_instruments, []);
+  const normalizedInstruments = Array.isArray(parsedInstruments)
+    ? parsedInstruments.map((instrument: any) => {
+        const currentUrl = String(instrument?.avanza_url || '');
+        const currentName = String(instrument?.name || '');
+        let nextUrl = currentUrl;
+
+        if (currentUrl.includes('avanza.se/sok?query=')) {
+          const queryPart = currentUrl.split('query=')[1] || '';
+          const decoded = decodeURIComponent(queryPart || '');
+          const cleaned = decoded.replace(/^(BULL|BEAR)\s+/i, '').trim();
+          const normalizedQuery = cleaned ? `${cleaned} certifikat` : decoded;
+          nextUrl = `https://www.avanza.se/sok.html?query=${encodeURIComponent(normalizedQuery)}`;
+        } else if (!currentUrl && currentName) {
+          const cleaned = currentName
+            .replace(/^(BULL|BEAR)\s+/i, '')
+            .replace(/\s+X\d+\s+AVA$/i, '')
+            .trim();
+          if (cleaned) {
+            nextUrl = `https://www.avanza.se/sok.html?query=${encodeURIComponent(`${cleaned} certifikat`)}`;
+          }
+        }
+
+        return {
+          ...instrument,
+          avanza_url: nextUrl
+        };
+      })
+    : [];
+
   return {
     ...signal,
-    suggested_instruments: safeJsonParse(signal.suggested_instruments, []),
+    suggested_instruments: normalizedInstruments,
     verification_flags: Array.isArray(signal.verification_flags)
       ? signal.verification_flags
       : safeJsonParse<string[]>(signal.verification_flags, [])
@@ -46,7 +81,9 @@ router.get('/', (req, res) => {
       ? services.signalStore.findFiltered({ hours, minConfidence, status, limit })
       : services.signalStore.findAll(limit, status);
 
-    const parsed = signals.map(parseSignal);
+    const parsed = signals
+      .filter(signal => !isNoiseMarketQuestion(String(signal.market_title || '')))
+      .map(parseSignal);
 
     res.json(parsed);
   } catch (error) {
@@ -59,7 +96,10 @@ router.get('/top', async (req, res) => {
   try {
     const includeUnverified = req.query.include_unverified === 'true';
     const allSignals = services.signalStore.findAll(500);
-    const signals = allSignals.filter(s => s.status !== 'dismissed');
+    const signals = allSignals.filter(s =>
+      s.status !== 'dismissed' &&
+      !isNoiseMarketQuestion(String(s.market_title || ''))
+    );
     // Dedup + AI ranking handled inside getTopSignals
     const top = await getTopSignals(signals, { includeUnverified });
     const parsed = top.map(signal => ({
@@ -84,7 +124,8 @@ router.get('/top/swedish', (req, res) => {
     const swedishPool = signals
       .filter(s =>
         s.status !== 'dismissed' &&
-        (includeUnverified || s.verification_status === 'approved') &&
+        !isNoiseMarketQuestion(String(s.market_title || '')) &&
+        (includeUnverified || isApprovedForRanking(s)) &&
         (SWEDISH_ASSET_IDS.has(s.matched_asset_id) ||
         SWEDISH_NAME_FRAGMENTS.some(f => s.matched_asset_name.toLowerCase().includes(f)))
       )

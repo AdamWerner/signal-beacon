@@ -51,6 +51,7 @@ export class OntologyEngine {
     for (const asset of this.ontology.assets) {
       let score = 0;
       const matchedKeywords: string[] = [];
+      let hasTitleKeywordMatch = false;
 
       // Keyword matching
       for (const keyword of asset.polymarket_patterns.keywords) {
@@ -60,6 +61,7 @@ export class OntologyEngine {
         if (titleLower.includes(keywordLower)) {
           score += 3;
           matchedKeywords.push(keyword);
+          hasTitleKeywordMatch = true;
         }
         // Description matches score 1x
         else if (descLower.includes(keywordLower)) {
@@ -82,6 +84,11 @@ export class OntologyEngine {
 
       if (hasExclude) {
         continue; // Skip this asset
+      }
+
+      // Sacred rule: market title must match at least one keyword.
+      if (!hasTitleKeywordMatch) {
+        continue;
       }
 
       if (score > 0) {

@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { Signal } from '../storage/signal-store.js';
+import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -162,10 +163,10 @@ export async function getTopSignals(
 ): Promise<RankedSignal[]> {
   if (rawSignals.length === 0) return [];
   const includeUnverified = options?.includeUnverified ?? false;
-
+  const nonNoisePool = rawSignals.filter(signal => !isNoiseMarketQuestion(signal.market_title || ''));
   const verifiedPool = includeUnverified
-    ? rawSignals
-    : rawSignals.filter(signal => isVerificationApproved(signal));
+    ? nonNoisePool
+    : nonNoisePool.filter(signal => isVerificationApproved(signal));
   const deduped = deduplicateSignals(verifiedPool);
   if (deduped.length === 0) return [];
 
