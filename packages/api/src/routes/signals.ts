@@ -479,7 +479,49 @@ router.get('/quality-report', (req, res) => {
     const feedTotal = db.prepare(`SELECT COUNT(*) as cnt FROM tweet_accounts WHERE collect_enabled = 1`).get() as { cnt: number };
     const feedActive = db.prepare(`
       SELECT COUNT(DISTINCT account_handle) as cnt FROM tweet_snapshots
-      WHERE collected_at >= datetime('now', '-24 hours')
+      WHERE scraped_at >= datetime('now', '-24 hours')
+    `).get() as { cnt: number };
+
+    // Sector patterns from active intelligence memory
+    const activeMemoryRows = db.prepare(`
+      SELECT category, insight, confidence_boost, affected_assets, expires_at
+      FROM intelligence_memory
+      WHERE expires_at > datetime('now')
+      ORDER BY confidence_boost DESC
+      LIMIT 20
+    `).all() as Array<{
+      category: string; insight: string; confidence_boost: number;
+      affected_assets: string; expires_at: string;
+    }>;
+
+    const sectorPatterns = activeMemoryRows
+      .filter(m => !m.category.includes('-'))
+      .map(m => ({
+        sector: m.category,
+        insight: m.insight,
+        boost: m.confidence_boost,
+        affected_assets: (() => { try { return JSON.parse(m.affected_assets); } catch { return []; } })(),
+        expires_at: m.expires_at
+      }));
+
+    const crossSectorPatterns = activeMemoryRows
+      .filter(m => m.category.includes('-'))
+      .map(m => ({
+        sectors: m.category,
+        insight: m.insight,
+        boost: m.confidence_boost,
+        expires_at: m.expires_at
+      }));
+
+    // Count signals in last 24h that received an intelligence boost
+    const boostedSignalCount = db.prepare(`
+      SELECT COUNT(*) as cnt FROM signals s
+      WHERE s.timestamp >= datetime('now', '-24 hours')
+        AND EXISTS (
+          SELECT 1 FROM intelligence_memory im
+          WHERE im.expires_at > s.timestamp
+            AND im.affected_assets LIKE ('%' || s.matched_asset_id || '%')
+        )
     `).get() as { cnt: number };
 
     res.json({
@@ -506,6 +548,13 @@ router.get('/quality-report', (req, res) => {
         total_feeds_enabled: feedTotal.cnt,
         active_last_24h: feedActive.cnt,
         inactive: Math.max(0, feedTotal.cnt - feedActive.cnt)
+      },
+      sector_patterns: {
+        boosted_signals_24h: boostedSignalCount.cnt,
+        active_sector_count: sectorPatterns.length,
+        active_cross_sector_count: crossSectorPatterns.length,
+        sectors: sectorPatterns,
+        cross_sector: crossSectorPatterns
       }
     });
   } catch (error: any) {
