@@ -139,7 +139,7 @@ export class SignalGenerator {
           signal.verification_record = JSON.stringify(verification.record);
           signal.confidence = Math.max(
             0,
-            Math.min(signal.confidence + verification.confidenceAdjustment, 100)
+            Math.min(signal.confidence + verification.confidenceAdjustment, 92)
           );
 
           if (verification.suggestedActionOverride) {
