@@ -330,7 +330,7 @@ CROSS-SECTOR MACRO PATTERNS:
 ${crossSectorMemories.map(m => `- ${m.insight} (+${m.confidence_boost})`).join('\n') || 'None'}
 
 Rules:
-- Start with the #1 trade if there is one genuinely actionable signal. If nothing is strong enough, say "No clear trades today — stay flat."
+- CRITICAL: If no overnight signal has strong enough conviction, say "No clear trades today — stay flat." Do NOT force a recommendation. 1 excellent signal beats 5 mediocre ones.
 - For each trade: state the specific Avanza instrument (e.g. "BULL EQUINOR X3 AVA"), the entry reasoning, and expected holding time (5-30 min).
 - Weight signals higher if they appear in both Polymarket odds and news (news-reinforced tag).
 - Be brutally honest about confidence. Do not hype weak signals.
