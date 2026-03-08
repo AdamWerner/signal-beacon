@@ -193,25 +193,37 @@ export class AlertDispatcher {
     reason: string;
     confidence_adjustment: number;
   } | null> {
-    const prompt = `You are a senior quant analyst at a top hedge fund. A signal is about to be pushed to a trader's phone for immediate leveraged action (BULL/BEAR X3 certificates on Avanza, 5-30 min hold).
+    const isBull = signal.suggested_action.toLowerCase().includes('bull');
+    const oddsBefore = (signal.odds_before * 100).toFixed(1);
+    const oddsNow = (signal.odds_now * 100).toFixed(1);
+    const deltaSign = signal.delta_pct > 0 ? '+' : '';
+    const momentumTag = signal.reasoning.match(/Momentum: (\w+)/)?.[1] ?? 'unknown';
+    const newsTag = signal.reasoning.match(/\[news: .+?\]/)?.[0] ?? 'none detected';
+    const sectorTag = signal.reasoning.match(/\[sector: .+?\]/)?.[0] ?? 'none';
+
+    const prompt = `You are the final gatekeeper at a quantitative trading desk. A signal is about to be sent to a trader's phone for IMMEDIATE action on a leveraged X3 certificate (5-30 min holding period on Avanza, Swedish broker).
 
 SIGNAL:
-Asset: ${signal.matched_asset_name} (${signal.matched_asset_id})
-Direction: ${signal.suggested_action}
-Confidence: ${signal.confidence}%
-Market: "${signal.market_title}"
-Odds: ${(signal.odds_before * 100).toFixed(1)}% -> ${(signal.odds_now * 100).toFixed(1)}% (${signal.delta_pct > 0 ? '+' : ''}${signal.delta_pct.toFixed(1)}%)
-${signal.whale_detected ? `Whale activity: $${signal.whale_amount_usd?.toLocaleString()}` : 'No whale activity'}
-Momentum: ${signal.reasoning.includes('accelerating') ? 'ACCELERATING' : signal.reasoning.includes('steady') ? 'STEADY' : 'SINGLE MOVE'}
+- Asset: ${signal.matched_asset_name}
+- Direction: ${isBull ? 'BULL (long)' : 'BEAR (short)'}
+- Confidence: ${signal.confidence}%
+- Polymarket: "${signal.market_title}"
+- Odds: ${oddsBefore}% -> ${oddsNow}% (${deltaSign}${signal.delta_pct.toFixed(1)}%)
+- Momentum: ${momentumTag}
+${signal.whale_detected ? `- Whale activity: $${(signal.whale_amount_usd || 0).toLocaleString()}` : '- No whale activity'}
+- News corroboration: ${newsTag}
+- Sector pattern: ${sectorTag}
 
-QUESTION: Should this be sent as a LIVE TRADE ALERT? Consider:
-1. Is the causal mechanism clear and strong? (Not just correlation)
-2. Is this likely to move the actual stock within 30 minutes?
-3. Is the move already priced into the stock? (Check if this is old news)
-4. Could this be a false positive or noise?
+YOUR TASK: Would you approve sending this as a LIVE TRADE ALERT? Consider:
+1. Is the causal mechanism specific and strong? (e.g., "OPEC cut -> oil price up -> Equinor revenue up" is strong; "general uncertainty -> S&P might drop" is weak)
+2. Will the stock/index likely MOVE within 30 minutes of this event becoming known?
+3. Is this already priced in? (If the Polymarket odds only moved 8% on an event the stock market has known about for days, it's stale.)
+4. Is the leverage direction correct? (Direct polarity = odds up means BULL; inverse = odds up means BEAR)
 
-Respond JSON only:
-{"verdict":"approve|reject","reason":"1-2 sentences why","confidence_adjustment":-10..10}`;
+Respond JSON ONLY, no other text:
+{"verdict":"approve","reason":"1-2 sentences a trader can act on","confidence_adjustment":-10..10}
+or
+{"verdict":"reject","reason":"why not","confidence_adjustment":0}`;
 
     try {
       const { execFile } = await import('child_process');
