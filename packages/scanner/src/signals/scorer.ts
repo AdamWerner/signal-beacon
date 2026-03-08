@@ -57,26 +57,47 @@ export function calculateConfidence(params: {
     }
   }
 
-  // Time compression (max 15 points) - faster moves score higher
-  if (params.time_window_minutes <= 15) {
-    score += 15;
+  // Time compression (max 18 points) — ultra-fresh signals get full credit; stale moves lose value fast
+  if (params.time_window_minutes <= 10) {
+    score += 18;
+  } else if (params.time_window_minutes <= 20) {
+    score += 13;
   } else if (params.time_window_minutes <= 30) {
-    score += 12;
-  } else if (params.time_window_minutes <= 60) {
     score += 8;
+  } else if (params.time_window_minutes <= 60) {
+    score += 3;
   }
 
   // Market quality — volume tiers (max 15 points)
+  // Quant-grade: only high-liquidity markets get full credit
   if (params.volume !== undefined) {
-    if (params.volume > 5_000_000) {
+    if (params.volume > 10_000_000) {
       score += 15;
+    } else if (params.volume > 5_000_000) {
+      score += 12;
     } else if (params.volume > 1_000_000) {
-      score += 10;
+      score += 8;
     } else if (params.volume > 500_000) {
-      score += 7;
-    } else if (params.volume > 100_000) {
       score += 4;
+    } else if (params.volume > 100_000) {
+      score += 1; // Barely registers
     }
+    // Below 100K: +0 (noise market)
+    if (params.volume < 50_000) {
+      score -= 5; // Active penalty for illiquid markets
+    }
+  }
+
+  // Odds-zone actionability bonus
+  // Signals in the "decision zone" (25-75%) are more actionable than near-certainty moves
+  if (params.odds_now !== undefined) {
+    const oddsNow = params.odds_now;
+    if (oddsNow >= 0.25 && oddsNow <= 0.75) {
+      score += 8; // Sweet spot — market is undecided, move is meaningful
+    } else if (oddsNow >= 0.15 && oddsNow <= 0.85) {
+      score += 3; // Moderate zone
+    }
+    // Outside 15-85%: no bonus (too close to resolved)
   }
 
   // Ontology confidence (max 15 points)
