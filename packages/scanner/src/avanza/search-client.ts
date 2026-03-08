@@ -50,13 +50,12 @@ export class AvanzaSearchClient {
    * Search for certificates by query term.
    * Re-authenticates once on 401 errors.
    */
-  async searchCertificates(query: string, limit = 20): Promise<AvanzaInstrument[]> {
-    return this.searchCertificatesInternal(query, limit, true);
+  async searchCertificates(query: string): Promise<AvanzaInstrument[]> {
+    return this.searchCertificatesInternal(query, true);
   }
 
   private async searchCertificatesInternal(
     query: string,
-    limit: number,
     allowReauthRetry: boolean
   ): Promise<AvanzaInstrument[]> {
     if (!this.authenticated) {
@@ -64,7 +63,7 @@ export class AvanzaSearchClient {
     }
 
     try {
-      const results = await this.avanza.search(query, { limit }) as AvanzaSearchResult;
+      const results = await this.avanza.search(query) as AvanzaSearchResult;
       const certificateHit = results.hits?.find(hit => hit.instrumentType === 'CERTIFICATE');
 
       if (!certificateHit) {
@@ -88,7 +87,7 @@ export class AvanzaSearchClient {
           return [];
         }
 
-        return this.searchCertificatesInternal(query, limit, false);
+        return this.searchCertificatesInternal(query, false);
       }
 
       console.error(`Search failed for query "${query}":`, error);
