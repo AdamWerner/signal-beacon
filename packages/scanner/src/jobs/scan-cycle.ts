@@ -64,7 +64,7 @@ export class ScanCycleJob {
 
           const boost = intelligence.getConfidenceBoost(signal.matched_asset_id);
           if (boost > 0) {
-            signal.confidence = Math.min(signal.confidence + boost, 100);
+            signal.confidence = Math.min(signal.confidence + boost, 92);
             changed = true;
             console.log(`  Intelligence boost +${boost} for ${signal.matched_asset_name} -> ${signal.confidence}%`);
           }
@@ -84,7 +84,7 @@ export class ScanCycleJob {
             if (perf && perf.samples >= 2 && perf.suggested_confidence_adjustment !== 0) {
               signal.confidence = Math.max(
                 0,
-                Math.min(signal.confidence + perf.suggested_confidence_adjustment, 100)
+                Math.min(signal.confidence + perf.suggested_confidence_adjustment, 92)
               );
               changed = true;
               console.log(
