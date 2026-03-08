@@ -39,10 +39,12 @@ export class ScanCycleJob {
       console.log('\n[1/4] Tracking odds...');
       const marketsTracked = await this.oddsTracker.trackAllMarkets();
 
-      console.log('\n[2/4] Detecting odds changes...');
-      const oddsChanges = this.oddsTracker.detectSignificantChanges(
-        this.config.polyTimeWindowMinutes,
+      console.log('\n[2/4] Detecting odds changes (multi-timeframe)...');
+      const oddsChanges = this.oddsTracker.detectMultiTimeframeChanges(
         this.config.polyOddsChangeThreshold
+      );
+      const timeframeMap = new Map<string, number>(
+        oddsChanges.map(c => [c.market_condition_id, c.timeframesTriggered ?? 1])
       );
 
       console.log(`Found ${oddsChanges.length} significant odds changes`);
@@ -61,6 +63,18 @@ export class ScanCycleJob {
 
         for (const signal of signals) {
           let changed = false;
+
+          // Multi-timeframe bonus: +5 for 2 windows, +10 for 3 windows
+          const tframes = timeframeMap.get(signal.market_condition_id) ?? 1;
+          if (tframes >= 3) {
+            signal.confidence = Math.min(signal.confidence + 10, 92);
+            changed = true;
+            console.log(`  Multi-timeframe +10 for ${signal.matched_asset_name} (${tframes} windows) -> ${signal.confidence}%`);
+          } else if (tframes >= 2) {
+            signal.confidence = Math.min(signal.confidence + 5, 92);
+            changed = true;
+            console.log(`  Multi-timeframe +5 for ${signal.matched_asset_name} (${tframes} windows) -> ${signal.confidence}%`);
+          }
 
           const boost = intelligence.getConfidenceBoost(signal.matched_asset_id);
           if (boost > 0) {

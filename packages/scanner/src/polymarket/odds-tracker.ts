@@ -10,6 +10,7 @@ export interface OddsChange {
   odds_now: number;
   delta_pct: number;
   time_window_minutes: number;
+  timeframesTriggered?: number; // How many of [30, 60, 240] windows triggered for this market
 }
 
 export class OddsTracker {
@@ -180,6 +181,43 @@ export class OddsTracker {
 
     // Sort by absolute delta descending.
     return changes.sort((a, b) => Math.abs(b.delta_pct) - Math.abs(a.delta_pct));
+  }
+
+  /**
+   * Detect significant changes across multiple timeframes [30, 60, 240 min].
+   * Markets that trigger on multiple timeframes are ranked first and carry
+   * timeframesTriggered count for downstream confidence boosting.
+   */
+  detectMultiTimeframeChanges(thresholdPct: number): OddsChange[] {
+    const windows = [30, 60, 240];
+    const allChanges = new Map<string, OddsChange & { timeframesTriggered: number }>();
+
+    for (const window of windows) {
+      const changes = this.detectSignificantChanges(window, thresholdPct);
+      for (const change of changes) {
+        const key = change.market_condition_id;
+        const existing = allChanges.get(key);
+        if (existing) {
+          existing.timeframesTriggered++;
+          // Keep the shortest timeframe's delta (most urgent/fresh)
+          if (change.time_window_minutes < existing.time_window_minutes) {
+            existing.delta_pct = change.delta_pct;
+            existing.odds_before = change.odds_before;
+            existing.time_window_minutes = change.time_window_minutes;
+          }
+        } else {
+          allChanges.set(key, { ...change, timeframesTriggered: 1 });
+        }
+      }
+    }
+
+    // Sort: multi-timeframe signals first, then by delta magnitude
+    return Array.from(allChanges.values()).sort((a, b) => {
+      if (b.timeframesTriggered !== a.timeframesTriggered) {
+        return b.timeframesTriggered - a.timeframesTriggered;
+      }
+      return Math.abs(b.delta_pct) - Math.abs(a.delta_pct);
+    });
   }
 
   /**
