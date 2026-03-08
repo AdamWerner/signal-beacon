@@ -1,5 +1,5 @@
 ﻿import Avanza from 'avanza';
-import { AvanzaCredentials, AvanzaSearchResult, AvanzaInstrument } from './types.js';
+import { AvanzaCredentials, AvanzaInstrument } from './types.js';
 import { isValidCertificate } from './certificate-parser.js';
 
 export class AvanzaSearchClient {
@@ -63,14 +63,40 @@ export class AvanzaSearchClient {
     }
 
     try {
-      const results = await this.avanza.search(query) as AvanzaSearchResult;
-      const certificateHit = results.hits?.find(hit => hit.instrumentType === 'CERTIFICATE');
+      // The avanza npm package's search() uses the deprecated /_mobile/market/search endpoint
+      // which now returns 404. We call /_api/search/filtered-search directly instead.
+      const securityToken = (this.avanza as any)._securityToken as string;
+      const authSession = (this.avanza as any)._authenticationSession as string;
 
-      if (!certificateHit) {
-        return [];
+      const body = JSON.stringify({
+        query,
+        searchFilter: { types: ['CERTIFICATE'] },
+        pagination: { from: 0, size: 100 }
+      });
+
+      const response = await fetch('https://www.avanza.se/_api/search/filtered-search', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-SecurityToken': securityToken,
+          'X-AuthenticationSession': authSession
+        },
+        body
+      });
+
+      if (response.status === 401) {
+        throw { statusCode: 401 };
       }
 
-      return certificateHit.topHits.filter(instrument =>
+      if (!response.ok) {
+        throw new Error(`Avanza search returned ${response.status}`);
+      }
+
+      const data = await response.json() as { hits?: AvanzaInstrument[] };
+      const instruments = data.hits ?? [];
+
+      return instruments.filter(instrument =>
         isValidCertificate(instrument.name, instrument.tradable)
       );
     } catch (error: any) {

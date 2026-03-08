@@ -123,13 +123,12 @@ export class AutoMapper {
       .replace(/\s+(Technology|Holdings|Integrated|Services|Systems|Group)\b/gi, '')
       .trim();
     const baseSearchTerm = (preferredSearchTerm || shortName).trim();
-    const searchQuery = `${baseSearchTerm} certifikat`;
 
     return {
       name: `${dir} ${shortName} X3 AVA`,
       avanza_id: '',
       leverage: 3,
-      avanza_url: `https://www.avanza.se/sok.html?query=${encodeURIComponent(searchQuery)}`,
+      avanza_url: `https://www.avanza.se/sok.html?q=${encodeURIComponent(`${dir} ${baseSearchTerm}`)}`,
       issuer: null
     };
   }
