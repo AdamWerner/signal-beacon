@@ -3,9 +3,11 @@ import { AutoMapper, CorrelationMapping } from '../correlation/auto-mapper.js';
 import { MarketStore } from '../storage/market-store.js';
 import { WhaleDetector } from '../polymarket/whale-detector.js';
 import { SignalStore } from '../storage/signal-store.js';
+import { SnapshotStore } from '../storage/snapshot-store.js';
 import { calculateConfidence } from './scorer.js';
+import { analyzeMomentum } from './momentum.js';
 import { GeneratedSignal } from './types.js';
-import { BatchVerificationCandidate, TradeVerificationGate } from '../verification/trade-gate.js';
+import { TradeVerificationGate } from '../verification/trade-gate.js';
 import { VerificationContext } from '../verification/types.js';
 import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
 
@@ -19,7 +21,8 @@ export class SignalGenerator {
     private marketStore: MarketStore,
     private whaleDetector: WhaleDetector,
     private signalStore: SignalStore,
-    private verificationGate: TradeVerificationGate
+    private verificationGate: TradeVerificationGate,
+    private snapshotStore: SnapshotStore
   ) {}
 
   /**
@@ -27,10 +30,9 @@ export class SignalGenerator {
    * Creates one signal per matched asset. Context-dependent signals are capped
    * and always require judgment.
    */
-  async generateSignals(oddsChanges: OddsChange[], opts?: { newsContext?: string }): Promise<GeneratedSignal[]> {
+  async generateSignals(oddsChanges: OddsChange[]): Promise<GeneratedSignal[]> {
     const signals: GeneratedSignal[] = [];
     const recentSignals = this.signalStore.findFiltered({ hours: 48, limit: 500 });
-    const verificationCandidates: BatchVerificationCandidate[] = [];
     let dedupSkipped = 0;
 
     console.log(`Generating signals for ${oddsChanges.length} odds changes...`);
@@ -57,6 +59,14 @@ export class SignalGenerator {
         ? whaleActivity.reduce((sum, whale) => sum + whale.size_usd, 0)
         : null;
 
+      // Momentum analysis — fetch last 2h of snapshots once per market
+      const marketSnapshots = this.snapshotStore.getHistory(market.condition_id, 2);
+      const momentumDirection = change.delta_pct > 0 ? 'up' : 'down';
+      const momentum = analyzeMomentum(
+        marketSnapshots.slice(0, 8).map(s => ({ odds_yes: s.odds_yes, timestamp: s.timestamp })),
+        momentumDirection
+      );
+
       for (const mapping of mappings) {
         const keywordEvidence = this.autoMapper.getMatchedKeywordsForAsset(market, mapping.assetId);
 
@@ -69,6 +79,17 @@ export class SignalGenerator {
         );
 
         for (const signal of newSignals) {
+          // Apply momentum boost before dedup and verification
+          signal.confidence = Math.max(0, Math.min(signal.confidence + momentum.boost, 92));
+          // Re-enforce context_dependent cap after momentum adjustment
+          if (signal.requires_judgment) {
+            signal.confidence = Math.min(signal.confidence, CONTEXT_DEPENDENT_MAX_CONFIDENCE);
+          }
+          // Append momentum trend to reasoning
+          if (momentum.trend !== 'insufficient_data') {
+            signal.reasoning += ` Momentum: ${momentum.trend} (${momentum.cyclesInDirection} cycles).`;
+          }
+
           const existing = this.signalStore.findRecentByDeduplicationKey(
             signal.deduplication_key,
             DEDUP_WINDOW_HOURS
@@ -127,12 +148,6 @@ export class SignalGenerator {
 
           signals.push(signal);
           this.signalStore.insert(signal);
-          verificationCandidates.push({
-            signalId: signal.id,
-            confidence: signal.confidence,
-            context: verificationContext,
-            guard: verification.record.guard
-          });
 
           recentSignals.unshift({
             ...signal,
@@ -152,44 +167,6 @@ export class SignalGenerator {
 
     if (dedupSkipped > 12) {
       console.log(`  [dedup] skipped ${dedupSkipped - 12} additional duplicates (suppressed)`);
-    }
-
-    const batchVerified = await this.verificationGate.batchVerifyTopCandidates(
-      verificationCandidates,
-      5,
-      opts?.newsContext
-    );
-
-    for (const signal of signals) {
-      const verification = batchVerified.get(signal.id);
-      if (!verification) continue;
-
-      signal.verification_status = verification.status;
-      signal.verification_score = verification.score;
-      signal.verification_reason = verification.reason;
-      signal.verification_flags = verification.flags;
-      signal.verification_source = verification.source;
-      signal.verification_record = JSON.stringify(verification.record);
-      signal.confidence = Math.max(
-        0,
-        Math.min(signal.confidence + verification.confidenceAdjustment, 100)
-      );
-      if (verification.suggestedActionOverride) {
-        signal.suggested_action = verification.suggestedActionOverride;
-      }
-
-      this.signalStore.setVerification(signal.id, {
-        status: verification.status,
-        score: verification.score,
-        reason: verification.reason,
-        flags: verification.flags,
-        source: verification.source,
-        record: JSON.stringify(verification.record)
-      });
-      this.signalStore.updateConfidence(signal.id, signal.confidence);
-      if (verification.suggestedActionOverride) {
-        this.signalStore.updateSuggestedAction(signal.id, signal.suggested_action);
-      }
     }
 
     return signals;

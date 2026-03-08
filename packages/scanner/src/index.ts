@@ -109,7 +109,8 @@ export class PolySignalScanner {
       this.marketStore,
       this.whaleDetector,
       this.signalStore,
-      this.verificationGate
+      this.verificationGate,
+      this.snapshotStore
     );
 
     this.alertDispatcher = new AlertDispatcher({
