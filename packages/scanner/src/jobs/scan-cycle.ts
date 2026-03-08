@@ -68,10 +68,12 @@ export class ScanCycleJob {
           const tframes = timeframeMap.get(signal.market_condition_id) ?? 1;
           if (tframes >= 3) {
             signal.confidence = Math.min(signal.confidence + 10, 92);
+            signal.reasoning += ` [timeframes:${tframes}]`;
             changed = true;
             console.log(`  Multi-timeframe +10 for ${signal.matched_asset_name} (${tframes} windows) -> ${signal.confidence}%`);
           } else if (tframes >= 2) {
             signal.confidence = Math.min(signal.confidence + 5, 92);
+            signal.reasoning += ` [timeframes:${tframes}]`;
             changed = true;
             console.log(`  Multi-timeframe +5 for ${signal.matched_asset_name} (${tframes} windows) -> ${signal.confidence}%`);
           }
@@ -79,6 +81,7 @@ export class ScanCycleJob {
           const boost = intelligence.getConfidenceBoost(signal.matched_asset_id);
           if (boost > 0) {
             signal.confidence = Math.min(signal.confidence + boost, 92);
+            signal.reasoning += ` [intel:+${boost}]`;
             changed = true;
             console.log(`  Intelligence boost +${boost} for ${signal.matched_asset_name} -> ${signal.confidence}%`);
           }
@@ -117,6 +120,7 @@ export class ScanCycleJob {
           const newsBoost = newsCorrelator.getBoostForAsset(signal.matched_asset_id);
           if (newsBoost.boost > 0) {
             signal.confidence = Math.min(signal.confidence + newsBoost.boost, 92);
+            signal.reasoning += ` [news:+${newsBoost.boost} (${newsBoost.sourceCount} src)]`;
             changed = true;
             console.log(
               `  News boost +${newsBoost.boost} for ${signal.matched_asset_name} ` +

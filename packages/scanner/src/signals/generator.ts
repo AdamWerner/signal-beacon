@@ -79,6 +79,8 @@ export class SignalGenerator {
         );
 
         for (const signal of newSignals) {
+          const baseConfidence = signal.confidence;
+
           // Apply momentum boost before dedup and verification
           signal.confidence = Math.max(0, Math.min(signal.confidence + momentum.boost, 92));
           // Re-enforce context_dependent cap after momentum adjustment
@@ -145,6 +147,12 @@ export class SignalGenerator {
           if (verification.suggestedActionOverride) {
             signal.suggested_action = verification.suggestedActionOverride;
           }
+
+          // Confidence breakdown tag for transparency in push notifications + detail page
+          const breakdown: string[] = [`base:${baseConfidence}`];
+          if (momentum.boost !== 0) breakdown.push(`mom:${momentum.boost > 0 ? '+' : ''}${momentum.boost}`);
+          if (verification.confidenceAdjustment !== 0) breakdown.push(`verify:${verification.confidenceAdjustment > 0 ? '+' : ''}${verification.confidenceAdjustment}`);
+          signal.reasoning += ` [score: ${breakdown.join(', ')}]`;
 
           signals.push(signal);
           this.signalStore.insert(signal);
