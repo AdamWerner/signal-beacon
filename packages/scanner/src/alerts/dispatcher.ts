@@ -123,6 +123,21 @@ export class AlertDispatcher {
     const topSignal = dedupedSignals[0];
     if (!topSignal) return 0;
 
+    // Final deep verification — one Claude call with full context, only fires when about to push
+    const deepResult = await this.deepVerify(topSignal);
+    if (deepResult) {
+      if (deepResult.verdict === 'reject') {
+        console.log(`  [deep-verify] BLOCKED push: ${deepResult.reason}`);
+        return 0;
+      }
+      topSignal.verification_reason = deepResult.reason;
+      if (deepResult.confidence_adjustment) {
+        topSignal.confidence = Math.max(0, Math.min(
+          topSignal.confidence + deepResult.confidence_adjustment, 92
+        ));
+      }
+    }
+
     const DRY_RUN = process.env.DRY_RUN === 'true';
     if (DRY_RUN) {
       const dryTitle = `${topSignal.suggested_action} ${topSignal.matched_asset_name} ${topSignal.confidence}%`;
@@ -167,5 +182,55 @@ export class AlertDispatcher {
     if (signal.verification_status !== 'approved') return false;
     if (signal.verification_source === 'guard_allowlist') return true;
     return signal.verification_source === 'claude' || signal.verification_source === 'guard';
+  }
+
+  /**
+   * Premium Claude call — only fires when a signal is about to hit the trader's phone.
+   * Provides final deep analysis with full signal context.
+   */
+  private async deepVerify(signal: GeneratedSignal): Promise<{
+    verdict: 'approve' | 'reject';
+    reason: string;
+    confidence_adjustment: number;
+  } | null> {
+    const prompt = `You are a senior quant analyst at a top hedge fund. A signal is about to be pushed to a trader's phone for immediate leveraged action (BULL/BEAR X3 certificates on Avanza, 5-30 min hold).
+
+SIGNAL:
+Asset: ${signal.matched_asset_name} (${signal.matched_asset_id})
+Direction: ${signal.suggested_action}
+Confidence: ${signal.confidence}%
+Market: "${signal.market_title}"
+Odds: ${(signal.odds_before * 100).toFixed(1)}% -> ${(signal.odds_now * 100).toFixed(1)}% (${signal.delta_pct > 0 ? '+' : ''}${signal.delta_pct.toFixed(1)}%)
+${signal.whale_detected ? `Whale activity: $${signal.whale_amount_usd?.toLocaleString()}` : 'No whale activity'}
+Momentum: ${signal.reasoning.includes('accelerating') ? 'ACCELERATING' : signal.reasoning.includes('steady') ? 'STEADY' : 'SINGLE MOVE'}
+
+QUESTION: Should this be sent as a LIVE TRADE ALERT? Consider:
+1. Is the causal mechanism clear and strong? (Not just correlation)
+2. Is this likely to move the actual stock within 30 minutes?
+3. Is the move already priced into the stock? (Check if this is old news)
+4. Could this be a false positive or noise?
+
+Respond JSON only:
+{"verdict":"approve|reject","reason":"1-2 sentences why","confidence_adjustment":-10..10}`;
+
+    try {
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+
+      for (const bin of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude', '/usr/local/bin/claude']) {
+        try {
+          const { stdout } = await execFileAsync(bin, ['-p', prompt], { timeout: 30000 });
+          const cleaned = stdout.trim().replace(/```json|```/g, '').trim();
+          const parsed = JSON.parse(cleaned);
+          if (parsed.verdict === 'approve' || parsed.verdict === 'reject') {
+            const { trackClaudeCall } = await import('../utils/claude-usage.js');
+            trackClaudeCall('deep-verify-pre-push');
+            return parsed;
+          }
+        } catch { continue; }
+      }
+    } catch {}
+    return null; // Claude unavailable — proceed without deep verification
   }
 }
