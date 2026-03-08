@@ -198,8 +198,30 @@ export class AlertDispatcher {
     const oddsNow = (signal.odds_now * 100).toFixed(1);
     const deltaSign = signal.delta_pct > 0 ? '+' : '';
     const momentumTag = signal.reasoning.match(/Momentum: (\w+)/)?.[1] ?? 'unknown';
-    const newsTag = signal.reasoning.match(/\[news: .+?\]/)?.[0] ?? 'none detected';
     const sectorTag = signal.reasoning.match(/\[sector: .+?\]/)?.[0] ?? 'none';
+
+    // Query DB for live reinforcement data
+    let reinforcingCount = 0;
+    let newsSourceCount = 0;
+    try {
+      const { getDatabase } = await import('../storage/db.js');
+      const db = getDatabase();
+      const dirWord = isBull ? 'BULL' : 'BEAR';
+      reinforcingCount = (db.prepare(`
+        SELECT COUNT(*) as c FROM signals
+        WHERE matched_asset_id = ?
+          AND suggested_action LIKE '%' || ? || '%'
+          AND timestamp >= datetime('now', '-24 hours')
+          AND verification_status = 'approved'
+      `).get(signal.matched_asset_id, dirWord) as any)?.c ?? 0;
+
+      const asset = signal.matched_asset_name.toLowerCase();
+      newsSourceCount = (db.prepare(`
+        SELECT COUNT(DISTINCT account_handle) as c FROM tweet_snapshots
+        WHERE scraped_at >= datetime('now', '-6 hours')
+          AND LOWER(tweet_text) LIKE '%' || ? || '%'
+      `).get(asset) as any)?.c ?? 0;
+    } catch {}
 
     const prompt = `You are the final gatekeeper at a quantitative trading desk. A signal is about to be sent to a trader's phone for IMMEDIATE action on a leveraged X3 certificate (5-30 min holding period on Avanza, Swedish broker).
 
@@ -211,7 +233,8 @@ SIGNAL:
 - Odds: ${oddsBefore}% -> ${oddsNow}% (${deltaSign}${signal.delta_pct.toFixed(1)}%)
 - Momentum: ${momentumTag}
 ${signal.whale_detected ? `- Whale activity: $${(signal.whale_amount_usd || 0).toLocaleString()}` : '- No whale activity'}
-- News corroboration: ${newsTag}
+- Reinforcing signals (24h): ${reinforcingCount} other approved signals for same asset + direction
+- News corroboration: ${newsSourceCount} news sources mentioned ${signal.matched_asset_name} in last 6h
 - Sector pattern: ${sectorTag}
 
 YOUR TASK: Would you approve sending this as a LIVE TRADE ALERT? Consider:
