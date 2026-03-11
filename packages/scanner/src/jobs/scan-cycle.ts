@@ -7,6 +7,7 @@ import { AlertDispatcher } from '../alerts/dispatcher.js';
 import { IntelligenceEngine } from '../intelligence/engine.js';
 import { NewsCorrelator } from '../intelligence/news-correlator.js';
 import { MacroCalendar } from '../intelligence/macro-calendar.js';
+import { VolatilityRegimeDetector } from '../intelligence/volatility-regime.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -19,6 +20,8 @@ export interface ScanCycleResult {
 }
 
 export class ScanCycleJob {
+  private volatilityRegimeDetector = new VolatilityRegimeDetector();
+
   constructor(
     private config: Config,
     private oddsTracker: OddsTracker,
@@ -61,6 +64,8 @@ export class ScanCycleJob {
         const intelligence = new IntelligenceEngine(this.db);
         const newsCorrelator = new NewsCorrelator(this.db);
         const macroCalendar = new MacroCalendar();
+        const volContext = await this.volatilityRegimeDetector.getRegime();
+        const volAdjustment = this.volatilityRegimeDetector.getConfidenceAdjustment(volContext.regime);
         await macroCalendar.refreshLiveEvents();
         intelligence.processNewSignals(signals);
 
@@ -144,6 +149,13 @@ export class ScanCycleJob {
               );
             }
           }
+
+          if (volAdjustment !== 0) {
+            signal.confidence = Math.max(0, Math.min(signal.confidence + volAdjustment, 92));
+            changed = true;
+          }
+          signal.reasoning += ` [vol:${volContext.regime}, VIX:${volContext.vix.toFixed(1)}]`;
+          changed = true;
 
           if (changed) {
             try {
