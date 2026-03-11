@@ -534,6 +534,30 @@ export class AlertDispatcher {
     const deltaSign = signal.delta_pct > 0 ? '+' : '';
     const momentumTag = signal.reasoning.match(/Momentum: (\w+)/)?.[1] ?? 'unknown';
     const sectorTag = signal.reasoning.match(/\[sector: .+?\]/)?.[0] ?? 'none';
+    const reasoningTags = signal.reasoning.match(/\[[^\]]+\]/g) ?? [];
+    const volTag = reasoningTags.find(tag => tag.toLowerCase().startsWith('[vol:')) ?? 'none';
+    const macroTag = reasoningTags.find(tag => tag.toLowerCase().startsWith('[macro:')) ?? 'none';
+    const futuresTag = reasoningTags.find(tag => tag.toLowerCase().startsWith('[futures:')) ?? 'none';
+    const executionTag = reasoningTags.find(tag => tag.toLowerCase().startsWith('[execution:')) ?? 'none';
+    const confidenceTags = reasoningTags
+      .filter(tag => /^\[(timeframes|intel|news|macro|futures|vol|execution|sector)/i.test(tag))
+      .join(' ');
+
+    const volMatch = volTag.match(/\[vol:([^,\]]+),\s*VIX:([0-9.]+)\]/i);
+    const volSummary = volMatch
+      ? `VIX ${volMatch[2]} (${volMatch[1]} regime)`
+      : 'no volatility tag';
+
+    const macroMatch = macroTag.match(/\[macro:\s*([^,]+),\s*([-0-9]+)min away,\s*impact:([^\]]+)\]/i);
+    const macroSummary = macroMatch
+      ? `${macroMatch[1]} (${macroMatch[2]} min, impact ${macroMatch[3]})`
+      : 'no active macro window';
+    const futuresSummary = futuresTag === 'none'
+      ? 'no futures confirmation tag'
+      : futuresTag.replace(/^\[futures:\s*/i, '').replace(/\]$/, '');
+    const executionSummary = executionTag === 'none'
+      ? 'execution estimate unavailable'
+      : executionTag.replace(/^\[execution:\s*/i, '').replace(/\]$/, '');
 
     // Query DB for live reinforcement data
     let reinforcingCount = 0;
@@ -560,10 +584,10 @@ export class AlertDispatcher {
 
     const prompt = `You are the final gatekeeper at a quantitative trading desk. A signal is about to be sent to a trader's phone for IMMEDIATE action on a leveraged X3 certificate (5-30 min holding period on Avanza, Swedish broker).
 
-SIGNAL:
-- Asset: ${signal.matched_asset_name}
+SIGNAL CONTEXT:
+- Asset: ${signal.matched_asset_name} (${signal.matched_asset_id})
 - Direction: ${isBull ? 'BULL (long)' : 'BEAR (short)'}
-- Confidence: ${signal.confidence}%
+- Confidence: ${signal.confidence}% [tags: ${confidenceTags || 'none'}]
 - Polymarket: "${signal.market_title}"
 - Odds: ${oddsBefore}% -> ${oddsNow}% (${deltaSign}${signal.delta_pct.toFixed(1)}%)
 - Momentum: ${momentumTag}
@@ -571,12 +595,16 @@ ${signal.whale_detected ? `- Whale activity: $${(signal.whale_amount_usd || 0).t
 - Reinforcing signals (24h): ${reinforcingCount} other approved signals for same asset + direction
 - News corroboration: ${newsSourceCount} news sources mentioned ${signal.matched_asset_name} in last 6h
 - Sector pattern: ${sectorTag}
+- Futures: ${futuresSummary}
+- Volatility regime: ${volSummary}
+- Macro proximity: ${macroSummary}
+- Execution feasibility: ${executionSummary}
 
-YOUR TASK: Would you approve sending this as a LIVE TRADE ALERT? Consider:
-1. Is the causal mechanism specific and strong? (e.g., "OPEC cut -> oil price up -> Equinor revenue up" is strong; "general uncertainty -> S&P might drop" is weak)
-2. Will the stock/index likely MOVE within 30 minutes of this event becoming known?
-3. Is this already priced in? (If the Polymarket odds only moved 8% on an event the stock market has known about for days, it's stale.)
-4. Is the leverage direction correct? (Direct polarity = odds up means BULL; inverse = odds up means BEAR)
+TASK:
+1) Approve only if causal mechanism is specific and strong.
+2) Reject stale/noise setups unlikely to move within 30 minutes.
+3) Reject if futures/vol/macro context clearly contradicts the trade.
+4) Keep reason concrete and actionable for a trader.
 
 Respond JSON ONLY, no other text:
 {"verdict":"approve","reason":"1-2 sentences a trader can act on","confidence_adjustment":-10..10}
