@@ -110,6 +110,7 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE tweet_accounts ADD COLUMN collect_enabled BOOLEAN DEFAULT TRUE`,
     `ALTER TABLE tweet_accounts ADD COLUMN last_collected_at DATETIME`,
     `ALTER TABLE tweet_accounts ADD COLUMN feed_url TEXT`,
+    `ALTER TABLE daily_backtest_runs ADD COLUMN candidate_mode TEXT DEFAULT 'push_only'`,
   ]) {
     try {
       db.exec(sql);
@@ -123,6 +124,16 @@ function runMigrations(db: Database.Database): void {
     db.exec(`UPDATE signals SET confidence = 92 WHERE confidence > 92`);
   } catch {
     // signals table/column may not exist in very old schemas
+  }
+
+  try {
+    db.exec(`
+      UPDATE daily_backtest_runs
+      SET candidate_mode = 'push_only'
+      WHERE candidate_mode IS NULL OR TRIM(candidate_mode) = ''
+    `);
+  } catch {
+    // table may not exist on very old schema revisions
   }
 
   try {
@@ -221,6 +232,7 @@ function runMigrations(db: Database.Database): void {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
         market TEXT NOT NULL,
+        candidate_mode TEXT DEFAULT 'push_only',
         executed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         signals_evaluated INTEGER DEFAULT 0,
         hit_rate_30m REAL DEFAULT 0,
@@ -246,11 +258,72 @@ function runMigrations(db: Database.Database): void {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS asset_push_performance (
+        asset_id TEXT PRIMARY KEY,
+        asset_name TEXT NOT NULL,
+        market TEXT NOT NULL,
+        samples INTEGER DEFAULT 0,
+        hit_rate_30m REAL DEFAULT 0,
+        hit_rate_60m REAL DEFAULT 0,
+        avg_move_30m REAL DEFAULT 0,
+        avg_move_60m REAL DEFAULT 0,
+        reliability_score REAL DEFAULT 0.5,
+        gate TEXT DEFAULT 'watch',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS push_policy_config (
+        market TEXT PRIMARY KEY CHECK(market IN ('swedish', 'us')),
+        min_confidence INTEGER DEFAULT 65,
+        min_delta_pct REAL DEFAULT 15,
+        min_evidence_score INTEGER DEFAULT 3,
+        optimization_score REAL DEFAULT 0,
+        sample_count INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS volatility_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        vix REAL,
+        regime TEXT CHECK(regime IN ('low', 'normal', 'high', 'extreme')),
+        sp500_1h_vol REAL,
+        nasdaq_1h_vol REAL
+      );
+
+      CREATE TABLE IF NOT EXISTS futures_confirmations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        futures_symbol TEXT NOT NULL,
+        futures_return_5m REAL,
+        signal_direction TEXT,
+        confirmed INTEGER,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS macro_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_name TEXT NOT NULL,
+        event_time DATETIME,
+        impact TEXT,
+        affected_assets TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE INDEX IF NOT EXISTS idx_signal_outcomes_market_time
       ON signal_outcomes(market, evaluated_at DESC);
 
       CREATE INDEX IF NOT EXISTS idx_signal_outcomes_asset
       ON signal_outcomes(asset_id, evaluated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_push_perf_gate
+      ON asset_push_performance(gate, reliability_score DESC, samples DESC);
+
+      INSERT OR IGNORE INTO push_policy_config (market, min_confidence, min_delta_pct, min_evidence_score)
+      VALUES
+        ('swedish', 65, 15, 3),
+        ('us', 65, 15, 3);
     `);
   } catch {
     // Tables/indexes already exist.
@@ -492,6 +565,7 @@ function createTables(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date TEXT NOT NULL,
       market TEXT NOT NULL,
+      candidate_mode TEXT DEFAULT 'push_only',
       executed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       signals_evaluated INTEGER DEFAULT 0,
       hit_rate_30m REAL DEFAULT 0,
@@ -517,11 +591,72 @@ function createTables(db: Database.Database): void {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS asset_push_performance (
+      asset_id TEXT PRIMARY KEY,
+      asset_name TEXT NOT NULL,
+      market TEXT NOT NULL,
+      samples INTEGER DEFAULT 0,
+      hit_rate_30m REAL DEFAULT 0,
+      hit_rate_60m REAL DEFAULT 0,
+      avg_move_30m REAL DEFAULT 0,
+      avg_move_60m REAL DEFAULT 0,
+      reliability_score REAL DEFAULT 0.5,
+      gate TEXT DEFAULT 'watch',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS push_policy_config (
+      market TEXT PRIMARY KEY CHECK(market IN ('swedish', 'us')),
+      min_confidence INTEGER DEFAULT 65,
+      min_delta_pct REAL DEFAULT 15,
+      min_evidence_score INTEGER DEFAULT 3,
+      optimization_score REAL DEFAULT 0,
+      sample_count INTEGER DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS volatility_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      vix REAL,
+      regime TEXT CHECK(regime IN ('low', 'normal', 'high', 'extreme')),
+      sp500_1h_vol REAL,
+      nasdaq_1h_vol REAL
+    );
+
+    CREATE TABLE IF NOT EXISTS futures_confirmations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      futures_symbol TEXT NOT NULL,
+      futures_return_5m REAL,
+      signal_direction TEXT,
+      confirmed INTEGER,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS macro_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_name TEXT NOT NULL,
+      event_time DATETIME,
+      impact TEXT,
+      affected_assets TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_signal_outcomes_market_time
     ON signal_outcomes(market, evaluated_at DESC);
 
     CREATE INDEX IF NOT EXISTS idx_signal_outcomes_asset
     ON signal_outcomes(asset_id, evaluated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_push_perf_gate
+    ON asset_push_performance(gate, reliability_score DESC, samples DESC);
+
+    INSERT OR IGNORE INTO push_policy_config (market, min_confidence, min_delta_pct, min_evidence_score)
+    VALUES
+      ('swedish', 65, 15, 3),
+      ('us', 65, 15, 3);
   `);
 
   console.log('Database initialized successfully at:', DB_PATH);
