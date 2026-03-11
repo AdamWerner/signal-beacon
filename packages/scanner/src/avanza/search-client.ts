@@ -1,5 +1,5 @@
 ﻿import Avanza from 'avanza';
-import { AvanzaCredentials, AvanzaInstrument } from './types.js';
+import { AvanzaCredentials, AvanzaInstrument, AvanzaSearchResult } from './types.js';
 import { isValidCertificate } from './certificate-parser.js';
 
 export class AvanzaSearchClient {
@@ -63,42 +63,15 @@ export class AvanzaSearchClient {
     }
 
     try {
-      // The avanza npm package's search() uses the deprecated /_mobile/market/search endpoint
-      // which now returns 404. We call /_api/search/filtered-search directly instead.
-      const securityToken = (this.avanza as any)._securityToken as string;
-      const authSession = (this.avanza as any)._authenticationSession as string;
-
-      const body = JSON.stringify({
-        query,
-        searchFilter: { types: ['CERTIFICATE'] },
-        pagination: { from: 0, size: 100 }
-      });
-
-      const response = await fetch('https://www.avanza.se/_api/search/filtered-search', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-SecurityToken': securityToken,
-          'X-AuthenticationSession': authSession
-        },
-        body
-      });
-
-      if (response.status === 401) {
-        throw { statusCode: 401 };
+      // Important: avanza.search expects only a query argument (no `{ limit }` object).
+      const results = await this.avanza.search(query) as AvanzaSearchResult | unknown;
+      const instruments = this.extractCertificatesFromSearch(results);
+      if (instruments.length > 0) {
+        return instruments.filter(instrument => isValidCertificate(instrument.name, instrument.tradable));
       }
 
-      if (!response.ok) {
-        throw new Error(`Avanza search returned ${response.status}`);
-      }
-
-      const data = await response.json() as { hits?: AvanzaInstrument[] };
-      const instruments = data.hits ?? [];
-
-      return instruments.filter(instrument =>
-        isValidCertificate(instrument.name, instrument.tradable)
-      );
+      // Fallback for API payload shape/endpoint differences.
+      return this.searchCertificatesViaFilteredEndpoint(query);
     } catch (error: any) {
       const isUnauthorized = error?.statusCode === 401 || `${error?.message || ''}`.includes('401');
 
@@ -116,9 +89,72 @@ export class AvanzaSearchClient {
         return this.searchCertificatesInternal(query, false);
       }
 
+      if (`${error?.message || ''}`.includes('404') || `${error?.message || ''}`.includes('search')) {
+        try {
+          return await this.searchCertificatesViaFilteredEndpoint(query);
+        } catch (fallbackError) {
+          console.error(`Fallback filtered search failed for query "${query}":`, fallbackError);
+          return [];
+        }
+      }
+
       console.error(`Search failed for query "${query}":`, error);
       return [];
     }
+  }
+
+  private extractCertificatesFromSearch(results: unknown): AvanzaInstrument[] {
+    const parsed = results as AvanzaSearchResult;
+    if (!parsed || !Array.isArray(parsed.hits)) {
+      return [];
+    }
+
+    const certificates: AvanzaInstrument[] = [];
+    for (const hit of parsed.hits) {
+      if (hit.instrumentType !== 'CERTIFICATE' || !Array.isArray(hit.topHits)) {
+        continue;
+      }
+
+      for (const instrument of hit.topHits) {
+        certificates.push(instrument);
+      }
+    }
+
+    return certificates;
+  }
+
+  private async searchCertificatesViaFilteredEndpoint(query: string): Promise<AvanzaInstrument[]> {
+    const securityToken = (this.avanza as any)._securityToken as string;
+    const authSession = (this.avanza as any)._authenticationSession as string;
+
+    const body = JSON.stringify({
+      query,
+      searchFilter: { types: ['CERTIFICATE'] },
+      pagination: { from: 0, size: 100 }
+    });
+
+    const response = await fetch('https://www.avanza.se/_api/search/filtered-search', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-SecurityToken': securityToken,
+        'X-AuthenticationSession': authSession
+      },
+      body
+    });
+
+    if (response.status === 401) {
+      throw { statusCode: 401 };
+    }
+
+    if (!response.ok) {
+      throw new Error(`Avanza filtered search returned ${response.status}`);
+    }
+
+    const data = await response.json() as { hits?: AvanzaInstrument[] };
+    const instruments = data.hits ?? [];
+    return instruments.filter(instrument => isValidCertificate(instrument.name, instrument.tradable));
   }
 
   /**
