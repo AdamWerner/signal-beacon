@@ -4,21 +4,38 @@ import { HomeAssistantAlert } from './homeassistant.js';
 import { AlertConfig } from './types.js';
 import { GeneratedSignal } from '../signals/types.js';
 import { getAssetMarket, isMarketOpen } from '../intelligence/trading-hours.js';
+import { estimateExecutionCost } from '../intelligence/execution-feasibility.js';
 
 export class AlertDispatcher {
   private pushover?: PushoverClient;
   private webhook?: WebhookClient;
   private homeAssistant?: HomeAssistantAlert;
+  private signalStore?: AlertConfig['signalStore'];
   private haMinConfidence: number;
   private minConfidence: number;
   private verificationRequiredForPush: boolean;
   private onSignalsPushed?: (signalIds: string[], market: 'swedish' | 'us') => void;
+  private sameDirectionCooldownMinutes: number;
+  private reversalCooldownMinutes: number;
+  private reversalMinDeltaPct: number;
+  private reversalMinOddsSwingPp: number;
+  private reversalMinConfidenceGain: number;
+  private reversalReinforcementMinutes: number;
+  private reversalMinDistinctMarkets: number;
 
   constructor(config: AlertConfig) {
     this.minConfidence = config.minConfidence || 50;
     this.haMinConfidence = config.homeAssistant?.minConfidence ?? 65;
     this.verificationRequiredForPush = config.verificationRequiredForPush ?? true;
     this.onSignalsPushed = config.onSignalsPushed;
+    this.signalStore = config.signalStore;
+    this.sameDirectionCooldownMinutes = Math.max(0, parseInt(process.env.PUSH_SAME_DIRECTION_COOLDOWN_MINUTES || '20', 10));
+    this.reversalCooldownMinutes = Math.max(0, parseInt(process.env.PUSH_REVERSAL_COOLDOWN_MINUTES || '45', 10));
+    this.reversalMinDeltaPct = Math.max(0, parseFloat(process.env.PUSH_REVERSAL_MIN_DELTA_PCT || '35'));
+    this.reversalMinOddsSwingPp = Math.max(0, parseFloat(process.env.PUSH_REVERSAL_MIN_ODDS_SWING_PP || '0.20'));
+    this.reversalMinConfidenceGain = Math.max(0, parseFloat(process.env.PUSH_REVERSAL_MIN_CONFIDENCE_GAIN || '8'));
+    this.reversalReinforcementMinutes = Math.max(1, parseInt(process.env.PUSH_REVERSAL_REINFORCEMENT_MINUTES || '45', 10));
+    this.reversalMinDistinctMarkets = Math.max(1, parseInt(process.env.PUSH_REVERSAL_MIN_DISTINCT_MARKETS || '2', 10));
 
     if (config.pushover) {
       this.pushover = new PushoverClient(config.pushover);
@@ -98,15 +115,24 @@ export class AlertDispatcher {
       return 0;
     }
 
+    const policy = this.signalStore?.getPushPolicyConfig(market);
+    const policyMinConfidence = policy?.minConfidence ?? this.haMinConfidence;
+    const policyMinDeltaPct = policy?.minDeltaPct ?? 15;
+    const policyMinEvidenceScore = policy?.minEvidenceScore ?? 3;
+
     const pushable = signals.filter(signal =>
-      signal.confidence >= this.haMinConfidence &&
-      Math.abs(signal.delta_pct) >= 15 &&
+      signal.confidence >= policyMinConfidence &&
+      Math.abs(signal.delta_pct) >= policyMinDeltaPct &&
       signal.verification_status === 'approved'
     );
 
     if (pushable.length === 0) {
       for (const signal of signals) {
-        console.log(`  Skip push ${signal.id} below HA threshold (${signal.confidence}%, delta ${signal.delta_pct.toFixed(0)}%)`);
+        console.log(
+          `  Skip push ${signal.id} below thresholds (` +
+          `conf=${signal.confidence}%/${policyMinConfidence} ` +
+          `delta=${Math.abs(signal.delta_pct).toFixed(1)}%/${policyMinDeltaPct})`
+        );
       }
       return 0;
     }
@@ -120,48 +146,87 @@ export class AlertDispatcher {
     }
 
     const dedupedSignals = Array.from(byAsset.values()).sort((a, b) => b.confidence - a.confidence);
-    const topSignal = dedupedSignals[0];
-    if (!topSignal) return 0;
+    if (dedupedSignals.length === 0) return 0;
 
-    // Final deep verification — one Claude call with full context, only fires when about to push
-    const deepResult = await this.deepVerify(topSignal);
-    if (deepResult) {
-      if (deepResult.verdict === 'reject') {
-        console.log(`  [deep-verify] BLOCKED push: ${deepResult.reason}`);
-        return 0;
+    for (const candidate of dedupedSignals) {
+      const leverage = candidate.suggested_instruments[0]?.leverage ?? 3;
+      const execution = estimateExecutionCost(candidate.matched_asset_id, leverage || 3);
+      candidate.reasoning += ` [execution: ${execution.note}]`;
+      if (!execution.feasible) {
+        console.log(`  Skip push ${candidate.id} execution gate: ${execution.note}`);
+        continue;
       }
-      topSignal.verification_reason = deepResult.reason;
-      if (deepResult.confidence_adjustment) {
-        topSignal.confidence = Math.max(0, Math.min(
-          topSignal.confidence + deepResult.confidence_adjustment, 92
-        ));
-      }
-    }
 
-    const DRY_RUN = process.env.DRY_RUN === 'true';
-    if (DRY_RUN) {
-      const dryTitle = `${topSignal.suggested_action} ${topSignal.matched_asset_name} ${topSignal.confidence}%`;
-      const dryMessage = `${topSignal.reasoning} | ${topSignal.verification_reason}`;
-      console.log(`[DRY_RUN] Would push: ${dryTitle} | ${dryMessage}`);
+      const qualityBlock = this.getPushQualityBlockReason(candidate);
+      if (qualityBlock) {
+        console.log(`  Skip push ${candidate.id} quality gate: ${qualityBlock}`);
+        continue;
+      }
+
+      const regimeGate = this.evaluateRegimeShiftGate(candidate);
+      if (!regimeGate.allowed) {
+        console.log(`  Skip push ${candidate.id} anti-whipsaw: ${regimeGate.reason}`);
+        continue;
+      }
+
+      const performanceGate = this.evaluatePushPerformanceGate(candidate);
+      if (!performanceGate.allowed) {
+        console.log(`  Skip push ${candidate.id} push-policy: ${performanceGate.reason}`);
+        continue;
+      }
+
+      const evidenceGate = this.evaluateEvidenceGate(
+        candidate,
+        policyMinConfidence,
+        policyMinEvidenceScore
+      );
+      if (!evidenceGate.allowed) {
+        console.log(`  Skip push ${candidate.id} evidence gate: ${evidenceGate.reason}`);
+        continue;
+      }
+
+      // Final deep verification — one Claude call with full context, only fires when about to push
+      const deepResult = await this.deepVerify(candidate);
+      if (deepResult) {
+        if (deepResult.verdict === 'reject') {
+          console.log(`  [deep-verify] BLOCKED push ${candidate.id}: ${deepResult.reason}`);
+          continue;
+        }
+        candidate.verification_reason = deepResult.reason;
+        if (deepResult.confidence_adjustment) {
+          candidate.confidence = Math.max(0, Math.min(
+            candidate.confidence + deepResult.confidence_adjustment, 92
+          ));
+        }
+      }
+
+      const DRY_RUN = process.env.DRY_RUN === 'true';
+      if (DRY_RUN) {
+        const dryTitle = `${candidate.suggested_action} ${candidate.matched_asset_name} ${candidate.confidence}%`;
+        const dryMessage = `${candidate.reasoning} | ${candidate.verification_reason}`;
+        console.log(`[DRY_RUN] Would push: ${dryTitle} | ${dryMessage}`);
+        if (this.onSignalsPushed) {
+          this.onSignalsPushed([candidate.id], market);
+        }
+        return 1;
+      }
+
+      const sent = await homeAssistant.send(candidate);
+
+      if (!sent) {
+        console.warn(`  HA push attempt failed for ${market} market (${candidate.matched_asset_name})`);
+        continue;
+      }
+
       if (this.onSignalsPushed) {
-        this.onSignalsPushed([topSignal.id], market);
+        this.onSignalsPushed([candidate.id], market);
       }
+
+      console.log(`  Pushed top ${market} HA alert (${candidate.matched_asset_name} ${candidate.confidence}%)`);
       return 1;
     }
 
-    const sent = await homeAssistant.send(topSignal);
-
-    if (!sent) {
-      console.warn(`  HA push attempt failed for ${market} market (${topSignal.matched_asset_name})`);
-      return 0;
-    }
-
-    if (this.onSignalsPushed) {
-      this.onSignalsPushed([topSignal.id], market);
-    }
-
-    console.log(`  Pushed top ${market} HA alert (${topSignal.matched_asset_name} ${topSignal.confidence}%)`);
-    return 1;
+    return 0;
   }
 
   /**
@@ -182,6 +247,276 @@ export class AlertDispatcher {
     if (signal.verification_status !== 'approved') return false;
     if (signal.verification_source === 'guard_allowlist') return true;
     return signal.verification_source === 'claude' || signal.verification_source === 'guard';
+  }
+
+  private getSignalDirection(signal: { suggested_action: string }): 'bull' | 'bear' {
+    return signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+  }
+
+  private parseDbTimestamp(value: string | null | undefined): Date | null {
+    if (!value) return null;
+    const normalized = value.replace(' ', 'T');
+    const parsed = new Date(`${normalized}Z`);
+    if (!Number.isFinite(parsed.getTime())) {
+      const fallback = new Date(value);
+      return Number.isFinite(fallback.getTime()) ? fallback : null;
+    }
+    return parsed;
+  }
+
+  private isMicroTimeboxMarket(title: string): boolean {
+    const normalized = (title || '').toLowerCase();
+    if (!normalized) return false;
+    if (/\b\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}\s*(am|pm)\s*et\b/i.test(normalized)) {
+      return true;
+    }
+    if (/\b(up|down)\b.+\b(up|down)\b/.test(normalized) && /\b(et|eastern)\b/.test(normalized)) {
+      return true;
+    }
+    return /up or down\s*-\s*.+\bet\b/i.test(normalized);
+  }
+
+  private getPushQualityBlockReason(signal: GeneratedSignal): string | null {
+    if (this.isMicroTimeboxMarket(signal.market_title)) {
+      return 'micro-timebox market (high settlement noise, low causal certainty)';
+    }
+
+    const absOddsSwing = Math.abs(signal.odds_now - signal.odds_before);
+    if (signal.time_window_minutes <= 15 && absOddsSwing >= 0.85) {
+      return 'extreme short-window odds snap (likely market settlement noise)';
+    }
+
+    return null;
+  }
+
+  private evaluateRegimeShiftGate(signal: GeneratedSignal): { allowed: boolean; reason: string } {
+    if (!this.signalStore) {
+      return { allowed: true, reason: 'signal store unavailable' };
+    }
+
+    const lookbackMinutes = Math.max(this.sameDirectionCooldownMinutes, this.reversalCooldownMinutes) + 120;
+    const previous = this.signalStore.getLatestPushedSignalForAsset(signal.matched_asset_id, lookbackMinutes);
+    if (!previous) {
+      return { allowed: true, reason: 'no previous pushed signal for asset' };
+    }
+
+    const previousDirection = this.getSignalDirection(previous);
+    const nextDirection = this.getSignalDirection(signal);
+    const previousTime = this.parseDbTimestamp(previous.push_sent_at || previous.timestamp);
+    if (!previousTime) {
+      return { allowed: true, reason: 'previous push timestamp missing' };
+    }
+
+    const elapsedMinutes = (Date.now() - previousTime.getTime()) / 60000;
+    if (elapsedMinutes < 0) {
+      return { allowed: true, reason: 'clock skew ignored' };
+    }
+
+    if (previousDirection === nextDirection && elapsedMinutes < this.sameDirectionCooldownMinutes) {
+      return {
+        allowed: false,
+        reason: `same direction repeated after ${elapsedMinutes.toFixed(1)}m (<${this.sameDirectionCooldownMinutes}m cooldown)`
+      };
+    }
+
+    if (previousDirection === nextDirection) {
+      return { allowed: true, reason: 'same direction outside cooldown' };
+    }
+
+    if (elapsedMinutes >= this.reversalCooldownMinutes) {
+      return {
+        allowed: true,
+        reason: `reversal outside cooldown (${elapsedMinutes.toFixed(1)}m >= ${this.reversalCooldownMinutes}m)`
+      };
+    }
+
+    const absDelta = Math.abs(signal.delta_pct);
+    const oddsSwingPp = Math.abs(signal.odds_now - previous.odds_now);
+    const confidenceLift = signal.confidence - previous.confidence;
+    const reinforcement = this.signalStore.countDistinctApprovedMarketsForAssetDirection(
+      signal.matched_asset_id,
+      nextDirection,
+      this.reversalReinforcementMinutes
+    );
+    const whaleStrong = signal.whale_detected && (signal.whale_amount_usd || 0) >= 10_000;
+
+    const strongMove = absDelta >= this.reversalMinDeltaPct;
+    const strongOddsShift = oddsSwingPp >= this.reversalMinOddsSwingPp;
+    const strongConfidenceLift = confidenceLift >= this.reversalMinConfidenceGain;
+    const reinforced = reinforcement >= this.reversalMinDistinctMarkets;
+
+    const fundamentalShift =
+      (strongMove && strongOddsShift) ||
+      (strongMove && reinforced) ||
+      (strongMove && whaleStrong) ||
+      (strongOddsShift && strongConfidenceLift && reinforced);
+
+    if (!fundamentalShift) {
+      return {
+        allowed: false,
+        reason:
+          `reversal too weak (${elapsedMinutes.toFixed(1)}m): ` +
+          `delta=${absDelta.toFixed(1)}% oddsSwing=${(oddsSwingPp * 100).toFixed(1)}pp ` +
+          `reinforcement=${reinforcement}`
+      };
+    }
+
+    return {
+      allowed: true,
+      reason:
+        `fundamental reversal accepted (${elapsedMinutes.toFixed(1)}m): ` +
+        `delta=${absDelta.toFixed(1)}% oddsSwing=${(oddsSwingPp * 100).toFixed(1)}pp ` +
+        `reinforcement=${reinforcement}`
+    };
+  }
+
+  private evaluatePushPerformanceGate(signal: GeneratedSignal): { allowed: boolean; reason: string } {
+    if (!this.signalStore) {
+      return { allowed: true, reason: 'signal store unavailable' };
+    }
+
+    const policy = this.signalStore.getPushPerformancePolicy(signal.matched_asset_id);
+    if (!policy) {
+      return { allowed: true, reason: 'no push-performance profile yet' };
+    }
+
+    if (policy.samples < 6) {
+      return { allowed: true, reason: `insufficient samples (${policy.samples})` };
+    }
+
+    const absDelta = Math.abs(signal.delta_pct);
+    const whaleStrong = signal.whale_detected && (signal.whale_amount_usd || 0) >= 20_000;
+    const highConvictionOverride =
+      signal.confidence >= (this.haMinConfidence + 15) &&
+      absDelta >= 30 &&
+      whaleStrong;
+
+    if (policy.gate === 'block') {
+      if (highConvictionOverride) {
+        return {
+          allowed: true,
+          reason:
+            `block override: confidence=${signal.confidence}% delta=${absDelta.toFixed(1)}% ` +
+            `whale=${signal.whale_amount_usd || 0}`
+        };
+      }
+      return {
+        allowed: false,
+        reason:
+          `asset gate=block (samples=${policy.samples}, hit30=${(policy.hitRate30m * 100).toFixed(0)}%, ` +
+          `avg30=${policy.avgMove30m.toFixed(2)}%)`
+      };
+    }
+
+    if (policy.gate === 'watch') {
+      const strongCandidate =
+        signal.confidence >= (this.haMinConfidence + 8) ||
+        absDelta >= 25 ||
+        whaleStrong;
+      if (!strongCandidate) {
+        return {
+          allowed: false,
+          reason:
+            `asset gate=watch requires stronger setup (conf=${signal.confidence}%, delta=${absDelta.toFixed(1)}%)`
+        };
+      }
+    }
+
+    const direction = this.getSignalDirection(signal);
+    const directional = this.signalStore.getDirectionalPushPerformance(
+      signal.matched_asset_id,
+      direction,
+      30
+    );
+    if (directional && directional.samples >= 5) {
+      const poorDirection =
+        directional.hitRate30m < 0.40 &&
+        directional.avgMove30m <= 0;
+      if (poorDirection && !highConvictionOverride) {
+        return {
+          allowed: false,
+          reason:
+            `directional edge weak (${direction} samples=${directional.samples}, ` +
+            `hit30=${(directional.hitRate30m * 100).toFixed(0)}%, ` +
+            `avg30=${directional.avgMove30m.toFixed(2)}%)`
+        };
+      }
+    }
+
+    return {
+      allowed: true,
+      reason:
+        `asset gate=${policy.gate} ` +
+        `(samples=${policy.samples}, hit30=${(policy.hitRate30m * 100).toFixed(0)}%)`
+    };
+  }
+
+  private evaluateEvidenceGate(
+    signal: GeneratedSignal,
+    minConfidence: number,
+    minEvidenceScore: number
+  ): { allowed: boolean; reason: string } {
+    if (!this.signalStore) {
+      return { allowed: true, reason: 'signal store unavailable' };
+    }
+
+    const direction = this.getSignalDirection(signal);
+    const absDelta = Math.abs(signal.delta_pct);
+    const whaleAmount = signal.whale_amount_usd || 0;
+    const reinforcement = this.signalStore.countDistinctApprovedMarketsForAssetDirection(
+      signal.matched_asset_id,
+      direction,
+      90
+    );
+
+    let score = 0;
+    if (signal.confidence >= minConfidence + 10) score += 1;
+    if (absDelta >= 30) score += 1;
+    if (whaleAmount >= 10_000) score += 2;
+    else if (whaleAmount >= 5_000) score += 1;
+
+    if (reinforcement >= 2) score += 2;
+    if (reinforcement >= 3) score += 1;
+
+    if (signal.verification_source === 'claude') score += 2;
+    else if (signal.verification_source === 'guard') score += 1;
+    else if (signal.verification_source === 'fallback_guard') score -= 1;
+
+    const directionalPerf = this.signalStore.getDirectionalPushPerformance(
+      signal.matched_asset_id,
+      direction,
+      30
+    );
+    if (directionalPerf && directionalPerf.samples >= 5) {
+      if (directionalPerf.hitRate30m >= 0.56 && directionalPerf.avgMove30m > 0) {
+        score += 2;
+      } else if (directionalPerf.hitRate30m < 0.40 && directionalPerf.avgMove30m <= 0) {
+        score -= 3;
+      }
+    }
+
+    if (this.isMicroTimeboxMarket(signal.market_title)) {
+      score -= 3;
+    }
+
+    const highConvictionOverride =
+      signal.confidence >= (minConfidence + 18) &&
+      absDelta >= 35 &&
+      (whaleAmount >= 10_000 || reinforcement >= 3);
+
+    if (score < minEvidenceScore && !highConvictionOverride) {
+      return {
+        allowed: false,
+        reason:
+          `score=${score}/${minEvidenceScore} ` +
+          `(reinforcement=${reinforcement}, whale=${whaleAmount}, delta=${absDelta.toFixed(1)}%)`
+      };
+    }
+
+    return {
+      allowed: true,
+      reason: `score=${score}/${minEvidenceScore} reinforcement=${reinforcement}`
+    };
   }
 
   /**
