@@ -6,6 +6,7 @@ import { SignalGenerator } from '../signals/generator.js';
 import { AlertDispatcher } from '../alerts/dispatcher.js';
 import { IntelligenceEngine } from '../intelligence/engine.js';
 import { NewsCorrelator } from '../intelligence/news-correlator.js';
+import { MacroCalendar } from '../intelligence/macro-calendar.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -59,6 +60,8 @@ export class ScanCycleJob {
       if (this.db && signals.length > 0) {
         const intelligence = new IntelligenceEngine(this.db);
         const newsCorrelator = new NewsCorrelator(this.db);
+        const macroCalendar = new MacroCalendar();
+        await macroCalendar.refreshLiveEvents();
         intelligence.processNewSignals(signals);
 
         for (const signal of signals) {
@@ -126,6 +129,20 @@ export class ScanCycleJob {
               `  News boost +${newsBoost.boost} for ${signal.matched_asset_name} ` +
               `(${newsBoost.sourceCount} sources) -> ${signal.confidence}%`
             );
+          }
+
+          const macroContext = macroCalendar.isInEventWindow(signal.matched_asset_id);
+          if (macroContext.inWindow) {
+            signal.reasoning +=
+              ` [macro: ${macroContext.eventName}, ${macroContext.minutesUntil}min away, impact:${macroContext.impact}]`;
+            changed = true;
+
+            if (macroContext.minutesUntil > 0 && macroContext.minutesUntil <= 30) {
+              signal.confidence = Math.min(signal.confidence + 8, 92);
+              console.log(
+                `  Macro pre-drift +8 for ${signal.matched_asset_name} (${macroContext.eventName}, ${macroContext.minutesUntil}min) -> ${signal.confidence}%`
+              );
+            }
           }
 
           if (changed) {

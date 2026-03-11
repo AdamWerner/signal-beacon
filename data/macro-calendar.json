@@ -1,0 +1,59 @@
+[
+  {
+    "name": "US CPI",
+    "schedule": "monthly, ~13th, 14:30 CET",
+    "impact": "high",
+    "affected_assets": ["sp500", "nasdaq100", "omx30"],
+    "direction_hint": "above_expected_bearish_for_bonds_bullish_equities",
+    "pre_drift_minutes": 30,
+    "elevated_vol_minutes": 15
+  },
+  {
+    "name": "US Non-Farm Payrolls",
+    "schedule": "monthly, first Friday, 14:30 CET",
+    "impact": "high",
+    "affected_assets": ["sp500", "nasdaq100"],
+    "pre_drift_minutes": 30,
+    "elevated_vol_minutes": 15
+  },
+  {
+    "name": "FOMC Rate Decision",
+    "schedule": "~8 times/year, 20:00 CET",
+    "impact": "very_high",
+    "affected_assets": ["sp500", "nasdaq100", "omx30"],
+    "pre_drift_minutes": 60,
+    "elevated_vol_minutes": 30
+  },
+  {
+    "name": "ECB Rate Decision",
+    "schedule": "~8 times/year, 14:15 CET",
+    "impact": "high",
+    "affected_assets": ["omx30", "sp500"],
+    "pre_drift_minutes": 30,
+    "elevated_vol_minutes": 15
+  },
+  {
+    "name": "US PPI",
+    "schedule": "monthly, ~14th, 14:30 CET",
+    "impact": "medium",
+    "affected_assets": ["sp500", "nasdaq100"],
+    "pre_drift_minutes": 15,
+    "elevated_vol_minutes": 10
+  },
+  {
+    "name": "OPEC Meeting",
+    "schedule": "varies",
+    "impact": "high",
+    "affected_assets": ["oil-equinor", "oil-shell", "oil-exxon", "oil-conocophillips"],
+    "pre_drift_minutes": 60,
+    "elevated_vol_minutes": 30
+  },
+  {
+    "name": "Swedish Riksbank Rate Decision",
+    "schedule": "~8 times/year, 09:30 CET",
+    "impact": "high",
+    "affected_assets": ["omx30", "retail-hm", "telecom-ericsson", "gaming-evolution"],
+    "pre_drift_minutes": 30,
+    "elevated_vol_minutes": 15
+  }
+]
