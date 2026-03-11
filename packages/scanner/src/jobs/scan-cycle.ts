@@ -8,6 +8,7 @@ import { IntelligenceEngine } from '../intelligence/engine.js';
 import { NewsCorrelator } from '../intelligence/news-correlator.js';
 import { MacroCalendar } from '../intelligence/macro-calendar.js';
 import { VolatilityRegimeDetector } from '../intelligence/volatility-regime.js';
+import { FuturesConfirmationService } from '../intelligence/futures-confirmation.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -21,6 +22,7 @@ export interface ScanCycleResult {
 
 export class ScanCycleJob {
   private volatilityRegimeDetector = new VolatilityRegimeDetector();
+  private futuresConfirmation = new FuturesConfirmationService();
 
   constructor(
     private config: Config,
@@ -147,6 +149,27 @@ export class ScanCycleJob {
               console.log(
                 `  Macro pre-drift +8 for ${signal.matched_asset_name} (${macroContext.eventName}, ${macroContext.minutesUntil}min) -> ${signal.confidence}%`
               );
+            }
+          }
+
+          if (signal.confidence >= 50) {
+            const futures = await this.futuresConfirmation.confirm(signal);
+            if (futures) {
+              const ret = futures.return5mPct >= 0
+                ? `+${futures.return5mPct.toFixed(2)}%`
+                : `${futures.return5mPct.toFixed(2)}%`;
+              if (futures.alignment === 'confirms') {
+                signal.confidence = Math.min(signal.confidence + futures.adjustment, 92);
+                signal.reasoning += ` [futures: ${futures.symbol} confirms (${ret} / 5m)]`;
+                changed = true;
+              } else if (futures.alignment === 'contradicts') {
+                signal.confidence = Math.max(0, Math.min(signal.confidence + futures.adjustment, 92));
+                signal.reasoning += ` [futures: ${futures.symbol} CONTRADICTS (${ret} / 5m)]`;
+                changed = true;
+              } else {
+                signal.reasoning += ` [futures: ${futures.symbol} flat (${ret} / 5m)]`;
+                changed = true;
+              }
             }
           }
 
