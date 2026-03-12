@@ -51,11 +51,13 @@ router.get('/outcomes', (req, res) => {
 });
 
 // GET /api/backtest/performance
-router.get('/performance', (_req, res) => {
+router.get('/performance', (req, res) => {
   try {
+    const scope = String(req.query.scope || 'all').toLowerCase();
+    const table = scope === 'push' ? 'asset_push_performance' : 'asset_performance';
     const performance = (services as any).db.prepare(`
       SELECT *
-      FROM asset_performance
+      FROM ${table}
       ORDER BY reliability_score DESC, samples DESC
       LIMIT 200
     `).all();
@@ -117,6 +119,45 @@ router.post('/catchup', async (req, res) => {
     return res.json({ evaluated: results.length, results });
   } catch (error: any) {
     return res.status(500).json({ error: 'Catchup failed', message: error?.message });
+  }
+});
+
+// GET /api/backtest/microstructure?days=14&market=us&latency=random
+router.get('/microstructure', (req, res) => {
+  try {
+    const days = Math.max(1, Math.min(60, parseInt(String(req.query.days || '14'), 10)));
+    const latencyMode = String(req.query.latency || 'random').toLowerCase() === 'worst_case'
+      ? 'worst_case'
+      : 'random';
+    const marketParam = String(req.query.market || '').toLowerCase();
+    const market = marketParam === 'swedish' || marketParam === 'us'
+      ? (marketParam as 'swedish' | 'us')
+      : undefined;
+
+    const result = scanner.runMicrostructureBacktest({ days, market, latencyMode });
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Microstructure backtest failed', message: error?.message });
+  }
+});
+
+// POST /api/backtest/microstructure/walk-forward?days=30
+router.post('/microstructure/walk-forward', (req, res) => {
+  try {
+    const days = Math.max(7, Math.min(180, parseInt(String(req.query.days || req.body?.days || '30'), 10)));
+    const result = scanner.runFusionWalkForward(days);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Walk-forward tuning failed', message: error?.message });
+  }
+});
+
+// GET /api/backtest/microstructure/weights/latest
+router.get('/microstructure/weights/latest', (_req, res) => {
+  try {
+    res.json(scanner.getLatestFusionWeights());
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch latest fusion weights', message: error?.message });
   }
 });
 

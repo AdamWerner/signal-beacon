@@ -37,6 +37,21 @@ export interface Config {
   haNotifyService: string;
   alertMinConfidenceHa: number;
 
+  // Streaming / fusion (Phase 2+)
+  enableStreamingLayer: boolean;
+  enableBinanceDepth: boolean;
+  enableBinanceTrades: boolean;
+  enableLiquidations: boolean;
+  enableSecondVenue: boolean;
+  enableFusionGating: boolean;
+  enableSuppressedDecisionStorage: boolean;
+  enableDashboardStreamingViews: boolean;
+  streamingKillSwitch: boolean;
+  streamingSymbols: string[];
+  streamingStaleMs: number;
+  fusionPHatMin: number;
+  fusionExpectancyMinPct: number;
+
   // Server
   apiPort: number;
   nodeEnv: string;
@@ -82,6 +97,24 @@ export function loadConfig(): Config {
     haToken: process.env.HA_TOKEN || '',
     haNotifyService: process.env.HA_NOTIFY_SERVICE || 'notify.mobile_app_adamsajphone',
     alertMinConfidenceHa: parseInt(process.env.ALERT_MIN_CONFIDENCE_HA || '65', 10),
+
+    // Streaming / fusion
+    enableStreamingLayer: (process.env.ENABLE_STREAMING_LAYER || 'false').toLowerCase() === 'true',
+    enableBinanceDepth: (process.env.ENABLE_BINANCE_DEPTH || 'true').toLowerCase() !== 'false',
+    enableBinanceTrades: (process.env.ENABLE_BINANCE_TRADES || 'true').toLowerCase() !== 'false',
+    enableLiquidations: (process.env.ENABLE_LIQUIDATIONS || 'false').toLowerCase() === 'true',
+    enableSecondVenue: (process.env.ENABLE_SECOND_VENUE || 'false').toLowerCase() === 'true',
+    enableFusionGating: (process.env.ENABLE_FUSION_GATING || 'false').toLowerCase() === 'true',
+    enableSuppressedDecisionStorage: (process.env.ENABLE_SUPPRESSED_DECISION_STORAGE || 'true').toLowerCase() !== 'false',
+    enableDashboardStreamingViews: (process.env.ENABLE_DASHBOARD_STREAMING_VIEWS || 'true').toLowerCase() !== 'false',
+    streamingKillSwitch: (process.env.STREAMING_KILL_SWITCH || 'false').toLowerCase() === 'true',
+    streamingSymbols: (process.env.STREAMING_SYMBOLS || 'BTCUSDT,ETHUSDT,SOLUSDT')
+      .split(',')
+      .map(symbol => symbol.trim().toUpperCase())
+      .filter(Boolean),
+    streamingStaleMs: parseInt(process.env.STREAMING_STALE_MS || '15000', 10),
+    fusionPHatMin: parseFloat(process.env.FUSION_P_HAT_MIN || '0.55'),
+    fusionExpectancyMinPct: parseFloat(process.env.FUSION_EXPECTANCY_MIN_PCT || '0.30'),
 
     // Server
     apiPort: parseInt(process.env.API_PORT || '3100', 10),

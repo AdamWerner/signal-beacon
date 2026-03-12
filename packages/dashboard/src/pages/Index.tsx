@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSignals } from "@/hooks/useSignals";
 import { useTopSignals } from "@/hooks/useTopSignals";
+import { useStreamingHealth } from "@/hooks/useStreamingHealth";
+import { useFusionDecisions } from "@/hooks/useFusionDecisions";
 import { SignalCard } from "@/components/SignalCard";
 import { Signal } from "@/types";
-import { Zap, Trophy, SlidersHorizontal, Flag, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { Zap, Trophy, SlidersHorizontal, Flag, ExternalLink, ChevronDown, ChevronUp, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -262,6 +264,8 @@ const SignalFeed = () => {
   const { data: signals, isLoading } = useSignals({ hours, minConfidence: minConfidence || undefined, limit: 200 });
   const { data: topSignals, isLoading: topLoading, includeUnverified, setIncludeUnverified } = useTopSignals();
   const { data: swedishSignals, isLoading: sweLoading } = useSwedishSignals();
+  const { data: streamingHealth, isLoading: streamingLoading } = useStreamingHealth();
+  const { decisions: fusionDecisions, suppressed: fusionSuppressed, isLoading: fusionLoading } = useFusionDecisions();
 
   const grouped = useMemo(() => groupContextPairs(signals), [signals]);
 
@@ -317,6 +321,55 @@ const SignalFeed = () => {
             {swedishSignals.map((signal, i) => (
               <TopTradeItem key={signal.id} signal={signal} rank={i + 1} />
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Streaming + fusion visibility */}
+      <div className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Streaming Confirmation Layer</h2>
+          <span className="text-xs font-mono text-muted-foreground ml-auto">
+            {streamingLoading ? "..." : (streamingHealth?.enabled ? "enabled" : "disabled")}
+          </span>
+        </div>
+
+        {!streamingHealth?.enabled ? (
+          <p className="text-xs font-mono text-muted-foreground">Streaming layer disabled or unavailable (Phase 1 fallback active).</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded border border-border/60 bg-background/40 p-2">
+              <p className="text-[11px] font-mono text-muted-foreground mb-1">Health</p>
+              <div className="space-y-1">
+                {(streamingHealth.runtime || []).map((row: any) => (
+                  <div key={row.component} className="flex items-center justify-between text-[11px] font-mono">
+                    <span>{row.component}</span>
+                    <span className={row.status === "healthy" ? "text-bull" : row.status === "down" ? "text-bear" : "text-whale"}>
+                      {row.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-background/40 p-2">
+              <p className="text-[11px] font-mono text-muted-foreground mb-1">Fusion Decisions (latest)</p>
+              {fusionLoading ? (
+                <p className="text-[11px] font-mono text-muted-foreground">Loading...</p>
+              ) : (
+                <div className="space-y-1">
+                  {fusionDecisions.slice(0, 4).map((row: any, idx: number) => (
+                    <div key={`${row.timestamp}-${idx}`} className="text-[11px] font-mono flex items-center justify-between gap-2">
+                      <span className="truncate">{row.symbol} {row.decision}</span>
+                      <span>{Number(row.p_hat || 0).toFixed(2)} / {Number(row.expectancy_hat_pct || 0).toFixed(2)}%</span>
+                    </div>
+                  ))}
+                  <div className="text-[11px] font-mono text-muted-foreground">
+                    Suppressed (latest): {fusionSuppressed.length}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

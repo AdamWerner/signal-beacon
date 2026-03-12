@@ -9,6 +9,10 @@ import { NewsCorrelator } from '../intelligence/news-correlator.js';
 import { MacroCalendar } from '../intelligence/macro-calendar.js';
 import { VolatilityRegimeDetector } from '../intelligence/volatility-regime.js';
 import { FuturesConfirmationService } from '../intelligence/futures-confirmation.js';
+import { StreamingFeatureService } from '../streaming/services/streaming-feature-service.js';
+import { StreamingStore } from '../streaming/storage/streaming-store.js';
+import { FusionEngine } from '../streaming/fusion/engine.js';
+import { TradeDirection } from '../streaming/fusion/types.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -30,8 +34,26 @@ export class ScanCycleJob {
     private whaleDetector: WhaleDetector,
     private signalGenerator: SignalGenerator,
     private alertDispatcher: AlertDispatcher,
-    private db?: Database.Database
+    private db?: Database.Database,
+    private streamingFeatureService: StreamingFeatureService | null = null,
+    private streamingStore?: StreamingStore,
+    private fusionEngine?: FusionEngine,
+    private fusionOptions: {
+      enableFusionGating: boolean;
+      enableSuppressedDecisionStorage: boolean;
+      enableSecondVenue: boolean;
+      enableLiquidations: boolean;
+    } = {
+      enableFusionGating: false,
+      enableSuppressedDecisionStorage: true,
+      enableSecondVenue: false,
+      enableLiquidations: false
+    }
   ) {}
+
+  setStreamingFeatureService(service: StreamingFeatureService | null): void {
+    this.streamingFeatureService = service;
+  }
 
   /**
    * Execute one scan cycle.
@@ -190,11 +212,21 @@ export class ScanCycleJob {
         }
       }
 
+      let dispatchSignals = signals;
+      if (
+        this.db &&
+        signals.length > 0 &&
+        this.streamingStore &&
+        this.fusionEngine
+      ) {
+        dispatchSignals = this.applyFusionDecisions(signals);
+      }
+
       let haPushed = 0;
       let brewed = 0;
-      if (signals.length > 0) {
+      if (dispatchSignals.length > 0) {
         console.log('\nDispatching alerts...');
-        const dispatchResult = await this.alertDispatcher.dispatchBatch(signals);
+        const dispatchResult = await this.alertDispatcher.dispatchBatch(dispatchSignals);
         haPushed = dispatchResult.pushedSwedish + dispatchResult.pushedUs;
         brewed = dispatchResult.brewed;
       }
@@ -222,5 +254,88 @@ export class ScanCycleJob {
       console.error('Scan cycle failed:', error);
       throw error;
     }
+  }
+
+  private applyFusionDecisions(signals: any[]): any[] {
+    if (!this.streamingStore || !this.fusionEngine) return signals;
+    if (!this.fusionOptions.enableFusionGating) return signals;
+
+    const allowed: any[] = [];
+
+    for (const signal of signals) {
+      const direction: TradeDirection = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+      const inputs = this.streamingFeatureService?.getFusionInputsForAsset({
+        signalId: signal.id,
+        assetId: signal.matched_asset_id,
+        assetName: signal.matched_asset_name,
+        directionHint: direction,
+        signalConfidence: signal.confidence,
+        signalDeltaPct: signal.delta_pct,
+        macroTag: this.extractReasonTag(signal.reasoning, 'macro'),
+        futuresTag: this.extractReasonTag(signal.reasoning, 'futures'),
+        volatilityTag: this.extractReasonTag(signal.reasoning, 'vol'),
+        executionTag: this.extractReasonTag(signal.reasoning, 'execution'),
+        secondVenueEnabled: this.fusionOptions.enableSecondVenue,
+        liquidationEnabled: this.fusionOptions.enableLiquidations
+      });
+
+      if (!inputs) {
+        allowed.push(signal);
+        continue;
+      }
+
+      const decision = this.fusionEngine.evaluate(inputs);
+      this.streamingStore.insertFusionDecision(decision);
+      signal.fusion_p_hat = decision.pHat;
+      signal.fusion_expectancy_pct = decision.expectancyHatPct;
+      signal.fusion_decision = decision.decision;
+      signal.fusion_reasons = decision.reasons;
+      signal.fusion_suppress_reasons = decision.suppressReasons;
+
+      if (decision.decision === 'allow') {
+        signal.reasoning += ` [fusion:allow p=${decision.pHat.toFixed(2)} exp=${decision.expectancyHatPct.toFixed(2)}]`;
+        const confidenceBoost = Math.round((decision.pHat - 0.5) * 20);
+        if (confidenceBoost !== 0) {
+          signal.confidence = Math.max(0, Math.min(signal.confidence + confidenceBoost, 92));
+        }
+        allowed.push(signal);
+        this.persistSignalPostFusion(signal);
+        continue;
+      }
+
+      if (decision.decision === 'fallback_phase1') {
+        signal.reasoning += ' [fusion:fallback_phase1]';
+        allowed.push(signal);
+        this.persistSignalPostFusion(signal);
+        continue;
+      }
+
+      signal.reasoning += ` [fusion:suppress p=${decision.pHat.toFixed(2)} exp=${decision.expectancyHatPct.toFixed(2)}]`;
+      this.persistSignalPostFusion(signal);
+      if (this.fusionOptions.enableSuppressedDecisionStorage) {
+        this.streamingStore.insertSuppressedDecision(decision);
+      }
+    }
+
+    return allowed;
+  }
+
+  private persistSignalPostFusion(signal: any): void {
+    if (!this.db) return;
+    try {
+      this.db.prepare(`
+        UPDATE signals
+        SET confidence = ?, reasoning = ?
+        WHERE id = ?
+      `).run(signal.confidence, signal.reasoning, signal.id);
+    } catch {
+      // Non-fatal.
+    }
+  }
+
+  private extractReasonTag(reasoning: string, tag: string): string | undefined {
+    const regex = new RegExp(`\\[${tag}:[^\\]]+\\]`, 'i');
+    const found = (reasoning || '').match(regex);
+    return found?.[0];
   }
 }

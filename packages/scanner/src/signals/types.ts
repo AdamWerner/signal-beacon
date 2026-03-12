@@ -29,4 +29,9 @@ export interface GeneratedSignal {
   verification_flags: string[];
   verification_source: string;
   verification_record: string | null;
+  fusion_p_hat?: number;
+  fusion_expectancy_pct?: number;
+  fusion_decision?: 'allow' | 'suppress' | 'fallback_phase1';
+  fusion_reasons?: string[];
+  fusion_suppress_reasons?: string[];
 }

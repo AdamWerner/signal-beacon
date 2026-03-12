@@ -12,6 +12,7 @@ export interface CleanupResult {
   whalesDeleted: number;
   marketsResolved: number;
   tweetsDeleted: number;
+  streamingRowsDeleted: number;
   duration: number;
 }
 
@@ -76,6 +77,7 @@ export class CleanupJob {
 
       // Clean up old tweets (keep 7 days)
       let tweetsDeleted = 0;
+      let streamingRowsDeleted = 0;
       if (this.tweetStore) {
         console.log('Cleaning up old tweets...');
         tweetsDeleted = this.tweetStore.cleanupOld(7);
@@ -97,6 +99,43 @@ export class CleanupJob {
       // Force WAL checkpoint to prevent unbounded WAL growth (runs daily)
       if (this.db) {
         try {
+          streamingRowsDeleted += this.db.prepare(`
+            DELETE FROM feature_snapshots_1s
+            WHERE timestamp < datetime('now', '-3 days')
+          `).run().changes;
+          streamingRowsDeleted += this.db.prepare(`
+            DELETE FROM feature_snapshots_1m
+            WHERE timestamp < datetime('now', '-14 days')
+          `).run().changes;
+          streamingRowsDeleted += this.db.prepare(`
+            DELETE FROM liquidity_events
+            WHERE timestamp < datetime('now', '-14 days')
+          `).run().changes;
+          streamingRowsDeleted += this.db.prepare(`
+            DELETE FROM liquidation_events
+            WHERE timestamp < datetime('now', '-14 days')
+          `).run().changes;
+          streamingRowsDeleted += this.db.prepare(`
+            DELETE FROM leader_lag_snapshots
+            WHERE timestamp < datetime('now', '-14 days')
+          `).run().changes;
+          streamingRowsDeleted += this.db.prepare(`
+            DELETE FROM fusion_decisions
+            WHERE timestamp < datetime('now', '-30 days')
+          `).run().changes;
+          streamingRowsDeleted += this.db.prepare(`
+            DELETE FROM suppressed_decisions
+            WHERE timestamp < datetime('now', '-30 days')
+          `).run().changes;
+        } catch {
+          // Streaming tables may not exist in older schemas.
+        }
+
+        if (streamingRowsDeleted > 0) {
+          console.log(`  Deleted ${streamingRowsDeleted} streaming/fusion rows`);
+        }
+
+        try {
           this.db.pragma('wal_checkpoint(TRUNCATE)');
           console.log('  WAL checkpoint completed');
         } catch {
@@ -116,6 +155,7 @@ export class CleanupJob {
         whalesDeleted,
         marketsResolved,
         tweetsDeleted,
+        streamingRowsDeleted,
         duration
       };
     } catch (error) {

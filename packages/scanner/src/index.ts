@@ -27,6 +27,11 @@ import { TweetCollector } from './tweets/collector.js';
 import { TweetIntelligenceProcessor } from './tweets/processor.js';
 import { TradeVerificationGate } from './verification/trade-gate.js';
 import { SignalBacktestEvaluator } from './backtest/evaluator.js';
+import { StreamingStore } from './streaming/storage/streaming-store.js';
+import { StreamingSymbolMap } from './streaming/services/symbol-map.js';
+import { StreamingSupervisor } from './streaming/jobs/streaming-supervisor.js';
+import { FusionEngine } from './streaming/fusion/engine.js';
+import { MicrostructureBacktestRunner } from './streaming/backtest/microstructure-backtest.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -38,9 +43,12 @@ export class PolySignalScanner {
   private signalStore = new SignalStore(this.db);
   private whaleStore = new WhaleStore(this.db);
   private tweetStore = new TweetStore(this.db);
+  private streamingStore = new StreamingStore(this.db);
+  private symbolMap = new StreamingSymbolMap();
   private tweetCollector: TweetCollector;
   private tweetProcessor: TweetIntelligenceProcessor;
   private backtestEvaluator: SignalBacktestEvaluator;
+  private microstructureBacktestRunner: MicrostructureBacktestRunner;
 
   private ontology = new OntologyEngine();
   private avanzaClient: ReturnType<typeof createAvanzaClient> | null = null;
@@ -55,6 +63,11 @@ export class PolySignalScanner {
   private signalGenerator: SignalGenerator;
   private verificationGate: TradeVerificationGate;
   private alertDispatcher: AlertDispatcher;
+  private fusionEngine = new FusionEngine({
+    pHatMin: this.config.fusionPHatMin,
+    expectancyMinPct: this.config.fusionExpectancyMinPct
+  });
+  private streamingSupervisor: StreamingSupervisor | null = null;
 
   private scanCycleJob: ScanCycleJob;
   private marketRefreshJob: MarketRefreshJob;
@@ -116,6 +129,7 @@ export class PolySignalScanner {
     this.alertDispatcher = new AlertDispatcher({
       minConfidence: this.config.alertMinConfidence,
       verificationRequiredForPush: this.config.verificationRequiredForPush,
+      signalStore: this.signalStore,
       onSignalsPushed: (signalIds) => {
         this.signalStore.markPushed(signalIds, 'ha');
       },
@@ -149,7 +163,16 @@ export class PolySignalScanner {
       this.whaleDetector,
       this.signalGenerator,
       this.alertDispatcher,
-      this.db
+      this.db,
+      null,
+      this.streamingStore,
+      this.fusionEngine,
+      {
+        enableFusionGating: this.config.enableFusionGating,
+        enableSuppressedDecisionStorage: this.config.enableSuppressedDecisionStorage,
+        enableSecondVenue: this.config.enableSecondVenue,
+        enableLiquidations: this.config.enableLiquidations
+      }
     );
 
     this.marketRefreshJob = new MarketRefreshJob(this.marketDiscoverer);
@@ -169,6 +192,32 @@ export class PolySignalScanner {
     this.tweetCollector = new TweetCollector(this.tweetStore);
     this.tweetProcessor = new TweetIntelligenceProcessor(this.db);
     this.backtestEvaluator = new SignalBacktestEvaluator(this.db);
+    this.microstructureBacktestRunner = new MicrostructureBacktestRunner(this.db);
+
+    if (this.config.enableStreamingLayer && !this.config.streamingKillSwitch) {
+      const secondVenueSymbols: string[] = [];
+      for (const symbol of this.config.streamingSymbols) {
+        if (symbol === 'BTCUSDT') secondVenueSymbols.push('BTC-USD');
+        if (symbol === 'ETHUSDT') secondVenueSymbols.push('ETH-USD');
+        if (symbol === 'SOLUSDT') secondVenueSymbols.push('SOL-USD');
+      }
+
+      this.streamingSupervisor = new StreamingSupervisor(
+        {
+          symbols: this.config.streamingSymbols,
+          secondVenueSymbols,
+          enableBinanceDepth: this.config.enableBinanceDepth,
+          enableBinanceTrades: this.config.enableBinanceTrades,
+          enableLiquidations: this.config.enableLiquidations,
+          enableSecondVenue: this.config.enableSecondVenue,
+          streamingStaleMs: this.config.streamingStaleMs
+        },
+        this.streamingStore,
+        this.symbolMap
+      );
+
+      this.scanCycleJob.setStreamingFeatureService(this.streamingSupervisor.getFeatureService());
+    }
 
     const seedResult = this.tweetStore.seedDefaultAccounts(1200);
     console.log(
@@ -240,10 +289,19 @@ export class PolySignalScanner {
     });
     logger.info('Cleanup scheduled', { cron: this.config.jobCleanupCron });
 
+    if (this.streamingSupervisor) {
+      this.streamingSupervisor.start()
+        .then(() => logger.info('Streaming supervisor started'))
+        .catch(error => logger.error('Streaming supervisor start failed', { error: String(error) }));
+    }
+
     logger.info('Scanner is running');
   }
 
   async runScanCycle() {
+    if (this.streamingSupervisor) {
+      await this.streamingSupervisor.start();
+    }
     return await this.scanCycleJob.execute();
   }
 
@@ -284,8 +342,29 @@ export class PolySignalScanner {
     return await this.tweetProcessor.processTweetBatch();
   }
 
-  async runDailyBacktest(market: 'swedish' | 'us', date?: string, force = false) {
-    return await this.backtestEvaluator.runDailyBacktest(market, date, force);
+  async runDailyBacktest(
+    market: 'swedish' | 'us',
+    date?: string,
+    force = false,
+    options?: { mode?: 'push_only' | 'hybrid' }
+  ) {
+    return await this.backtestEvaluator.runDailyBacktest(market, date, force, options);
+  }
+
+  runMicrostructureBacktest(options?: {
+    days?: number;
+    market?: 'swedish' | 'us';
+    latencyMode?: 'worst_case' | 'random';
+  }) {
+    return this.microstructureBacktestRunner.runComparison(options);
+  }
+
+  runFusionWalkForward(days = 30) {
+    return this.microstructureBacktestRunner.runWalkForwardScaffold(days);
+  }
+
+  getLatestFusionWeights() {
+    return this.microstructureBacktestRunner.getLatestTunedWeights();
   }
 
   runTweetUniverseExpansion(target = 1200) {
@@ -308,6 +387,11 @@ export class PolySignalScanner {
       instrumentRegistry: this.instrumentRegistry,
       marketDiscoverer: this.marketDiscoverer,
       avanzaAvailable: this.avanzaAvailable,
+      streamingStore: this.streamingStore,
+      symbolMap: this.symbolMap,
+      streamingFeatureService: this.streamingSupervisor?.getFeatureService() ?? null,
+      streamingSupervisor: this.streamingSupervisor,
+      microstructureBacktestRunner: this.microstructureBacktestRunner,
       db: this.db as any
     };
   }
@@ -324,6 +408,10 @@ export { TweetIntelligenceProcessor } from './tweets/processor.js';
 export { isNoiseMarketQuestion } from './polymarket/noise-filter.js';
 export { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './intelligence/trading-hours.js';
 export { getClaudeUsage } from './utils/claude-usage.js';
+export { StreamingSupervisor } from './streaming/jobs/streaming-supervisor.js';
+export { StreamingFeatureService } from './streaming/services/streaming-feature-service.js';
+export { FusionEngine } from './streaming/fusion/engine.js';
+export { MicrostructureBacktestRunner } from './streaming/backtest/microstructure-backtest.js';
 
 export const scanner = new PolySignalScanner();
 

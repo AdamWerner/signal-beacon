@@ -311,6 +311,145 @@ function runMigrations(db: Database.Database): void {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS feature_snapshots_1s (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        symbol TEXT NOT NULL,
+        asset_id TEXT,
+        top_imbalance REAL,
+        multi_level_imbalance REAL,
+        ofi_proxy REAL,
+        micro_price REAL,
+        mid_price REAL,
+        micro_divergence REAL,
+        normalized_micro_divergence REAL,
+        spread_bps REAL,
+        depth_10bps REAL,
+        depth_25bps REAL,
+        depth_drop_rate REAL,
+        liquidity_cliff BOOLEAN DEFAULT FALSE,
+        trade_intensity REAL,
+        signed_trade_imbalance REAL,
+        short_volatility_pct REAL,
+        liquidation_burst_intensity REAL,
+        liquidation_direction TEXT,
+        liquidation_clustering REAL,
+        second_venue_return_5s REAL,
+        second_venue_gap_bps REAL
+      );
+
+      CREATE TABLE IF NOT EXISTS feature_snapshots_1m (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        symbol TEXT NOT NULL,
+        asset_id TEXT,
+        top_imbalance_avg REAL,
+        multi_level_imbalance_avg REAL,
+        ofi_avg REAL,
+        micro_divergence_avg REAL,
+        spread_bps_avg REAL,
+        depth_10bps_avg REAL,
+        trade_intensity_avg REAL,
+        signed_trade_imbalance_avg REAL,
+        short_volatility_pct_avg REAL,
+        top_imbalance_persistence_bull REAL,
+        top_imbalance_persistence_bear REAL,
+        micro_divergence_persistence_bull REAL,
+        micro_divergence_persistence_bear REAL,
+        imbalance_zscore REAL,
+        ofi_zscore REAL,
+        regime_label TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS liquidity_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        symbol TEXT NOT NULL,
+        asset_id TEXT,
+        event_type TEXT NOT NULL,
+        payload TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS liquidation_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        symbol TEXT NOT NULL,
+        asset_id TEXT,
+        side TEXT,
+        price REAL,
+        quantity REAL
+      );
+
+      CREATE TABLE IF NOT EXISTS leader_lag_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        symbol TEXT NOT NULL,
+        asset_id TEXT,
+        primary_return_5s REAL,
+        second_venue_return_5s REAL,
+        gap_bps REAL
+      );
+
+      CREATE TABLE IF NOT EXISTS fusion_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        signal_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        p_hat REAL NOT NULL,
+        expectancy_hat_pct REAL NOT NULL,
+        hard_pass BOOLEAN NOT NULL,
+        soft_score REAL NOT NULL,
+        reasons_json TEXT,
+        suppress_reasons_json TEXT,
+        feature_flags_used_json TEXT,
+        decision TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS suppressed_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME NOT NULL,
+        signal_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        p_hat REAL,
+        expectancy_hat_pct REAL,
+        suppress_reasons_json TEXT,
+        reasons_json TEXT,
+        feature_flags_used_json TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS streaming_health (
+        component TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        details TEXT,
+        last_message_at DATETIME,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS fusion_weight_sets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT NOT NULL,
+        weights_json TEXT NOT NULL,
+        metrics_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT FALSE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_feature_snapshots_1s_symbol_time
+      ON feature_snapshots_1s(symbol, timestamp DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_feature_snapshots_1m_symbol_time
+      ON feature_snapshots_1m(symbol, timestamp DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_fusion_decisions_signal_time
+      ON fusion_decisions(signal_id, timestamp DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_suppressed_decisions_time
+      ON suppressed_decisions(timestamp DESC);
+
       CREATE INDEX IF NOT EXISTS idx_signal_outcomes_market_time
       ON signal_outcomes(market, evaluated_at DESC);
 
@@ -643,6 +782,145 @@ function createTables(db: Database.Database): void {
       affected_assets TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS feature_snapshots_1s (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME NOT NULL,
+      symbol TEXT NOT NULL,
+      asset_id TEXT,
+      top_imbalance REAL,
+      multi_level_imbalance REAL,
+      ofi_proxy REAL,
+      micro_price REAL,
+      mid_price REAL,
+      micro_divergence REAL,
+      normalized_micro_divergence REAL,
+      spread_bps REAL,
+      depth_10bps REAL,
+      depth_25bps REAL,
+      depth_drop_rate REAL,
+      liquidity_cliff BOOLEAN DEFAULT FALSE,
+      trade_intensity REAL,
+      signed_trade_imbalance REAL,
+      short_volatility_pct REAL,
+      liquidation_burst_intensity REAL,
+      liquidation_direction TEXT,
+      liquidation_clustering REAL,
+      second_venue_return_5s REAL,
+      second_venue_gap_bps REAL
+    );
+
+    CREATE TABLE IF NOT EXISTS feature_snapshots_1m (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME NOT NULL,
+      symbol TEXT NOT NULL,
+      asset_id TEXT,
+      top_imbalance_avg REAL,
+      multi_level_imbalance_avg REAL,
+      ofi_avg REAL,
+      micro_divergence_avg REAL,
+      spread_bps_avg REAL,
+      depth_10bps_avg REAL,
+      trade_intensity_avg REAL,
+      signed_trade_imbalance_avg REAL,
+      short_volatility_pct_avg REAL,
+      top_imbalance_persistence_bull REAL,
+      top_imbalance_persistence_bear REAL,
+      micro_divergence_persistence_bull REAL,
+      micro_divergence_persistence_bear REAL,
+      imbalance_zscore REAL,
+      ofi_zscore REAL,
+      regime_label TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS liquidity_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME NOT NULL,
+      symbol TEXT NOT NULL,
+      asset_id TEXT,
+      event_type TEXT NOT NULL,
+      payload TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS liquidation_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME NOT NULL,
+      symbol TEXT NOT NULL,
+      asset_id TEXT,
+      side TEXT,
+      price REAL,
+      quantity REAL
+    );
+
+    CREATE TABLE IF NOT EXISTS leader_lag_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME NOT NULL,
+      symbol TEXT NOT NULL,
+      asset_id TEXT,
+      primary_return_5s REAL,
+      second_venue_return_5s REAL,
+      gap_bps REAL
+    );
+
+    CREATE TABLE IF NOT EXISTS fusion_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME NOT NULL,
+      signal_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      p_hat REAL NOT NULL,
+      expectancy_hat_pct REAL NOT NULL,
+      hard_pass BOOLEAN NOT NULL,
+      soft_score REAL NOT NULL,
+      reasons_json TEXT,
+      suppress_reasons_json TEXT,
+      feature_flags_used_json TEXT,
+      decision TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS suppressed_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME NOT NULL,
+      signal_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      p_hat REAL,
+      expectancy_hat_pct REAL,
+      suppress_reasons_json TEXT,
+      reasons_json TEXT,
+      feature_flags_used_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS streaming_health (
+      component TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      details TEXT,
+      last_message_at DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS fusion_weight_sets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      weights_json TEXT NOT NULL,
+      metrics_json TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_active BOOLEAN DEFAULT FALSE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_feature_snapshots_1s_symbol_time
+    ON feature_snapshots_1s(symbol, timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_feature_snapshots_1m_symbol_time
+    ON feature_snapshots_1m(symbol, timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_fusion_decisions_signal_time
+    ON fusion_decisions(signal_id, timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_suppressed_decisions_time
+    ON suppressed_decisions(timestamp DESC);
 
     CREATE INDEX IF NOT EXISTS idx_signal_outcomes_market_time
     ON signal_outcomes(market, evaluated_at DESC);
