@@ -36,10 +36,20 @@ function parseSignal(signal: any) {
         const currentName = String(instrument?.name || '');
         let nextUrl = currentUrl;
 
-        if (currentUrl.includes('avanza.se/sok?query=')) {
-          const queryPart = currentUrl.split('query=')[1] || '';
+        const hasLegacySearchUrl =
+          currentUrl.includes('avanza.se/sok?query=') ||
+          currentUrl.includes('avanza.se/sok.html?query=') ||
+          currentUrl.includes('avanza.se/sok.html?q=');
+
+        if (hasLegacySearchUrl) {
+          const queryPart = currentUrl.includes('q=')
+            ? (currentUrl.split('q=')[1] || '')
+            : (currentUrl.split('query=')[1] || '');
           const decoded = decodeURIComponent(queryPart || '');
-          const cleaned = decoded.replace(/^(BULL|BEAR)\s+/i, '').trim();
+          const cleaned = decoded
+            .replace(/^(BULL|BEAR)\s+/i, '')
+            .replace(/\s+X\d+\s+AVA$/i, '')
+            .trim();
           const normalizedQuery = cleaned ? `${cleaned} certifikat` : decoded;
           nextUrl = `https://www.avanza.se/sok.html?query=${encodeURIComponent(normalizedQuery)}`;
         } else if (!currentUrl && currentName) {
@@ -95,7 +105,7 @@ router.get('/', (req, res) => {
 router.get('/top', async (req, res) => {
   try {
     const includeUnverified = req.query.include_unverified === 'true';
-    const allSignals = services.signalStore.findAll(500);
+    const allSignals = services.signalStore.findFiltered({ hours: 72, limit: 1000 });
     const signals = allSignals.filter(s =>
       s.status !== 'dismissed' &&
       !isNoiseMarketQuestion(String(s.market_title || ''))
@@ -114,7 +124,6 @@ router.get('/top', async (req, res) => {
 
 // Swedish assets — use canonical set from trading-hours.ts (single source of truth)
 const SWEDISH_ASSET_IDS = SWEDISH_MARKET_ASSETS;
-const SWEDISH_NAME_FRAGMENTS = ['saab', 'ssab', 'boliden', 'ericsson', 'evolution', 'h&m', 'hennes', 'volvo'];
 
 // GET /api/signals/top/swedish - Top 5 Swedish-asset signals (must be before /:id)
 router.get('/top/swedish', (req, res) => {
@@ -126,8 +135,7 @@ router.get('/top/swedish', (req, res) => {
         s.status !== 'dismissed' &&
         !isNoiseMarketQuestion(String(s.market_title || '')) &&
         (includeUnverified || isApprovedForRanking(s)) &&
-        (SWEDISH_ASSET_IDS.has(s.matched_asset_id) ||
-        SWEDISH_NAME_FRAGMENTS.some(f => s.matched_asset_name.toLowerCase().includes(f)))
+        SWEDISH_ASSET_IDS.has(s.matched_asset_id)
       )
       .sort((a, b) => b.confidence - a.confidence);
 
@@ -202,10 +210,17 @@ router.get('/:id/detail', async (req, res) => {
       reliability_score: number; suggested_confidence_adjustment: number;
     } | undefined) : undefined;
 
-    const recentOutcomes: Array<{ date: string; direction: string; hit_30m: number; price_change_30m: number }> = db
+    const recentOutcomes: Array<{ date: string; direction: string; hit_30m: number; move_30m_pct: number }> = db
       ? (db.prepare(`
-          SELECT DATE(entry_time) as date, direction, hit_30m, price_change_30m
-          FROM signal_outcomes WHERE asset_id = ? ORDER BY entry_time DESC LIMIT 6
+          SELECT DATE(so.entry_time) as date,
+                 COALESCE(s.suggested_action, 'unknown') as direction,
+                 COALESCE(so.direction_correct_30m, 0) as hit_30m,
+                 COALESCE(so.move_30m_pct, 0) as move_30m_pct
+          FROM signal_outcomes so
+          LEFT JOIN signals s ON s.id = so.signal_id
+          WHERE so.asset_id = ?
+          ORDER BY so.entry_time DESC
+          LIMIT 6
         `).all(signal.matched_asset_id) as any[])
       : [];
 
@@ -352,7 +367,7 @@ ${assetPerf && assetPerf.samples >= 2 ? `
   </p>
   ${recentOutcomes.length > 0 ? `<ul style="margin-top:8px">${recentOutcomes.map(o => {
     const hit = o.hit_30m === 1;
-    const chg = (o.price_change_30m ?? 0) * 100;
+    const chg = o.move_30m_pct ?? 0;
     return `<li>${o.date} ${o.direction} — ${hit ? '✓ hit' : '✗ miss'} (${chg > 0 ? '+' : ''}${chg.toFixed(1)}% at 30m)</li>`;
   }).join('')}</ul>` : ''}
 </div>
