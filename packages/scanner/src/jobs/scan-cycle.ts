@@ -24,6 +24,15 @@ export interface ScanCycleResult {
   duration: number;
 }
 
+interface FusionGateSummary {
+  total: number;
+  noInput: number;
+  allow: number;
+  suppress: number;
+  fallbackPhase1: number;
+  suppressReasonCounts: Map<string, number>;
+}
+
 export class ScanCycleJob {
   private volatilityRegimeDetector = new VolatilityRegimeDetector();
   private futuresConfirmation = new FuturesConfirmationService();
@@ -213,13 +222,27 @@ export class ScanCycleJob {
       }
 
       let dispatchSignals = signals;
+      let fusionSummary: FusionGateSummary | null = null;
       if (
         this.db &&
         signals.length > 0 &&
         this.streamingStore &&
         this.fusionEngine
       ) {
-        dispatchSignals = this.applyFusionDecisions(signals);
+        const fusionResult = this.applyFusionDecisions(signals);
+        dispatchSignals = fusionResult.allowed;
+        fusionSummary = fusionResult.summary;
+        const topReasons = [...fusionSummary.suppressReasonCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([reason, count]) => `${reason} (${count})`)
+          .join(', ');
+        console.log(
+          `  [fusion] total=${fusionSummary.total} allow=${fusionSummary.allow} ` +
+          `fallback=${fusionSummary.fallbackPhase1} suppress=${fusionSummary.suppress} ` +
+          `no_input=${fusionSummary.noInput}` +
+          (topReasons ? ` | top_suppress=${topReasons}` : '')
+        );
       }
 
       let haPushed = 0;
@@ -229,6 +252,11 @@ export class ScanCycleJob {
         const dispatchResult = await this.alertDispatcher.dispatchBatch(dispatchSignals);
         haPushed = dispatchResult.pushedSwedish + dispatchResult.pushedUs;
         brewed = dispatchResult.brewed;
+      } else if (signals.length > 0) {
+        console.log(
+          `\nDispatching alerts...\n  No push candidates after gating` +
+          (fusionSummary ? ' (suppressed by fusion or threshold gates).' : '.')
+        );
       }
 
       const duration = Date.now() - startTime;
@@ -256,9 +284,24 @@ export class ScanCycleJob {
     }
   }
 
-  private applyFusionDecisions(signals: any[]): any[] {
-    if (!this.streamingStore || !this.fusionEngine) return signals;
-    if (!this.fusionOptions.enableFusionGating) return signals;
+  private applyFusionDecisions(signals: any[]): { allowed: any[]; summary: FusionGateSummary } {
+    const summary: FusionGateSummary = {
+      total: signals.length,
+      noInput: 0,
+      allow: 0,
+      suppress: 0,
+      fallbackPhase1: 0,
+      suppressReasonCounts: new Map()
+    };
+
+    if (!this.streamingStore || !this.fusionEngine) {
+      summary.allow = signals.length;
+      return { allowed: signals, summary };
+    }
+    if (!this.fusionOptions.enableFusionGating) {
+      summary.allow = signals.length;
+      return { allowed: signals, summary };
+    }
 
     const allowed: any[] = [];
 
@@ -280,6 +323,8 @@ export class ScanCycleJob {
       });
 
       if (!inputs) {
+        summary.noInput += 1;
+        summary.allow += 1;
         allowed.push(signal);
         continue;
       }
@@ -293,6 +338,7 @@ export class ScanCycleJob {
       signal.fusion_suppress_reasons = decision.suppressReasons;
 
       if (decision.decision === 'allow') {
+        summary.allow += 1;
         signal.reasoning += ` [fusion:allow p=${decision.pHat.toFixed(2)} exp=${decision.expectancyHatPct.toFixed(2)}]`;
         const confidenceBoost = Math.round((decision.pHat - 0.5) * 20);
         if (confidenceBoost !== 0) {
@@ -304,12 +350,18 @@ export class ScanCycleJob {
       }
 
       if (decision.decision === 'fallback_phase1') {
+        summary.fallbackPhase1 += 1;
+        summary.allow += 1;
         signal.reasoning += ' [fusion:fallback_phase1]';
         allowed.push(signal);
         this.persistSignalPostFusion(signal);
         continue;
       }
 
+      summary.suppress += 1;
+      for (const reason of decision.suppressReasons || []) {
+        summary.suppressReasonCounts.set(reason, (summary.suppressReasonCounts.get(reason) || 0) + 1);
+      }
       signal.reasoning += ` [fusion:suppress p=${decision.pHat.toFixed(2)} exp=${decision.expectancyHatPct.toFixed(2)}]`;
       this.persistSignalPostFusion(signal);
       if (this.fusionOptions.enableSuppressedDecisionStorage) {
@@ -317,7 +369,7 @@ export class ScanCycleJob {
       }
     }
 
-    return allowed;
+    return { allowed, summary };
   }
 
   private persistSignalPostFusion(signal: any): void {

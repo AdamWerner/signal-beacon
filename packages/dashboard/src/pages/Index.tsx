@@ -331,12 +331,20 @@ const SignalFeed = () => {
           <Activity className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold">Streaming Confirmation Layer</h2>
           <span className="text-xs font-mono text-muted-foreground ml-auto">
-            {streamingLoading ? "..." : (streamingHealth?.enabled ? "enabled" : "disabled")}
+            {streamingLoading
+              ? "..."
+              : (streamingHealth?.enabled
+                  ? "enabled"
+                  : streamingHealth?.mode === "stale"
+                    ? "stale"
+                    : "disabled")}
           </span>
         </div>
 
         {!streamingHealth?.enabled ? (
-          <p className="text-xs font-mono text-muted-foreground">Streaming layer disabled or unavailable (Phase 1 fallback active).</p>
+          <p className="text-xs font-mono text-muted-foreground">
+            {streamingHealth?.message || "Streaming layer disabled or unavailable (Phase 1 fallback active)."}
+          </p>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded border border-border/60 bg-background/40 p-2">

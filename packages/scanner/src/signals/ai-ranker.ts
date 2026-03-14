@@ -51,6 +51,47 @@ function isVerificationApproved(signal: Signal): boolean {
   );
 }
 
+function isMicroTimeboxMarket(title: string): boolean {
+  const normalized = (title || '').toLowerCase();
+  if (!normalized) return false;
+  if (/\b\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}\s*(am|pm)\s*et\b/i.test(normalized)) {
+    return true;
+  }
+  if (/\b(up|down)\b.+\b(up|down)\b/.test(normalized) && /\b(et|eastern)\b/.test(normalized)) {
+    return true;
+  }
+  return /up or down\s*-\s*.+\bet\b/i.test(normalized);
+}
+
+function rankingPenalty(signal: Signal): number {
+  let penalty = 0;
+  if (isMicroTimeboxMarket(signal.market_title || '')) {
+    penalty += 40;
+    if (signal.matched_asset_id === 'crypto-coinbase') {
+      penalty += 18;
+    }
+  }
+
+  const absOddsSwing = Math.abs(signal.odds_now - signal.odds_before);
+  if (signal.time_window_minutes <= 15 && absOddsSwing >= 0.85) {
+    penalty += 20;
+  }
+
+  return penalty;
+}
+
+function scoreForFallback(signal: Signal): number {
+  const judge = signal.requires_judgment ? -10 : 0;
+  const verify = isVerificationApproved(signal) ? 8 : -12;
+  const base =
+    signal.confidence +
+    Math.min(Math.abs(signal.delta_pct), 30) +
+    (signal.whale_detected ? 10 : 0) +
+    judge +
+    verify;
+  return base - rankingPenalty(signal);
+}
+
 /**
  * Deduplicate a raw signal pool:
  *   1. Per market → keep highest-confidence signal per asset
@@ -126,10 +167,11 @@ function buildRankPrompt(signals: RankedSignal[]): string {
     confidence: s.confidence,
     delta_pct: s.delta_pct,
     whale: s.whale_detected,
-    requires_judgment: s.requires_judgment
+    requires_judgment: s.requires_judgment,
+    micro_timebox_noise: isMicroTimeboxMarket(s.market_title || '')
   }));
 
-  return `You are a financial signal ranker. Rank these ${signals.length} trading signals by actionability and quality. Prefer high-confidence, large delta moves on well-known assets. Penalize signals that require judgment or have low confidence. Return ONLY a JSON array of the top 10 signal IDs in ranked order, no explanation, no markdown fences.
+  return `You are a financial signal ranker. Rank these ${signals.length} trading signals by actionability and quality. Prefer high-confidence, large delta moves on well-known assets. Penalize signals that require judgment or have low confidence. Heavily penalize micro_timebox_noise=true and avoid ranking those near the top unless no better alternatives exist. Return ONLY a JSON array of the top 10 signal IDs in ranked order, no explanation, no markdown fences.
 
 Signals:
 ${JSON.stringify(items, null, 2)}
@@ -139,12 +181,8 @@ Respond with ONLY a JSON array of IDs, e.g.: ["id1","id2","id3",...]`;
 
 function fallbackRank(signals: RankedSignal[]): RankedSignal[] {
   return [...signals].sort((a, b) => {
-    const aJudge = a.requires_judgment ? -10 : 0;
-    const bJudge = b.requires_judgment ? -10 : 0;
-    const aVerify = isVerificationApproved(a) ? 8 : -12;
-    const bVerify = isVerificationApproved(b) ? 8 : -12;
-    const aScore = a.confidence + Math.min(Math.abs(a.delta_pct), 30) + (a.whale_detected ? 10 : 0) + aJudge + aVerify;
-    const bScore = b.confidence + Math.min(Math.abs(b.delta_pct), 30) + (b.whale_detected ? 10 : 0) + bJudge + bVerify;
+    const aScore = scoreForFallback(a);
+    const bScore = scoreForFallback(b);
     return bScore - aScore;
   });
 }
@@ -188,7 +226,9 @@ export async function getTopSignals(
   }
 
   // Use at most 20 signals as input to Claude
-  const candidates = deduped.slice(0, 20);
+  const candidates = [...deduped]
+    .sort((a, b) => scoreForFallback(b) - scoreForFallback(a))
+    .slice(0, 20);
 
   // Skip Claude when no high-quality candidates — saves tokens on low-signal cycles
   const highQuality = candidates.filter(s => s.confidence >= 50).length;

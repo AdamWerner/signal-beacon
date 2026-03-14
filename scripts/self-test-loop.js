@@ -161,13 +161,16 @@ async function main() {
 
 process.on('SIGINT', () => {
   keepRunning = false;
+  scanner.shutdown?.();
 });
 
 process.on('SIGTERM', () => {
   keepRunning = false;
+  scanner.shutdown?.();
 });
 
 main().catch(error => {
   log(`[fatal] self-test loop crashed: ${String(error)}`);
+  scanner.shutdown?.();
   process.exit(1);
 });

@@ -1,6 +1,20 @@
-﻿import Avanza from 'avanza';
-import { AvanzaCredentials, AvanzaInstrument, AvanzaSearchResult } from './types.js';
+import Avanza from 'avanza';
+import { AvanzaCredentials, AvanzaInstrument } from './types.js';
 import { isValidCertificate } from './certificate-parser.js';
+
+interface FilteredSearchHit {
+  type?: string;
+  title?: string;
+  orderBookId?: string;
+  urlSlugName?: string;
+  tradeable?: boolean;
+  flagCode?: string;
+  price?: {
+    last?: string;
+    todayChangePercent?: string;
+    currency?: string;
+  };
+}
 
 export class AvanzaSearchClient {
   private avanza: Avanza;
@@ -63,15 +77,7 @@ export class AvanzaSearchClient {
     }
 
     try {
-      // Important: avanza.search expects only a query argument (no `{ limit }` object).
-      const results = await this.avanza.search(query) as AvanzaSearchResult | unknown;
-      const instruments = this.extractCertificatesFromSearch(results);
-      if (instruments.length > 0) {
-        return instruments.filter(instrument => isValidCertificate(instrument.name, instrument.tradable));
-      }
-
-      // Fallback for API payload shape/endpoint differences.
-      return this.searchCertificatesViaFilteredEndpoint(query);
+      return await this.searchCertificatesViaFilteredEndpoint(query);
     } catch (error: any) {
       const isUnauthorized = error?.statusCode === 401 || `${error?.message || ''}`.includes('401');
 
@@ -89,38 +95,9 @@ export class AvanzaSearchClient {
         return this.searchCertificatesInternal(query, false);
       }
 
-      if (`${error?.message || ''}`.includes('404') || `${error?.message || ''}`.includes('search')) {
-        try {
-          return await this.searchCertificatesViaFilteredEndpoint(query);
-        } catch (fallbackError) {
-          console.error(`Fallback filtered search failed for query "${query}":`, fallbackError);
-          return [];
-        }
-      }
-
       console.error(`Search failed for query "${query}":`, error);
       return [];
     }
-  }
-
-  private extractCertificatesFromSearch(results: unknown): AvanzaInstrument[] {
-    const parsed = results as AvanzaSearchResult;
-    if (!parsed || !Array.isArray(parsed.hits)) {
-      return [];
-    }
-
-    const certificates: AvanzaInstrument[] = [];
-    for (const hit of parsed.hits) {
-      if (hit.instrumentType !== 'CERTIFICATE' || !Array.isArray(hit.topHits)) {
-        continue;
-      }
-
-      for (const instrument of hit.topHits) {
-        certificates.push(instrument);
-      }
-    }
-
-    return certificates;
   }
 
   private async searchCertificatesViaFilteredEndpoint(query: string): Promise<AvanzaInstrument[]> {
@@ -152,13 +129,38 @@ export class AvanzaSearchClient {
       throw new Error(`Avanza filtered search returned ${response.status}`);
     }
 
-    const data = await response.json() as { hits?: AvanzaInstrument[] };
-    const instruments = data.hits ?? [];
+    const data = await response.json() as { hits?: FilteredSearchHit[] };
+    const instruments = (data.hits ?? [])
+      .filter(hit => String(hit.type || '').toUpperCase() === 'CERTIFICATE')
+      .map(hit => this.mapFilteredSearchHit(hit))
+      .filter((instrument): instrument is AvanzaInstrument => !!instrument);
+
     return instruments.filter(instrument => isValidCertificate(instrument.name, instrument.tradable));
+  }
+
+  private mapFilteredSearchHit(hit: FilteredSearchHit): AvanzaInstrument | null {
+    const id = String(hit.orderBookId || '').trim();
+    const name = String(hit.title || '').trim();
+    if (!id || !name) {
+      return null;
+    }
+
+    return {
+      id,
+      name,
+      currency: String(hit.price?.currency || 'SEK'),
+      lastPrice: this.parseLocalizedNumber(hit.price?.last),
+      changePercent: this.parseLocalizedNumber(hit.price?.todayChangePercent),
+      tradable: hit.tradeable !== false,
+      linkText: hit.urlSlugName || name,
+      flagCode: hit.flagCode
+    };
   }
 
   /**
    * Search for all certificate variants of an underlying asset.
+   * The filtered-search endpoint already returns both BULL and BEAR products,
+   * so query the underlying term directly and optionally filter the direction.
    */
   async searchUnderlyingAsset(
     underlyingTerms: string[],
@@ -168,27 +170,29 @@ export class AvanzaSearchClient {
     const seenIds = new Set<string>();
 
     for (const term of underlyingTerms) {
-      const queries = direction
-        ? [`${direction} ${term}`]
-        : [`bull ${term}`, `bear ${term}`];
+      const query = term.trim();
+      if (!query) continue;
 
-      for (const query of queries) {
-        const results = await this.searchCertificates(query);
-        if (results.length === 0) {
-          console.warn(`[avanza] no certificate hits for query "${query}"`);
-        } else {
-          console.log(`[avanza] query "${query}" -> ${results.length} candidate certificates`);
-        }
+      const results = (await this.searchCertificates(query))
+        .filter(result => {
+          if (!direction) return true;
+          return result.name.toUpperCase().startsWith(`${direction.toUpperCase()} `);
+        });
 
-        for (const result of results) {
-          if (!seenIds.has(result.id)) {
-            seenIds.add(result.id);
-            allResults.push(result);
-          }
-        }
-
-        await this.delay(2000);
+      if (results.length === 0) {
+        console.warn(`[avanza] no certificate hits for query "${query}"`);
+      } else {
+        console.log(`[avanza] query "${query}" -> ${results.length} candidate certificates`);
       }
+
+      for (const result of results) {
+        if (!seenIds.has(result.id)) {
+          seenIds.add(result.id);
+          allResults.push(result);
+        }
+      }
+
+      await this.delay(1200);
     }
 
     return allResults;
@@ -199,6 +203,13 @@ export class AvanzaSearchClient {
    */
   async disconnect(): Promise<void> {
     this.authenticated = false;
+  }
+
+  private parseLocalizedNumber(value: unknown): number | undefined {
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.replace(/\s+/g, '').replace(',', '.');
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 
   private delay(ms: number): Promise<void> {

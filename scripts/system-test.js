@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * System health test — runs a single DRY_RUN cycle and reports pipeline state.
+ * System health test - runs a single DRY_RUN cycle and reports pipeline state.
  * Usage: npm run system-test
  * Expected runtime: < 5 minutes.
  */
@@ -15,9 +15,9 @@ process.env.DRY_RUN = 'true';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-const PASS = '✓';
-const FAIL = '✗';
-const WARN = '⚠';
+const PASS = '[OK]';
+const FAIL = '[FAIL]';
+const WARN = '[WARN]';
 
 let warnings = 0;
 let failures = 0;
@@ -25,16 +25,17 @@ let failures = 0;
 function ok(label, value) {
   console.log(`  ${PASS} ${label}: ${value}`);
 }
+
 function warn(label, value) {
-  warnings++;
+  warnings += 1;
   console.log(`  ${WARN} ${label}: ${value}`);
 }
+
 function fail(label, value) {
-  failures++;
+  failures += 1;
   console.log(`  ${FAIL} ${label}: ${value}`);
 }
 
-// ─── 1. Import scanner ────────────────────────────────────────────────────────
 console.log('\n[1/8] Loading scanner module...');
 let scanner;
 try {
@@ -50,7 +51,6 @@ try {
 const services = scanner.getServices();
 const db = services.db;
 
-// ─── 2. DB health ─────────────────────────────────────────────────────────────
 console.log('\n[2/8] Database...');
 try {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
@@ -63,13 +63,12 @@ try {
   fail('DB', err.message);
 }
 
-// ─── 3. Markets ───────────────────────────────────────────────────────────────
 console.log('\n[3/8] Markets...');
 try {
   const markets = services.marketStore.findAll(true);
   const total = services.marketStore.findAll(false).length;
   if (markets.length === 0) {
-    warn('Active markets', `0 of ${total} — run market refresh`);
+    warn('Active markets', `0 of ${total} - run market refresh`);
   } else {
     ok('Active markets', `${markets.length} of ${total} total`);
   }
@@ -77,7 +76,6 @@ try {
   fail('Markets', err.message);
 }
 
-// ─── 4. Signals (last 24h) ────────────────────────────────────────────────────
 console.log('\n[4/8] Signals (last 24h)...');
 try {
   const rows = db.prepare(`
@@ -88,7 +86,7 @@ try {
   `).all();
 
   if (rows.length === 0) {
-    warn('Signals', 'none in last 24h — may be early in day or filters are too strict');
+    warn('Signals', 'none in last 24h - may be early in day or filters are too strict');
   } else {
     for (const row of rows) {
       ok(`  ${row.verification_status}`, `${row.cnt} signals, avg confidence ${Math.round(row.avg_conf || 0)}%`);
@@ -104,21 +102,20 @@ try {
   fail('Signals', err.message);
 }
 
-// ─── 5. News feeds (last 24h) ─────────────────────────────────────────────────
-console.log('\n[5/8] News feeds...');
+console.log('\n[5/9] News feeds...');
 try {
   const total = db.prepare(`SELECT COUNT(*) as cnt FROM tweet_accounts WHERE collect_enabled = 1`).get();
   const active = db.prepare(`
     SELECT COUNT(DISTINCT account_handle) as cnt FROM tweet_snapshots
-    WHERE collected_at >= datetime('now', '-24 hours')
+    WHERE scraped_at >= datetime('now', '-24 hours')
   `).get();
   const items = db.prepare(`
     SELECT COUNT(*) as cnt FROM tweet_snapshots
-    WHERE collected_at >= datetime('now', '-24 hours')
+    WHERE scraped_at >= datetime('now', '-24 hours')
   `).get();
 
   if (active.cnt === 0) {
-    warn('Active feeds', `0 of ${total.cnt} enabled — check collector or news-sources.json`);
+    warn('Active feeds', `0 of ${total.cnt} enabled - check collector or news-sources.json`);
   } else {
     ok('Active feeds', `${active.cnt} of ${total.cnt} enabled`);
     ok('Items collected (24h)', items.cnt);
@@ -127,13 +124,34 @@ try {
   fail('News feeds', err.message);
 }
 
-// ─── 6. Avanza instruments ────────────────────────────────────────────────────
-console.log('\n[6/8] Avanza instruments...');
+console.log('\n[6/9] Streaming health...');
+try {
+  const rows = services.streamingStore?.getStreamingHealth?.() || [];
+  if (rows.length === 0) {
+    warn('Streaming health', 'no persisted streaming health rows found');
+  } else {
+    const latest = rows
+      .map(row => Date.parse(String(row.last_message_at || row.updated_at || '').replace(' ', 'T') + (String(row.last_message_at || row.updated_at || '').includes('Z') ? '' : 'Z')))
+      .filter(value => Number.isFinite(value))
+      .sort((a, b) => b - a)[0];
+    const ageMinutes = Number.isFinite(latest) ? Math.round((Date.now() - latest) / 60000) : null;
+    const healthy = rows.filter(row => row.status === 'healthy').length;
+    if (ageMinutes !== null && ageMinutes <= 5) {
+      ok('Streaming health', `${healthy}/${rows.length} healthy, freshest update ${ageMinutes} min ago`);
+    } else {
+      warn('Streaming health', `${healthy}/${rows.length} healthy rows, but freshest update is ${ageMinutes ?? '?'} min old`);
+    }
+  }
+} catch (err) {
+  fail('Streaming health', err.message);
+}
+
+console.log('\n[7/9] Avanza instruments...');
 try {
   const counts = services.instrumentStore.countByUnderlying();
-  const total = Object.values(counts).reduce((s, c) => s + c.bull + c.bear, 0);
+  const total = Object.values(counts).reduce((sum, count) => sum + count.bull + count.bear, 0);
   if (total === 0) {
-    warn('Instruments', '0 — Avanza may not be connected or instruments not refreshed');
+    warn('Instruments', '0 - Avanza may not be connected or instruments not refreshed');
   } else {
     ok('Instruments', `${total} total (${Object.keys(counts).length} underlyings)`);
   }
@@ -142,8 +160,7 @@ try {
   fail('Instruments', err.message);
 }
 
-// ─── 7. DRY_RUN scan cycle ────────────────────────────────────────────────────
-console.log('\n[7/8] DRY_RUN scan cycle...');
+console.log('\n[8/9] DRY_RUN scan cycle...');
 try {
   const start = Date.now();
   const result = await scanner.runScanCycle();
@@ -163,14 +180,13 @@ try {
   }
 
   if (result.signalsGenerated === 0 && result.oddsChangesDetected > 0) {
-    warn('Signal generation', 'odds changes detected but no signals generated — check ontology / thresholds');
+    warn('Signal generation', 'odds changes detected but no signals generated - check ontology or thresholds');
   }
 } catch (err) {
   fail('Scan cycle', err.message);
 }
 
-// ─── 8. Backtest (yesterday) ──────────────────────────────────────────────────
-console.log('\n[8/8] Backtest (yesterday)...');
+console.log('\n[9/9] Backtest (yesterday)...');
 try {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
@@ -179,9 +195,9 @@ try {
   for (const market of ['swedish', 'us']) {
     const result = await scanner.runDailyBacktest(market, yDate, false);
     if (result.skipped) {
-      ok(`${market} (${yDate})`, `cached — ${result.signalsEvaluated} signals, hit rate 30m=${(result.hitRate30m * 100).toFixed(0)}%`);
+      ok(`${market} (${yDate})`, `cached - ${result.signalsEvaluated} signals, hit rate 30m=${(result.hitRate30m * 100).toFixed(0)}%`);
     } else if (result.signalsEvaluated === 0) {
-      warn(`${market} (${yDate})`, '0 signals evaluated — no qualifying signals yesterday');
+      warn(`${market} (${yDate})`, '0 signals evaluated - no qualifying signals yesterday');
     } else {
       ok(`${market} (${yDate})`, `${result.signalsEvaluated} signals, hit rate 30m=${(result.hitRate30m * 100).toFixed(0)}% 60m=${(result.hitRate60m * 100).toFixed(0)}%`);
     }
@@ -190,14 +206,17 @@ try {
   fail('Backtest', err.message);
 }
 
-// ─── Summary ──────────────────────────────────────────────────────────────────
-console.log('\n' + '═'.repeat(50));
+console.log('\n' + '='.repeat(50));
 if (failures > 0) {
   console.log(`SYSTEM STATUS: ${FAIL} DEGRADED (${failures} failure${failures > 1 ? 's' : ''}, ${warnings} warning${warnings !== 1 ? 's' : ''})`);
+  scanner.shutdown?.();
   process.exit(1);
 } else if (warnings > 0) {
   console.log(`SYSTEM STATUS: ${WARN} OK with ${warnings} warning${warnings !== 1 ? 's' : ''}`);
 } else {
   console.log(`SYSTEM STATUS: ${PASS} HEALTHY`);
 }
-console.log('═'.repeat(50) + '\n');
+console.log('='.repeat(50) + '\n');
+
+scanner.shutdown?.();
+process.exit(0);

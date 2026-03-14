@@ -17,17 +17,26 @@ export const SWEDISH_MARKET_ASSETS = new Set([
   'gaming-evolution', 'retail-hm', 'auto-volvo', 'omx30'
 ]);
 
+// European-listed names trade in the same daytime window Adam can act on from Avanza,
+// but they should not appear in Swedish Focus unless they are in SWEDISH_MARKET_ASSETS.
+export const EUROPEAN_SESSION_ASSETS = new Set([
+  'defense-rheinmetall', 'defense-bae',
+  'oil-equinor', 'oil-shell',
+  'pharma-novo', 'renewables-vestas'
+]);
+
 export const US_MARKET_ASSETS = new Set([
-  'defense-lockheed', 'defense-rheinmetall', 'defense-bae',
-  'oil-equinor', 'oil-conocophillips', 'oil-shell', 'oil-exxon',
+  'defense-lockheed',
+  'oil-conocophillips', 'oil-exxon',
   'ai-nvidia', 'ai-palantir', 'ai-crowdstrike',
-  'ev-tesla', 'mining-freeport', 'pharma-novo',
-  'shipping-zim', 'renewables-vestas', 'nuclear-sprott',
+  'ev-tesla', 'mining-freeport',
+  'shipping-zim', 'nuclear-sprott',
   'crypto-coinbase', 'sp500', 'nasdaq100', 'tech-spotify'
 ]);
 
 export function getAssetMarket(assetId: string): 'swedish' | 'us' {
   if (SWEDISH_MARKET_ASSETS.has(assetId)) return 'swedish';
+  if (EUROPEAN_SESSION_ASSETS.has(assetId)) return 'swedish';
   return 'us';
 }
 

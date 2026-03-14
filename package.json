@@ -22,8 +22,9 @@
     "setup": "bash scripts/setup.sh",
     "continuous": "node scripts/continuous-scan.js",
     "self-test": "node scripts/self-test-loop.js",
+    "policy:optimize": "node scripts/policy-optimizer.js",
     "self-improve": "node scripts/self-improve.js",
-    "system-test": "DRY_RUN=true node scripts/system-test.js"
+    "system-test": "node scripts/system-test.js"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

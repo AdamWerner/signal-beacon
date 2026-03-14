@@ -1,9 +1,6 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import { ClaudeVerificationResult, GuardDecision, VerificationContext } from './types.js';
 import { trackClaudeCall } from '../utils/claude-usage.js';
-
-const execFileAsync = promisify(execFile);
 
 const CLAUDE_CANDIDATES = [
   'claude',
@@ -14,12 +11,36 @@ const CLAUDE_CANDIDATES = [
   '/usr/bin/claude'
 ];
 
+function getCandidateBinaries(): string[] {
+  if (process.platform === 'win32') {
+    return CLAUDE_CANDIDATES.filter(candidate => !candidate.startsWith('/'));
+  }
+  return CLAUDE_CANDIDATES.filter(candidate => !candidate.includes(':\\'));
+}
+
 function clampAdjustment(value: number): number {
   return Math.max(-20, Math.min(20, Math.round(value)));
 }
 
 function sanitizeClaudeJson(raw: string): string {
   return raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+}
+
+function formatExecError(error: unknown): string {
+  if (!error || typeof error !== 'object') return 'unknown error';
+  const err = error as {
+    message?: string;
+    code?: string | number;
+    signal?: string;
+    killed?: boolean;
+  };
+  const parts = [
+    err.code ? `code=${String(err.code)}` : '',
+    err.signal ? `signal=${err.signal}` : '',
+    err.killed ? 'killed=true' : '',
+    err.message ? `msg=${err.message}` : ''
+  ].filter(Boolean);
+  return parts.join(' ');
 }
 
 function parseResultObject(parsed: unknown): ClaudeVerificationResult | null {
@@ -168,7 +189,7 @@ function buildBatchPrompt(contexts: VerificationContext[], guards: GuardDecision
       index: '0-based index from the input item (preserve original index)',
       verdict: 'approve|reject|needs_review',
       confidence_adjustment: '-20..20',
-      reason: 'short — include news cross-reference if relevant',
+      reason: 'short - include news cross-reference if relevant',
       flags: ['unknown_entity', 'no_link', 'macro_only', 'meme_noise', 'news_confirms', 'news_contradicts'],
       suggested_action_override: 'optional'
     }
@@ -182,28 +203,138 @@ function buildBatchPrompt(contexts: VerificationContext[], guards: GuardDecision
 }
 
 export class AiTradeVerifier {
+  private enabled = (process.env.CLAUDE_VERIFY_ENABLED || 'true').toLowerCase() !== 'false';
+  private consecutiveFailures = 0;
+  private backoffUntilMs = 0;
+  private lastBackoffLogAt = 0;
+  private disableAfterFailures = Math.max(1, parseInt(process.env.CLAUDE_VERIFY_DISABLE_AFTER_FAILS || '5', 10));
+
   constructor(
     private timeoutMs = 45000,
     private batchTimeoutMs = 60000
   ) {}
 
+  private isInBackoff(scope: 'single' | 'batch'): boolean {
+    if (Date.now() >= this.backoffUntilMs) return false;
+    if (Date.now() - this.lastBackoffLogAt > 60_000) {
+      const seconds = Math.max(1, Math.round((this.backoffUntilMs - Date.now()) / 1000));
+      console.warn(`[verify] Claude ${scope} skipped during cooldown (${seconds}s remaining)`);
+      this.lastBackoffLogAt = Date.now();
+    }
+    return true;
+  }
+
+  private recordSuccess(): void {
+    this.consecutiveFailures = 0;
+    this.backoffUntilMs = 0;
+  }
+
+  private recordFailure(scope: 'single' | 'batch', errors: string[]): void {
+    this.consecutiveFailures += 1;
+    const backoffMs = Math.min(10 * 60_000, this.consecutiveFailures * 60_000);
+    this.backoffUntilMs = Date.now() + backoffMs;
+    this.lastBackoffLogAt = Date.now();
+    const detail = errors.slice(-3).join(' | ');
+    console.warn(
+      `[verify] Claude ${scope} failed (${this.consecutiveFailures}x); ` +
+      `cooldown ${Math.round(backoffMs / 1000)}s. ${detail}`
+    );
+
+    if (this.consecutiveFailures >= this.disableAfterFailures) {
+      this.enabled = false;
+      console.warn(
+        `[verify] Claude verifier disabled after ${this.consecutiveFailures} consecutive failures. ` +
+        'Set CLAUDE_VERIFY_ENABLED=true and restart to re-enable.'
+      );
+    }
+  }
+
+  private async runClaudeCommand(
+    binary: string,
+    prompt: string,
+    timeout: number,
+    maxBuffer: number
+  ): Promise<{ stdout: string }> {
+    return await new Promise<{ stdout: string }>((resolve, reject) => {
+      const child = spawn(binary, ['-p'], {
+        shell: process.platform === 'win32' && binary.toLowerCase().endsWith('.cmd'),
+        windowsHide: true
+      });
+
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+
+      const timer = setTimeout(() => {
+        child.kill();
+        finish(() => reject({ code: 'ETIMEDOUT', message: `timeout after ${timeout}ms` }));
+      }, timeout);
+
+      child.stdout.on('data', chunk => {
+        if (settled) return;
+        stdout += chunk.toString();
+        if (stdout.length > maxBuffer) {
+          child.kill();
+          finish(() => reject({ code: 'E2BIG', message: `stdout exceeds ${maxBuffer} bytes` }));
+        }
+      });
+
+      child.stderr.on('data', chunk => {
+        if (settled) return;
+        stderr += chunk.toString();
+        if (stderr.length > maxBuffer) {
+          child.kill();
+          finish(() => reject({ code: 'E2BIG', message: `stderr exceeds ${maxBuffer} bytes` }));
+        }
+      });
+
+      child.on('error', error => {
+        finish(() => reject(error));
+      });
+
+      child.on('close', code => {
+        if (code === 0) {
+          finish(() => resolve({ stdout }));
+          return;
+        }
+        const msg = stderr.trim() || `process exited with code ${String(code)}`;
+        finish(() => reject({ code, message: msg }));
+      });
+
+      child.stdin.write(prompt);
+      child.stdin.end();
+    });
+  }
+
   async verify(context: VerificationContext, guard: GuardDecision): Promise<ClaudeVerificationResult | null> {
+    if (!this.enabled) return null;
+    if (this.isInBackoff('single')) return null;
+
     const prompt = buildPrompt(context, guard);
     trackClaudeCall('verify-single');
+    const errors: string[] = [];
 
-    for (const binary of CLAUDE_CANDIDATES) {
+    for (const binary of getCandidateBinaries()) {
       try {
-        const { stdout } = await execFileAsync(binary, ['-p', prompt], {
-          timeout: this.timeoutMs,
-          maxBuffer: 1024 * 1024
-        });
+        const { stdout } = await this.runClaudeCommand(binary, prompt, this.timeoutMs, 1024 * 1024);
         const parsed = parseResult(stdout.trim());
-        if (parsed) return parsed;
-      } catch {
-        // Try next candidate.
+        if (parsed) {
+          this.recordSuccess();
+          return parsed;
+        }
+        errors.push(`${binary}: invalid JSON response`);
+      } catch (error) {
+        errors.push(`${binary}: ${formatExecError(error)}`);
       }
     }
 
+    this.recordFailure('single', errors);
     return null;
   }
 
@@ -213,23 +344,28 @@ export class AiTradeVerifier {
     newsContext?: string
   ): Promise<Array<ClaudeVerificationResult | null> | null> {
     if (contexts.length === 0) return [];
+    if (!this.enabled) return null;
+    if (this.isInBackoff('batch')) return null;
 
     const prompt = buildBatchPrompt(contexts, guards, newsContext);
     trackClaudeCall('batch-verify');
+    const errors: string[] = [];
 
-    for (const binary of CLAUDE_CANDIDATES) {
+    for (const binary of getCandidateBinaries()) {
       try {
-        const { stdout } = await execFileAsync(binary, ['-p', prompt], {
-          timeout: this.batchTimeoutMs,
-          maxBuffer: 2 * 1024 * 1024
-        });
+        const { stdout } = await this.runClaudeCommand(binary, prompt, this.batchTimeoutMs, 2 * 1024 * 1024);
         const parsed = parseBatchResult(stdout.trim(), contexts.length);
-        if (parsed) return parsed;
-      } catch {
-        // Try next candidate.
+        if (parsed) {
+          this.recordSuccess();
+          return parsed;
+        }
+        errors.push(`${binary}: invalid JSON response`);
+      } catch (error) {
+        errors.push(`${binary}: ${formatExecError(error)}`);
       }
     }
 
+    this.recordFailure('batch', errors);
     return null;
   }
 }

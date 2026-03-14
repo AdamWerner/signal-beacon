@@ -7,7 +7,7 @@ import { SnapshotStore } from '../storage/snapshot-store.js';
 import { calculateConfidence } from './scorer.js';
 import { analyzeMomentum } from './momentum.js';
 import { GeneratedSignal } from './types.js';
-import { TradeVerificationGate } from '../verification/trade-gate.js';
+import { BatchVerificationCandidate, TradeVerificationGate } from '../verification/trade-gate.js';
 import { VerificationContext } from '../verification/types.js';
 import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
 
@@ -33,7 +33,21 @@ export class SignalGenerator {
   async generateSignals(oddsChanges: OddsChange[]): Promise<GeneratedSignal[]> {
     const signals: GeneratedSignal[] = [];
     const recentSignals = this.signalStore.findFiltered({ hours: 48, limit: 500 });
+    const batchCandidates: BatchVerificationCandidate[] = [];
     let dedupSkipped = 0;
+    let noInstrumentSkipped = 0;
+    let lowConfidenceSkipped = 0;
+    let cycleEscalationSkipped = 0;
+    const cycleAbsDeltaByKey = new Map<string, number>();
+    const minStoreConfidence = Math.max(0, parseInt(process.env.SIGNAL_MIN_CONFIDENCE_STORE || '12', 10));
+    const minStoreConfidenceMicro = Math.max(
+      minStoreConfidence,
+      parseInt(process.env.SIGNAL_MIN_CONFIDENCE_MICRO || '25', 10)
+    );
+    const minCycleEscalationDelta = Math.max(
+      DEDUP_ESCALATION_THRESHOLD_PCT,
+      parseFloat(process.env.SIGNAL_CYCLE_ESCALATION_MIN_DELTA_PCT || '15')
+    );
 
     console.log(`Generating signals for ${oddsChanges.length} odds changes...`);
 
@@ -46,7 +60,10 @@ export class SignalGenerator {
 
       const mappings = this.autoMapper.mapMarketToInstruments(market);
       if (mappings.length === 0) {
-        console.log(`  [skip] no instruments for market: ${market.title}`);
+        noInstrumentSkipped += 1;
+        if (noInstrumentSkipped <= 12) {
+          console.log(`  [skip] no instruments for market: ${market.title}`);
+        }
         continue;
       }
 
@@ -80,6 +97,7 @@ export class SignalGenerator {
 
         for (const signal of newSignals) {
           const baseConfidence = signal.confidence;
+          const isMicroTimebox = this.isMicroTimeboxMarket(market.title);
 
           // Apply momentum boost before dedup and verification
           signal.confidence = Math.max(0, Math.min(signal.confidence + momentum.boost, 92));
@@ -87,6 +105,20 @@ export class SignalGenerator {
           if (signal.requires_judgment) {
             signal.confidence = Math.min(signal.confidence, CONTEXT_DEPENDENT_MAX_CONFIDENCE);
           }
+
+          if (isMicroTimebox) {
+            signal.confidence = Math.max(0, signal.confidence - 28);
+            signal.reasoning += ' [micro_timebox:-28]';
+          }
+
+          const instability = this.getDirectionalInstabilityPenalty(recentSignals, signal);
+          if (instability.penalty > 0) {
+            signal.confidence = Math.max(0, signal.confidence - instability.penalty);
+            signal.reasoning +=
+              ` [instability:-${instability.penalty} same:${instability.sameDirection}` +
+              ` opp:${instability.oppositeDirection}]`;
+          }
+
           // Append momentum trend to reasoning
           if (momentum.trend !== 'insufficient_data') {
             signal.reasoning += ` Momentum: ${momentum.trend} (${momentum.cyclesInDirection} cycles).`;
@@ -108,6 +140,22 @@ export class SignalGenerator {
               }
               continue;
             }
+
+            const cycleAbsDelta = cycleAbsDeltaByKey.get(signal.deduplication_key);
+            if (typeof cycleAbsDelta === 'number') {
+              const cycleEscalationGain = Math.abs(signal.delta_pct) - cycleAbsDelta;
+              if (!Number.isFinite(cycleEscalationGain) || cycleEscalationGain < minCycleEscalationDelta) {
+                cycleEscalationSkipped += 1;
+                if (cycleEscalationSkipped <= 12) {
+                  console.log(
+                    `  [dedup] skipping same-cycle escalation for ${mapping.assetName} ` +
+                    `(+${cycleEscalationGain.toFixed(1)}%, need +${minCycleEscalationDelta.toFixed(1)}%)`
+                  );
+                }
+                continue;
+              }
+            }
+
             console.log(
               `  [dedup] escalation +${deltaIncreased.toFixed(1)}% for ${mapping.assetName}`
             );
@@ -132,6 +180,7 @@ export class SignalGenerator {
             conflictingSignals: this.getConflictingSignals(recentSignals, signal)
           };
           const verification = this.verificationGate.guardOnly(verificationContext);
+          const guardFromRecord = (verification.record as any)?.guard;
 
           signal.verification_status = verification.status;
           signal.verification_score = verification.score;
@@ -148,14 +197,41 @@ export class SignalGenerator {
             signal.suggested_action = verification.suggestedActionOverride;
           }
 
+          if (
+            guardFromRecord &&
+            (guardFromRecord.status === 'approved' || guardFromRecord.status === 'needs_review')
+          ) {
+            batchCandidates.push({
+              signalId: signal.id,
+              confidence: signal.confidence,
+              context: verificationContext,
+              guard: guardFromRecord
+            });
+          }
+
           // Confidence breakdown tag for transparency in push notifications + detail page
           const breakdown: string[] = [`base:${baseConfidence}`];
           if (momentum.boost !== 0) breakdown.push(`mom:${momentum.boost > 0 ? '+' : ''}${momentum.boost}`);
+          if (isMicroTimebox) breakdown.push('micro:-28');
+          if (instability.penalty > 0) breakdown.push(`instability:-${instability.penalty}`);
           if (verification.confidenceAdjustment !== 0) breakdown.push(`verify:${verification.confidenceAdjustment > 0 ? '+' : ''}${verification.confidenceAdjustment}`);
           signal.reasoning += ` [score: ${breakdown.join(', ')}]`;
 
+          const minConfidenceForStorage = isMicroTimebox ? minStoreConfidenceMicro : minStoreConfidence;
+          if (signal.confidence < minConfidenceForStorage) {
+            lowConfidenceSkipped += 1;
+            if (lowConfidenceSkipped <= 12) {
+              console.log(
+                `  [quality] skipping low-confidence signal for ${mapping.assetName} ` +
+                `(${signal.confidence}% < ${minConfidenceForStorage}%)`
+              );
+            }
+            continue;
+          }
+
           signals.push(signal);
           this.signalStore.insert(signal);
+          cycleAbsDeltaByKey.set(signal.deduplication_key, Math.abs(signal.delta_pct));
 
           recentSignals.unshift({
             ...signal,
@@ -175,6 +251,19 @@ export class SignalGenerator {
 
     if (dedupSkipped > 12) {
       console.log(`  [dedup] skipped ${dedupSkipped - 12} additional duplicates (suppressed)`);
+    }
+    if (cycleEscalationSkipped > 12) {
+      console.log(`  [dedup] skipped ${cycleEscalationSkipped - 12} same-cycle escalations (suppressed)`);
+    }
+    if (noInstrumentSkipped > 12) {
+      console.log(`  [skip] no instruments for ${noInstrumentSkipped - 12} additional markets (suppressed)`);
+    }
+    if (lowConfidenceSkipped > 12) {
+      console.log(`  [quality] skipped ${lowConfidenceSkipped - 12} low-confidence signals (suppressed)`);
+    }
+
+    if (batchCandidates.length > 0) {
+      await this.applyBatchVerification(batchCandidates, signals);
     }
 
     return signals;
@@ -338,5 +427,107 @@ export class SignalGenerator {
         confidence: Number(existing.confidence || 0),
         direction: opposite
       }));
+  }
+
+  private async applyBatchVerification(
+    candidates: BatchVerificationCandidate[],
+    generatedSignals: GeneratedSignal[]
+  ): Promise<void> {
+    const decisions = await this.verificationGate.batchVerifyTopCandidates(candidates, 5);
+    if (decisions.size === 0) return;
+
+    const byId = new Map(generatedSignals.map(signal => [signal.id, signal]));
+    const sourceCounts = new Map<string, number>();
+    const statusCounts = new Map<string, number>();
+
+    for (const [signalId, decision] of decisions.entries()) {
+      const signal = byId.get(signalId);
+      if (!signal) continue;
+
+      signal.verification_status = decision.status;
+      signal.verification_score = decision.score;
+      signal.verification_reason = decision.reason;
+      signal.verification_flags = decision.flags;
+      signal.verification_source = decision.source;
+      signal.verification_record = JSON.stringify(decision.record || {});
+
+      const before = signal.confidence;
+      signal.confidence = Math.max(0, Math.min(signal.confidence + decision.confidenceAdjustment, 92));
+      if (decision.status === 'rejected' && signal.confidence >= before) {
+        signal.confidence = Math.max(0, signal.confidence - 10);
+      }
+
+      if (decision.suggestedActionOverride) {
+        signal.suggested_action = decision.suggestedActionOverride;
+      }
+
+      this.signalStore.setVerification(signal.id, {
+        status: signal.verification_status,
+        score: signal.verification_score,
+        reason: signal.verification_reason,
+        flags: signal.verification_flags,
+        source: signal.verification_source,
+        record: signal.verification_record
+      });
+      this.signalStore.updateConfidence(signal.id, signal.confidence);
+      if (decision.suggestedActionOverride) {
+        this.signalStore.updateSuggestedAction(signal.id, signal.suggested_action);
+      }
+
+      sourceCounts.set(decision.source, (sourceCounts.get(decision.source) || 0) + 1);
+      statusCounts.set(decision.status, (statusCounts.get(decision.status) || 0) + 1);
+    }
+
+    const sourceSummary = [...sourceCounts.entries()].map(([key, count]) => `${key}:${count}`).join(', ');
+    const statusSummary = [...statusCounts.entries()].map(([key, count]) => `${key}:${count}`).join(', ');
+    console.log(
+      `  [verify] batch verification updated ${decisions.size} top candidates ` +
+      `(sources=${sourceSummary}; status=${statusSummary})`
+    );
+  }
+
+  private isMicroTimeboxMarket(title: string): boolean {
+    const normalized = (title || '').toLowerCase();
+    if (!normalized) return false;
+    if (/\b\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}\s*(am|pm)\s*et\b/i.test(normalized)) {
+      return true;
+    }
+    if (/\b(up|down)\b.+\b(up|down)\b/.test(normalized) && /\b(et|eastern)\b/.test(normalized)) {
+      return true;
+    }
+    return /up or down\s*-\s*.+\bet\b/i.test(normalized);
+  }
+
+  private getDirectionalInstabilityPenalty(
+    recentSignals: Array<{ [key: string]: any }>,
+    signal: GeneratedSignal
+  ): { penalty: number; sameDirection: number; oppositeDirection: number } {
+    const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+    const opposite = direction === 'bull' ? 'bear' : 'bull';
+    const cutoffMs = Date.now() - (75 * 60 * 1000);
+
+    let sameDirection = 0;
+    let oppositeDirection = 0;
+
+    for (const existing of recentSignals) {
+      if (existing.matched_asset_id !== signal.matched_asset_id) continue;
+      const tsRaw = String(existing.timestamp || '');
+      const ts = Date.parse(tsRaw.replace(' ', 'T') + (tsRaw.endsWith('Z') ? '' : 'Z'));
+      if (!Number.isFinite(ts) || ts < cutoffMs) continue;
+
+      const action = String(existing.suggested_action || '').toLowerCase();
+      if (action.includes(direction)) sameDirection += 1;
+      if (action.includes(opposite)) oppositeDirection += 1;
+    }
+
+    if (sameDirection >= 2 && oppositeDirection >= 2) {
+      return { penalty: 12, sameDirection, oppositeDirection };
+    }
+
+    if (oppositeDirection >= 3 && oppositeDirection > sameDirection) {
+      return { penalty: 8, sameDirection, oppositeDirection };
+    }
+
+    return { penalty: 0, sameDirection, oppositeDirection };
   }
 }

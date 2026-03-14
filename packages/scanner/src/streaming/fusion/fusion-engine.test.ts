@@ -62,6 +62,23 @@ describe('FusionEngine', () => {
     expect(decision.pHat).toBeGreaterThan(0.55);
   });
 
+  it('allows realistic BTC depth when the rest of the tape is aligned', () => {
+    const engine = new FusionEngine({ pHatMin: 0.53, expectancyMinPct: 0.2 });
+    const decision = engine.evaluate({
+      ...baseInputs,
+      feature1s: {
+        ...baseInputs.feature1s!,
+        depth10bps: 14,
+        normalizedMicroDivergence: 0.08
+      },
+      feature1m: {
+        ...baseInputs.feature1m!,
+        topImbalancePersistenceBull: 0.41
+      }
+    });
+    expect(decision.decision).toBe('allow');
+  });
+
   it('suppresses when hard gate fails', () => {
     const engine = new FusionEngine({ pHatMin: 0.55, expectancyMinPct: 0.3 });
     const decision = engine.evaluate({
@@ -69,7 +86,7 @@ describe('FusionEngine', () => {
       feature1s: {
         ...baseInputs.feature1s!,
         spreadBps: 30,
-        depth10bps: 10
+        depth10bps: 5
       }
     });
     expect(decision.decision).toBe('suppress');
@@ -82,4 +99,3 @@ describe('FusionEngine', () => {
     expect(decision.decision).toBe('fallback_phase1');
   });
 });
-

@@ -22,6 +22,12 @@ export class AlertDispatcher {
   private reversalMinConfidenceGain: number;
   private reversalReinforcementMinutes: number;
   private reversalMinDistinctMarkets: number;
+  private readonly highRiskVerificationFlags = new Set([
+    'unknown_entity',
+    'no_link',
+    'low_entity_confidence',
+    'unknown_person_legal_event'
+  ]);
 
   constructor(config: AlertConfig) {
     this.minConfidence = config.minConfidence || 50;
@@ -59,6 +65,22 @@ export class AlertDispatcher {
    * Returns actual counts of pushed and brewed signals.
    */
   async dispatchBatch(signals: GeneratedSignal[]): Promise<{ pushedSwedish: number; pushedUs: number; brewed: number }> {
+    const diagnostics = {
+      totalSignals: signals.length,
+      skippedMinConfidence: 0,
+      skippedRequiresJudgment: 0,
+      skippedVerification: 0,
+      skippedThresholds: 0,
+      skippedExecution: 0,
+      skippedQuality: 0,
+      skippedWhipsaw: 0,
+      skippedPolicy: 0,
+      skippedEvidence: 0,
+      skippedDeepVerify: 0,
+      pushed: 0,
+      brewedClosed: 0
+    };
+
     for (const signal of signals) {
       await this.dispatchLegacy(signal);
     }
@@ -71,9 +93,16 @@ export class AlertDispatcher {
     const us: GeneratedSignal[] = [];
 
     for (const signal of signals) {
-      if (signal.confidence < this.minConfidence) continue;
-      if (signal.requires_judgment) continue;
+      if (signal.confidence < this.minConfidence) {
+        diagnostics.skippedMinConfidence += 1;
+        continue;
+      }
+      if (signal.requires_judgment) {
+        diagnostics.skippedRequiresJudgment += 1;
+        continue;
+      }
       if (this.verificationRequiredForPush && !this.isEligibleByVerification(signal)) {
+        diagnostics.skippedVerification += 1;
         console.log(
           `  Skip push ${signal.id} not verification-approved ` +
           `(${signal.verification_status}/${signal.verification_source})`
@@ -89,9 +118,19 @@ export class AlertDispatcher {
       }
     }
 
-    const pushedSwedish = await this.dispatchAggregated(swedish, 'swedish');
-    const pushedUs = await this.dispatchAggregated(us, 'us');
-    const brewed = (swedish.length - pushedSwedish) + (us.length - pushedUs);
+    const pushedSwedish = await this.dispatchAggregated(swedish, 'swedish', diagnostics);
+    const pushedUs = await this.dispatchAggregated(us, 'us', diagnostics);
+    const brewed = diagnostics.brewedClosed;
+    diagnostics.pushed = pushedSwedish + pushedUs;
+
+    console.log(
+      `  Push audit: total=${diagnostics.totalSignals} pushed=${diagnostics.pushed} brewed_closed=${brewed} ` +
+      `skip[min=${diagnostics.skippedMinConfidence}, judgment=${diagnostics.skippedRequiresJudgment}, ` +
+      `verify=${diagnostics.skippedVerification}, thresholds=${diagnostics.skippedThresholds}, ` +
+      `execution=${diagnostics.skippedExecution}, quality=${diagnostics.skippedQuality}, ` +
+      `whipsaw=${diagnostics.skippedWhipsaw}, policy=${diagnostics.skippedPolicy}, ` +
+      `evidence=${diagnostics.skippedEvidence}, deep=${diagnostics.skippedDeepVerify}]`
+    );
 
     return { pushedSwedish, pushedUs, brewed };
   }
@@ -102,7 +141,17 @@ export class AlertDispatcher {
    */
   private async dispatchAggregated(
     signals: GeneratedSignal[],
-    market: 'swedish' | 'us'
+    market: 'swedish' | 'us',
+    diagnostics: {
+      skippedThresholds: number;
+      skippedExecution: number;
+      skippedQuality: number;
+      skippedWhipsaw: number;
+      skippedPolicy: number;
+      skippedEvidence: number;
+      skippedDeepVerify: number;
+      brewedClosed: number;
+    }
   ): Promise<number> {
     const homeAssistant = this.homeAssistant;
     if (!homeAssistant) return 0;
@@ -112,13 +161,43 @@ export class AlertDispatcher {
       for (const signal of signals) {
         console.log(`  Brewing signal ${signal.id} (${signal.matched_asset_name} ${signal.confidence}%) - ${market} market closed`);
       }
+      diagnostics.brewedClosed += signals.length;
       return 0;
     }
 
     const policy = this.signalStore?.getPushPolicyConfig(market);
-    const policyMinConfidence = policy?.minConfidence ?? this.haMinConfidence;
-    const policyMinDeltaPct = policy?.minDeltaPct ?? 15;
-    const policyMinEvidenceScore = policy?.minEvidenceScore ?? 3;
+    const maxPolicyMinConfidence = Math.max(
+      this.haMinConfidence,
+      parseInt(process.env.PUSH_POLICY_MAX_MIN_CONFIDENCE || '72', 10)
+    );
+    const maxPolicyMinDeltaPct = Math.max(
+      15,
+      parseFloat(process.env.PUSH_POLICY_MAX_MIN_DELTA_PCT || '25')
+    );
+    const maxPolicyMinEvidenceScore = Math.max(
+      2,
+      parseInt(process.env.PUSH_POLICY_MAX_MIN_EVIDENCE_SCORE || '3', 10)
+    );
+
+    const rawPolicyMinConfidence = policy?.minConfidence ?? this.haMinConfidence;
+    const rawPolicyMinDeltaPct = policy?.minDeltaPct ?? 15;
+    const rawPolicyMinEvidenceScore = policy?.minEvidenceScore ?? 3;
+    const policyMinConfidence = Math.min(rawPolicyMinConfidence, maxPolicyMinConfidence);
+    const policyMinDeltaPct = Math.min(rawPolicyMinDeltaPct, maxPolicyMinDeltaPct);
+    const policyMinEvidenceScore = Math.min(rawPolicyMinEvidenceScore, maxPolicyMinEvidenceScore);
+
+    if (
+      rawPolicyMinConfidence !== policyMinConfidence ||
+      rawPolicyMinDeltaPct !== policyMinDeltaPct ||
+      rawPolicyMinEvidenceScore !== policyMinEvidenceScore
+    ) {
+      console.log(
+        `  [policy] clamped ${market} thresholds ` +
+        `conf ${rawPolicyMinConfidence}->${policyMinConfidence}, ` +
+        `delta ${rawPolicyMinDeltaPct}->${policyMinDeltaPct}, ` +
+        `evidence ${rawPolicyMinEvidenceScore}->${policyMinEvidenceScore}`
+      );
+    }
 
     const pushable = signals.filter(signal =>
       signal.confidence >= policyMinConfidence &&
@@ -128,6 +207,7 @@ export class AlertDispatcher {
 
     if (pushable.length === 0) {
       for (const signal of signals) {
+        diagnostics.skippedThresholds += 1;
         console.log(
           `  Skip push ${signal.id} below thresholds (` +
           `conf=${signal.confidence}%/${policyMinConfidence} ` +
@@ -153,24 +233,28 @@ export class AlertDispatcher {
       const execution = estimateExecutionCost(candidate.matched_asset_id, leverage || 3);
       candidate.reasoning += ` [execution: ${execution.note}]`;
       if (!execution.feasible) {
+        diagnostics.skippedExecution += 1;
         console.log(`  Skip push ${candidate.id} execution gate: ${execution.note}`);
         continue;
       }
 
       const qualityBlock = this.getPushQualityBlockReason(candidate);
       if (qualityBlock) {
+        diagnostics.skippedQuality += 1;
         console.log(`  Skip push ${candidate.id} quality gate: ${qualityBlock}`);
         continue;
       }
 
       const regimeGate = this.evaluateRegimeShiftGate(candidate);
       if (!regimeGate.allowed) {
+        diagnostics.skippedWhipsaw += 1;
         console.log(`  Skip push ${candidate.id} anti-whipsaw: ${regimeGate.reason}`);
         continue;
       }
 
       const performanceGate = this.evaluatePushPerformanceGate(candidate);
       if (!performanceGate.allowed) {
+        diagnostics.skippedPolicy += 1;
         console.log(`  Skip push ${candidate.id} push-policy: ${performanceGate.reason}`);
         continue;
       }
@@ -181,6 +265,7 @@ export class AlertDispatcher {
         policyMinEvidenceScore
       );
       if (!evidenceGate.allowed) {
+        diagnostics.skippedEvidence += 1;
         console.log(`  Skip push ${candidate.id} evidence gate: ${evidenceGate.reason}`);
         continue;
       }
@@ -189,6 +274,7 @@ export class AlertDispatcher {
       const deepResult = await this.deepVerify(candidate);
       if (deepResult) {
         if (deepResult.verdict === 'reject') {
+          diagnostics.skippedDeepVerify += 1;
           console.log(`  [deep-verify] BLOCKED push ${candidate.id}: ${deepResult.reason}`);
           continue;
         }
@@ -246,7 +332,33 @@ export class AlertDispatcher {
   private isEligibleByVerification(signal: GeneratedSignal): boolean {
     if (signal.verification_status !== 'approved') return false;
     if (signal.verification_source === 'guard_allowlist') return true;
-    return signal.verification_source === 'claude' || signal.verification_source === 'guard';
+    if (signal.verification_source === 'claude' || signal.verification_source === 'guard') return true;
+    if (signal.verification_source !== 'fallback_guard') return false;
+    return this.isTrustedFallbackGuard(signal);
+  }
+
+  private isTrustedFallbackGuard(signal: GeneratedSignal): boolean {
+    const flags = this.getVerificationFlags(signal);
+    if (flags.some(flag => this.highRiskVerificationFlags.has(flag))) return false;
+    return Number(signal.verification_score || 0) >= 55;
+  }
+
+  private getVerificationFlags(signal: GeneratedSignal): string[] {
+    const raw = (signal as any).verification_flags as unknown;
+    if (Array.isArray(raw)) {
+      return raw.map(flag => String(flag));
+    }
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.map(flag => String(flag));
+        }
+      } catch {
+        return [raw];
+      }
+    }
+    return [];
   }
 
   private getSignalDirection(signal: { suggested_action: string }): 'bull' | 'bear' {
@@ -479,8 +591,8 @@ export class AlertDispatcher {
     if (reinforcement >= 3) score += 1;
 
     if (signal.verification_source === 'claude') score += 2;
-    else if (signal.verification_source === 'guard') score += 1;
-    else if (signal.verification_source === 'fallback_guard') score -= 1;
+    else if (signal.verification_source === 'guard' || signal.verification_source === 'guard_allowlist') score += 1;
+    else if (signal.verification_source === 'fallback_guard') score += this.isTrustedFallbackGuard(signal) ? 0 : -1;
 
     const directionalPerf = this.signalStore.getDirectionalPushPerformance(
       signal.matched_asset_id,

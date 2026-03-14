@@ -1,0 +1,321 @@
+
+> polysignal@0.0.0 system-test
+> node scripts/system-test.js
+
+
+[1/8] Loading scanner module...
+Database initialized successfully at: C:\Adam\Google Drive\Github Repos\Signal-Beacon\signal-beacon-1\data\polysignal.db
+Loaded ontology v3 with 28 assets
+Avanza credentials found, attempting connection...
+Avanza client created successfully (auth is lazy - happens on first instrument search)
+Tweet universe ready: 655 accounts (seed +0, graph +0, collect_set=140)
+{"timestamp":"2026-03-13T11:27:02.110Z","level":"info","message":"PolySignal Scanner initialized","environment":"development","avanza":"connected"}
+  [OK] Scanner module: loaded
+
+[2/8] Database...
+  [OK] Tables: asset_performance, asset_push_performance, daily_backtest_runs, daily_briefing, feature_snapshots_1m, feature_snapshots_1s, fusion_decisions, fusion_weight_sets, futures_confirmations, instruments, intelligence_memory, job_executions, leader_lag_snapshots, liquidation_events, liquidity_events, macro_events, odds_snapshots, push_policy_config, signal_outcomes, signal_relationships, signals, sqlite_sequence, streaming_health, suppressed_decisions, tracked_markets, tweet_account_connections, tweet_accounts, tweet_snapshots, volatility_snapshots, whale_events
+  [OK] DB file: C:\Adam\Google Drive\Github Repos\Signal-Beacon\signal-beacon-1\data\polysignal.db
+
+[3/8] Markets...
+  [OK] Active markets: 5504 of 11547 total
+
+[4/8] Signals (last 24h)...
+  [OK]   approved: 4850 signals, avg confidence 53%
+  [OK]   needs_review: 17 signals, avg confidence 71%
+  [OK]   rejected: 12 signals, avg confidence 49%
+  [OK] Pushed to HA: 3
+
+[5/9] News feeds...
+  [OK] Active feeds: 80 of 140 enabled
+  [OK] Items collected (24h): 4073
+
+[6/9] Streaming health...
+  [OK] Streaming health: 2/2 healthy, freshest update 0 min ago
+
+[7/9] Avanza instruments...
+  [OK] Instruments: 1887 total (33 underlyings)
+  [OK] Avanza status: connected
+
+[8/9] DRY_RUN scan cycle...
+
+=== SCAN CYCLE START ===
+2026-03-13T11:27:03.660Z
+
+[1/4] Tracking odds...
+Bulk-fetching prices for 5504 tracked markets...
+{"timestamp":"2026-03-13T11:27:05.866Z","level":"info","message":"Gamma pagination progress","pages":10,"fetched":1000}
+{"timestamp":"2026-03-13T11:27:08.201Z","level":"info","message":"Gamma pagination progress","pages":20,"fetched":2000}
+{"timestamp":"2026-03-13T11:27:10.495Z","level":"info","message":"Gamma pagination progress","pages":30,"fetched":3000}
+{"timestamp":"2026-03-13T11:27:12.802Z","level":"info","message":"Gamma pagination progress","pages":40,"fetched":4000}
+{"timestamp":"2026-03-13T11:27:15.158Z","level":"info","message":"Gamma pagination progress","pages":50,"fetched":5000}
+{"timestamp":"2026-03-13T11:27:17.523Z","level":"info","message":"Gamma pagination progress","pages":60,"fetched":6000}
+{"timestamp":"2026-03-13T11:27:19.810Z","level":"info","message":"Gamma pagination progress","pages":70,"fetched":7000}
+{"timestamp":"2026-03-13T11:27:22.222Z","level":"info","message":"Gamma pagination progress","pages":80,"fetched":8000}
+{"timestamp":"2026-03-13T11:27:24.557Z","level":"info","message":"Gamma pagination progress","pages":90,"fetched":9000}
+{"timestamp":"2026-03-13T11:27:26.849Z","level":"info","message":"Gamma pagination progress","pages":100,"fetched":10000}
+{"timestamp":"2026-03-13T11:27:29.148Z","level":"info","message":"Gamma pagination progress","pages":110,"fetched":11000}
+{"timestamp":"2026-03-13T11:27:31.473Z","level":"info","message":"Gamma pagination progress","pages":120,"fetched":12000}
+{"timestamp":"2026-03-13T11:27:33.877Z","level":"info","message":"Gamma pagination progress","pages":130,"fetched":13000}
+{"timestamp":"2026-03-13T11:27:36.163Z","level":"info","message":"Gamma pagination progress","pages":140,"fetched":14000}
+{"timestamp":"2026-03-13T11:27:38.455Z","level":"info","message":"Gamma pagination progress","pages":150,"fetched":15000}
+{"timestamp":"2026-03-13T11:27:40.746Z","level":"info","message":"Gamma pagination progress","pages":160,"fetched":16000}
+{"timestamp":"2026-03-13T11:27:43.033Z","level":"info","message":"Gamma pagination progress","pages":170,"fetched":17000}
+{"timestamp":"2026-03-13T11:27:45.558Z","level":"info","message":"Gamma pagination progress","pages":180,"fetched":18000}
+{"timestamp":"2026-03-13T11:27:47.876Z","level":"info","message":"Gamma pagination progress","pages":190,"fetched":19000}
+{"timestamp":"2026-03-13T11:27:50.154Z","level":"info","message":"Gamma pagination progress","pages":200,"fetched":20000}
+{"timestamp":"2026-03-13T11:27:52.482Z","level":"info","message":"Gamma pagination progress","pages":210,"fetched":21000}
+{"timestamp":"2026-03-13T11:27:54.766Z","level":"info","message":"Gamma pagination progress","pages":220,"fetched":22000}
+{"timestamp":"2026-03-13T11:27:57.056Z","level":"info","message":"Gamma pagination progress","pages":230,"fetched":23000}
+{"timestamp":"2026-03-13T11:27:59.353Z","level":"info","message":"Gamma pagination progress","pages":240,"fetched":24000}
+{"timestamp":"2026-03-13T11:28:01.850Z","level":"info","message":"Gamma pagination progress","pages":250,"fetched":25000}
+{"timestamp":"2026-03-13T11:28:04.483Z","level":"info","message":"Gamma pagination progress","pages":260,"fetched":26000}
+{"timestamp":"2026-03-13T11:28:07.188Z","level":"info","message":"Gamma pagination progress","pages":270,"fetched":27000}
+{"timestamp":"2026-03-13T11:28:09.802Z","level":"info","message":"Gamma pagination progress","pages":280,"fetched":28000}
+{"timestamp":"2026-03-13T11:28:12.348Z","level":"info","message":"Gamma pagination progress","pages":290,"fetched":29000}
+{"timestamp":"2026-03-13T11:28:14.886Z","level":"info","message":"Gamma pagination progress","pages":300,"fetched":30000}
+{"timestamp":"2026-03-13T11:28:17.494Z","level":"info","message":"Gamma pagination progress","pages":310,"fetched":31000}
+{"timestamp":"2026-03-13T11:28:19.958Z","level":"info","message":"Gamma pagination progress","pages":320,"fetched":32000}
+{"timestamp":"2026-03-13T11:28:22.504Z","level":"info","message":"Gamma pagination progress","pages":330,"fetched":33000}
+{"timestamp":"2026-03-13T11:28:25.019Z","level":"info","message":"Gamma pagination progress","pages":340,"fetched":34000}
+{"timestamp":"2026-03-13T11:28:27.481Z","level":"info","message":"Gamma pagination progress","pages":350,"fetched":35000}
+  Bulk fetch returned 35403 markets in 85.2s
+  Built price map (35230 markets) in 0.1s
+  Wrote 2594 snapshots in 0.6s
+Tracked 2594 markets
+
+[2/4] Detecting odds changes (multi-timeframe)...
+Found 332 significant odds changes
+
+[3/4] Detecting whale trades (top movers only)...
+Scanning 20 top markets for whale activity (threshold: $5 000)...
+✓ Detected 0 whale trades
+
+[4/4] Generating signals...
+Generating signals for 332 odds changes...
+  [dedup] skipping duplicate signal for Coinbase Global (0xf91c21cd2008090942d65f36aebf8c9970b6063db53d25bf9637c8e3996264e3_crypto-coinbase_bull)
+  [ok] Consider BULL position Coinbase Global (confidence 64%, verification approved)
+  [dedup] escalation +34.1% for Tesla
+  [ok] Consider BULL position Tesla (confidence 49%, verification approved)
+  [skip] no instruments for market: Will Plasma reach $1.80 by December 31, 2026?
+  [dedup] escalation +10.0% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 26%, verification approved)
+  [ok] Consider BULL position Coinbase Global (confidence 59%, verification approved)
+  [dedup] skipping duplicate signal for Coinbase Global (0x361489abc9fcfe9aa9a3e6b77a02a817c9c0d995e5c0925fbd49829f46d7ec6c_crypto-coinbase_bull)
+  [dedup] escalation +76.9% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 57%, verification approved)
+  [dedup] skipping duplicate signal for Coinbase Global (0xc1d34487030e0da01d0bf543227c8ee4409849019fa5e36d1f4136ecb684df71_crypto-coinbase_bear)
+  [quality] skipping low-confidence signal for Coinbase Global (18% < 25%)
+  [quality] skipping low-confidence signal for Coinbase Global (23% < 25%)
+  [dedup] escalation +88.9% for Coinbase Global
+  [quality] skipping low-confidence signal for Coinbase Global (23% < 25%)
+  [quality] skipping low-confidence signal for Coinbase Global (18% < 25%)
+  [quality] skipping low-confidence signal for Coinbase Global (18% < 25%)
+  [dedup] escalation +20.9% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 52%, verification approved)
+  [quality] skipping low-confidence signal for Coinbase Global (11% < 12%)
+  [dedup] skipping duplicate signal for Coinbase Global (0x66c5dc00cdc4703c3c5dd1b4cabeee4adac8fa9032006117bebc82526675cb15_crypto-coinbase_bull)
+  [quality] skipping low-confidence signal for Coinbase Global (13% < 25%)
+  [quality] skipping low-confidence signal for Coinbase Global (8% < 25%)
+  [ok] Consider BULL position Coinbase Global (confidence 34%, verification approved)
+  [quality] skipping low-confidence signal for Coinbase Global (8% < 25%)
+  [quality] skipping low-confidence signal for Coinbase Global (11% < 25%)
+  [ok] Consider BULL position Coinbase Global (confidence 15%, verification approved)
+  [dedup] skipping duplicate signal for Coinbase Global (0x1cf60002f225e85b57be2c387dd528d4d7c5d9d1246f29d215c1f192167ed3d3_crypto-coinbase_bull)
+  [dedup] skipping duplicate signal for Coinbase Global (0x7697538249995b080cacb708ae86c88cb3133cbcbfc6a28b035cdca5d5fdd375_crypto-coinbase_bull)
+  [dedup] skipping duplicate signal for Coinbase Global (0xca4621ba0c29aa9640f0d48d86b33d946965bdcdff50c89301d7f65497dc3fbd_crypto-coinbase_bull)
+  [dedup] skipping duplicate signal for Coinbase Global (0xad6fac4e2a6c2586aeeee4b85dbf356191f8609e1a72c16d2019ad58d84a8dcb_crypto-coinbase_bull)
+  [dedup] skipping duplicate signal for Coinbase Global (0x092884e14086c847123ba0d39c325ac0efc555fc4027cf39270e83dd53f4aa86_crypto-coinbase_bear)
+  [quality] skipping low-confidence signal for S&P 500 (0% < 12%)
+  [dedup] skipping duplicate signal for Coinbase Global (0x05462320260d488260d5f4e8104ad2388d5a4dc4bbb31e6524d998bfefe3bd42_crypto-coinbase_bull)
+  [dedup] escalation +10.8% for Spotify Technology
+  [ok] Consider BULL position Spotify Technology (confidence 56%, verification approved)
+  [skip] no instruments for market: Will the NYSE choose Solana?
+  [quality] skipping low-confidence signal for Tesla (9% < 12%)
+  [dedup] skipping duplicate signal for Coinbase Global (0x72bfc891892a46236228b6f7abae33bf31870ca884b52bbe9ac613b4651f6017_crypto-coinbase_bear)
+  [dedup] skipping duplicate signal for Coinbase Global (0x2d281bdb39822fc8cde6fa574a0092ee148c2b88c9626daf5d8089c8f6809b50_crypto-coinbase_bull)
+  [skip] no instruments for market: BitBoy convicted?
+  [dedup] escalation +11.1% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 35%, verification approved)
+  [dedup] escalation +5.5% for Coinbase Global
+  [dedup] escalation +11.6% for S&P 500
+  [ok] Consider BULL position S&P 500 (confidence 27%, verification approved)
+  [skip] no instruments for market: Will Dogecoin dip to $0.06 by December 31, 2026?
+  [skip] no instruments for market: Huddle FDV above $10M one day after launch?
+  [skip] no instruments for market: Will Morgan Stanley or any of its underwriting affiliates serve as the lead underwriter in SpaceX’s initial public offering?
+  [ok] Consider BEAR position Coinbase Global (confidence 30%, verification approved)
+  [skip] no instruments for market: Mezo FDV above $100M one day after launch?
+  [dedup] escalation +43.9% for Tesla
+  [ok] Consider BULL position Tesla (confidence 29%, verification approved)
+  [skip] no instruments for market: Will Ethena reach $0.80 by December 31, 2026?
+  [skip] no instruments for market: Will UNI reach $9.50 by December 31, 2026?
+  [skip] no instruments for market: Will Plasma reach $0.50 by December 31, 2026?
+  [ok] Consider BEAR position Coinbase Global (confidence 19%, verification approved)
+  [skip] no instruments for market: Will SpaceX Starship Flight Test 12 launch by April 30?
+  [skip] no instruments for market: Sentio FDV above $100M one day after launch?
+  [ok] Consider BEAR position Coinbase Global (confidence 18%, verification approved)
+  [dedup] escalation +37.3% for Tesla
+  [ok] Consider BULL position Tesla (confidence 19%, verification approved)
+  [dedup] escalation +26.2% for Coinbase Global
+  [dedup] escalation +36.2% for Coinbase Global
+  [dedup] escalation +51.8% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 41%, verification approved)
+  [dedup] escalation +11.0% for Coinbase Global
+  [dedup] escalation +29.5% for Equinor
+  [ok] Consider BEAR position Equinor (confidence 25%, verification approved)
+  [dedup] escalation +29.5% for ConocoPhillips
+  [ok] Consider BEAR position ConocoPhillips (confidence 25%, verification approved)
+  [dedup] escalation +29.5% for Shell
+  [ok] Consider BEAR position Shell (confidence 25%, verification approved)
+  [dedup] escalation +29.5% for Exxon Mobil
+  [ok] Consider BEAR position Exxon Mobil (confidence 25%, verification approved)
+  [dedup] escalation +9.4% for Tesla
+  [ok] Consider BULL position Tesla (confidence 34%, verification approved)
+  [dedup] escalation +9.8% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 21%, verification approved)
+  [dedup] escalation +8.9% for Coinbase Global
+  [dedup] escalation +12.2% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 19%, verification approved)
+  [dedup] escalation +6.2% for Coinbase Global
+  [ok] Consider BULL position Coinbase Global (confidence 26%, verification approved)
+  [dedup] escalation +7.0% for Coinbase Global
+  [dedup] skipped 221 additional duplicates (suppressed)
+  [skip] no instruments for 57 additional markets (suppressed)
+  [quality] skipped 20 low-confidence signals (suppressed)
+  [claude-cli] call #1 today (batch-verify)
+[verify] Claude batch failed (1x); cooldown 60s. claude.cmd: code=ETIMEDOUT msg=timeout after 60000ms | C:\Users\Adam\AppData\Roaming\npm\claude: code=ENOENT msg=spawn C:\Users\Adam\AppData\Roaming\npm\claude ENOENT | C:\Users\Adam\AppData\Roaming\npm\claude.cmd: code=ETIMEDOUT msg=timeout after 60000ms
+[verify] Claude batch verification unavailable; using guard-only fallback for 5 candidates
+  [verify] batch verification updated 5 top candidates (sources=fallback_guard:5; status=approved:5)
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 74%
+  Intelligence boost +25 for Coinbase Global -> 92%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 79%
+  News boost +13 for Coinbase Global (15 sources) -> 92%
+  Multi-timeframe +10 for Tesla (3 windows) -> 59%
+  Intelligence boost +25 for Tesla -> 84%
+  Backtest adj +8 for Tesla (samples=9, rel=0.75) -> 92%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 36%
+  Intelligence boost +25 for Coinbase Global -> 61%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 48%
+  News boost +13 for Coinbase Global (15 sources) -> 61%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 69%
+  Intelligence boost +25 for Coinbase Global -> 92%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 79%
+  News boost +13 for Coinbase Global (15 sources) -> 92%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 67%
+  Intelligence boost +25 for Coinbase Global -> 92%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 79%
+  News boost +13 for Coinbase Global (15 sources) -> 92%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 62%
+  Intelligence boost +25 for Coinbase Global -> 87%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 74%
+  News boost +13 for Coinbase Global (15 sources) -> 87%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 44%
+  Intelligence boost +25 for Coinbase Global -> 69%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 56%
+  News boost +13 for Coinbase Global (15 sources) -> 69%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 25%
+  Intelligence boost +25 for Coinbase Global -> 50%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 37%
+  News boost +13 for Coinbase Global (15 sources) -> 50%
+  Multi-timeframe +10 for Spotify Technology (3 windows) -> 66%
+  Intelligence boost +25 for Spotify Technology -> 91%
+  News boost +6 for Spotify Technology (3 sources) -> 92%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 45%
+  Intelligence boost +25 for Coinbase Global -> 70%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 57%
+  News boost +13 for Coinbase Global (15 sources) -> 70%
+  Multi-timeframe +10 for S&P 500 (3 windows) -> 37%
+  Intelligence boost +25 for S&P 500 -> 62%
+  Backtest adj -12 for S&P 500 (samples=27, rel=0.34) -> 50%
+  Multi-timeframe +10 for Coinbase Global (3 windows) -> 40%
+  Intelligence boost +25 for Coinbase Global -> 65%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 52%
+  News boost +13 for Coinbase Global (15 sources) -> 65%
+  Multi-timeframe +5 for Tesla (2 windows) -> 34%
+  Intelligence boost +25 for Tesla -> 59%
+  Backtest adj +8 for Tesla (samples=9, rel=0.75) -> 67%
+  Multi-timeframe +5 for Coinbase Global (2 windows) -> 24%
+  Intelligence boost +25 for Coinbase Global -> 49%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 36%
+  News boost +13 for Coinbase Global (15 sources) -> 49%
+  Multi-timeframe +5 for Coinbase Global (2 windows) -> 23%
+  Intelligence boost +25 for Coinbase Global -> 48%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 35%
+  News boost +13 for Coinbase Global (15 sources) -> 48%
+  Intelligence boost +25 for Tesla -> 44%
+  Backtest adj +8 for Tesla (samples=9, rel=0.75) -> 52%
+  Intelligence boost +25 for Coinbase Global -> 66%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 53%
+  News boost +13 for Coinbase Global (15 sources) -> 66%
+  Intelligence boost +25 for Equinor -> 50%
+  Backtest adj -6 for Equinor (samples=57, rel=0.50) -> 44%
+  News boost +13 for Equinor (6 sources) -> 57%
+  Intelligence boost +25 for ConocoPhillips -> 50%
+  Backtest adj -8 for ConocoPhillips (samples=45, rel=0.51) -> 42%
+  News boost +13 for ConocoPhillips (7 sources) -> 55%
+  Intelligence boost +25 for Shell -> 50%
+  Backtest adj -15 for Shell (samples=40, rel=0.31) -> 35%
+  News boost +13 for Shell (7 sources) -> 48%
+  Intelligence boost +25 for Exxon Mobil -> 50%
+  Backtest adj -9 for Exxon Mobil (samples=44, rel=0.50) -> 41%
+  News boost +13 for Exxon Mobil (8 sources) -> 54%
+  Intelligence boost +25 for Tesla -> 59%
+  Backtest adj +8 for Tesla (samples=9, rel=0.75) -> 67%
+  Intelligence boost +25 for Coinbase Global -> 46%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 33%
+  News boost +13 for Coinbase Global (15 sources) -> 46%
+  Intelligence boost +25 for Coinbase Global -> 44%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 31%
+  News boost +13 for Coinbase Global (15 sources) -> 44%
+  Intelligence boost +25 for Coinbase Global -> 51%
+  Backtest adj -13 for Coinbase Global (samples=176, rel=0.34) -> 38%
+  News boost +13 for Coinbase Global (15 sources) -> 51%
+  [fusion] total=25 allow=25 fallback=0 suppress=0 no_input=0
+
+Dispatching alerts...
+  Skip push sig_20260313T112843_bze9c1 not verification-approved (approved/fallback_guard)
+  Skip push sig_20260313T112843_858vja not verification-approved (approved/fallback_guard)
+  Skip push sig_20260313T112843_tbxuly not verification-approved (approved/fallback_guard)
+  Skip push sig_20260313T112843_hab7wf not verification-approved (approved/fallback_guard)
+  Brewing signal sig_20260313T112843_xpbr9v (Tesla 92%) - us market closed
+  Brewing signal sig_20260313T112843_nlty1n (Coinbase Global 66%) - us market closed
+  Brewing signal sig_20260313T112843_xedjyp (Coinbase Global 74%) - us market closed
+  Brewing signal sig_20260313T112843_naqeql (Coinbase Global 55%) - us market closed
+  Brewing signal sig_20260313T112843_uymooh (Spotify Technology 92%) - us market closed
+  Brewing signal sig_20260313T112843_glf087 (Coinbase Global 75%) - us market closed
+  Brewing signal sig_20260313T112843_57cli2 (S&P 500 55%) - us market closed
+  Brewing signal sig_20260313T112843_lq49vg (Coinbase Global 70%) - us market closed
+  Brewing signal sig_20260313T112843_2hajpk (Tesla 72%) - us market closed
+  Brewing signal sig_20260313T112843_6vwys5 (Coinbase Global 54%) - us market closed
+  Brewing signal sig_20260313T112843_k4ctcy (Coinbase Global 53%) - us market closed
+  Brewing signal sig_20260313T112843_7eidk3 (Tesla 57%) - us market closed
+  Brewing signal sig_20260313T112843_9qexfn (Coinbase Global 71%) - us market closed
+  Brewing signal sig_20260313T112843_kmu7n9 (Equinor 62%) - us market closed
+  Brewing signal sig_20260313T112843_yf07af (ConocoPhillips 60%) - us market closed
+  Brewing signal sig_20260313T112843_bowga9 (Shell 53%) - us market closed
+  Brewing signal sig_20260313T112843_pwa2d4 (Exxon Mobil 59%) - us market closed
+  Brewing signal sig_20260313T112843_5t7t1b (Tesla 72%) - us market closed
+  Brewing signal sig_20260313T112843_yifeni (Coinbase Global 51%) - us market closed
+  Brewing signal sig_20260313T112843_bns4ko (Coinbase Global 56%) - us market closed
+  Push audit: total=25 pushed=0 brewed_closed=20 skip[min=1, judgment=0, verify=4, thresholds=0, execution=0, quality=0, whipsaw=0, policy=0, evidence=0, deep=0]
+
+=== SCAN CYCLE COMPLETE ===
+Duration: 223.3s
+Markets tracked: 2594
+Whales detected: 0
+Odds changes: 332
+Signals generated: 25
+HA pushed: 0 | Brewed: 20
+  [OK] Duration: 224.6s
+  [OK] Markets tracked: 2594
+  [OK] Odds changes detected: 332
+  [OK] Signals generated: 25
+  [OK] Brewed (market closed): 20
+
+[9/9] Backtest (yesterday)...
+  [OK] swedish (2026-03-12): cached - 0 signals, hit rate 30m=0%
+  [OK] us (2026-03-12): cached - 0 signals, hit rate 30m=0%
+
+==================================================
+SYSTEM STATUS: [OK] HEALTHY
+==================================================
+

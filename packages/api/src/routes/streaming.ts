@@ -10,10 +10,52 @@ router.get('/health', (_req, res) => {
     const supervisor = services.streamingSupervisor;
     const dbHealth = store ? store.getStreamingHealth() : [];
     const runtimeHealth = supervisor ? supervisor.getHealthStates() : [];
+    const hasRuntimeHealth = runtimeHealth.length > 0;
+    const now = Date.now();
+    const parseRowTime = (row: any): number => {
+      const raw = String(row.last_message_at || row.updated_at || '');
+      const normalized = raw.includes('T') || raw.endsWith('Z')
+        ? raw
+        : `${raw.replace(' ', 'T')}Z`;
+      return Date.parse(normalized);
+    };
+    const freshWindowMs = 5 * 60 * 1000;
+    const freshDbHealth = dbHealth.filter((row: any) => {
+      const updatedAt = parseRowTime(row);
+      return Number.isFinite(updatedAt) && (now - updatedAt) <= freshWindowMs;
+    });
+    const newestDbTimestamp = dbHealth.reduce((latest: number, row: any) => {
+      const parsed = parseRowTime(row);
+      return Number.isFinite(parsed) ? Math.max(latest, parsed) : latest;
+    }, 0);
+    const staleMinutes = newestDbTimestamp > 0
+      ? Math.max(0, Math.round((now - newestDbTimestamp) / 60000))
+      : null;
+    const enabled = hasRuntimeHealth || freshDbHealth.length > 0;
+    const runtimeFallback = hasRuntimeHealth
+      ? runtimeHealth
+      : freshDbHealth.map((row: any) => ({
+          component: row.component,
+          status: row.status,
+          details: row.details,
+          lastMessageAt: parseRowTime(row)
+        }));
+    const mode = hasRuntimeHealth
+      ? 'runtime'
+      : (freshDbHealth.length > 0 ? 'database' : (dbHealth.length > 0 ? 'stale' : 'disabled'));
+    const message = mode === 'stale'
+      ? `Streaming health exists in the database but is stale (${staleMinutes ?? '?'} min old). Restart the continuous scanner or check the websocket collectors.`
+      : mode === 'disabled'
+        ? 'Streaming layer is not running. Phase 1 fallback is active.'
+        : null;
+
     res.json({
-      enabled: Boolean(supervisor),
+      enabled,
       db: dbHealth,
-      runtime: runtimeHealth
+      runtime: runtimeFallback,
+      mode,
+      staleMinutes,
+      message
     });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to fetch streaming health', message: error?.message });
@@ -56,4 +98,3 @@ router.get('/leader-lag/:symbol', (req, res) => {
 });
 
 export default router;
-

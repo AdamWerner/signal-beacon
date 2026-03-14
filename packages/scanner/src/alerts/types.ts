@@ -1,4 +1,5 @@
 import { GeneratedSignal } from '../signals/types.js';
+import type { SignalStore } from '../storage/signal-store.js';
 
 export interface HomeAssistantConfig {
   url: string;
@@ -15,6 +16,7 @@ export interface AlertConfig {
   minConfidence?: number;
   verificationRequiredForPush?: boolean;
   onSignalsPushed?: (signalIds: string[], market: 'swedish' | 'us') => void;
+  signalStore?: SignalStore;
 }
 
 export interface PushoverConfig {

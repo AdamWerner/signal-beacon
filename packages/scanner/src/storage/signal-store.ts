@@ -150,6 +150,40 @@ export class SignalStore {
     return stmt.all(...params) as Signal[];
   }
 
+  findByAssetIds(
+    assetIds: string[],
+    opts: { hours?: number; minConfidence?: number; status?: Signal['status']; limit?: number } = {}
+  ): Signal[] {
+    if (assetIds.length === 0) return [];
+
+    const { hours, minConfidence, status, limit = 200 } = opts;
+    const conditions: string[] = [`matched_asset_id IN (${assetIds.map(() => '?').join(', ')})`];
+    const params: (string | number)[] = [...assetIds];
+
+    if (hours) {
+      conditions.push(`timestamp >= datetime('now', '-' || ? || ' hours')`);
+      params.push(hours);
+    }
+    if (minConfidence !== undefined) {
+      conditions.push('confidence >= ?');
+      params.push(minConfidence);
+    }
+    if (status) {
+      conditions.push('status = ?');
+      params.push(status);
+    }
+
+    params.push(limit);
+    const stmt = this.db.prepare(`
+      SELECT *
+      FROM signals
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+    return stmt.all(...params) as Signal[];
+  }
+
   findByMarket(market_condition_id: string): Signal[] {
     const stmt = this.db.prepare(`
       SELECT * FROM signals
@@ -308,6 +342,140 @@ export class SignalStore {
     });
 
     tx(signalIds);
+  }
+
+  getLatestPushedSignalForAsset(assetId: string, withinMinutes = 240): Signal | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM signals
+      WHERE matched_asset_id = ?
+        AND push_sent_at IS NOT NULL
+        AND timestamp >= datetime('now', '-' || ? || ' minutes')
+      ORDER BY push_sent_at DESC, timestamp DESC
+      LIMIT 1
+    `);
+    return (stmt.get(assetId, withinMinutes) as Signal) ?? null;
+  }
+
+  countDistinctApprovedMarketsForAssetDirection(
+    assetId: string,
+    direction: 'bull' | 'bear',
+    withinMinutes = 60
+  ): number {
+    const directionWord = direction === 'bull' ? 'BULL' : 'BEAR';
+    const row = this.db.prepare(`
+      SELECT COUNT(DISTINCT market_condition_id) as c
+      FROM signals
+      WHERE matched_asset_id = ?
+        AND verification_status = 'approved'
+        AND UPPER(suggested_action) LIKE '%' || ? || '%'
+        AND timestamp >= datetime('now', '-' || ? || ' minutes')
+    `).get(assetId, directionWord, withinMinutes) as { c: number } | undefined;
+
+    return row?.c ?? 0;
+  }
+
+  getPushPerformancePolicy(assetId: string): {
+    samples: number;
+    hitRate30m: number;
+    avgMove30m: number;
+    reliabilityScore: number;
+    gate: 'open' | 'watch' | 'block';
+  } | null {
+    try {
+      const row = this.db.prepare(`
+        SELECT samples, hit_rate_30m, avg_move_30m, reliability_score, gate
+        FROM asset_push_performance
+        WHERE asset_id = ?
+        LIMIT 1
+      `).get(assetId) as {
+        samples: number;
+        hit_rate_30m: number;
+        avg_move_30m: number;
+        reliability_score: number;
+        gate: 'open' | 'watch' | 'block';
+      } | undefined;
+
+      if (!row) return null;
+      return {
+        samples: row.samples || 0,
+        hitRate30m: row.hit_rate_30m || 0,
+        avgMove30m: row.avg_move_30m || 0,
+        reliabilityScore: row.reliability_score || 0,
+        gate: row.gate || 'watch'
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  getDirectionalPushPerformance(
+    assetId: string,
+    direction: 'bull' | 'bear',
+    lookbackDays = 30
+  ): {
+    samples: number;
+    hitRate30m: number;
+    avgMove30m: number;
+  } | null {
+    try {
+      const directionWord = direction === 'bull' ? 'BULL' : 'BEAR';
+      const row = this.db.prepare(`
+        SELECT
+          COUNT(*) as samples,
+          AVG(COALESCE(so.direction_correct_30m, 0)) as hit_rate_30m,
+          AVG(COALESCE(so.move_30m_pct, 0)) as avg_move_30m
+        FROM signal_outcomes so
+        JOIN signals s ON s.id = so.signal_id
+        WHERE so.asset_id = ?
+          AND so.source = 'push_timestamp'
+          AND UPPER(s.suggested_action) LIKE '%' || ? || '%'
+          AND so.evaluated_at >= datetime('now', '-' || ? || ' days')
+      `).get(assetId, directionWord, lookbackDays) as {
+        samples: number;
+        hit_rate_30m: number;
+        avg_move_30m: number;
+      } | undefined;
+
+      if (!row || !row.samples) return null;
+      return {
+        samples: row.samples || 0,
+        hitRate30m: row.hit_rate_30m || 0,
+        avgMove30m: row.avg_move_30m || 0
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  getPushPolicyConfig(market: 'swedish' | 'us'): {
+    minConfidence: number;
+    minDeltaPct: number;
+    minEvidenceScore: number;
+    updatedAt: string;
+  } | null {
+    try {
+      const row = this.db.prepare(`
+        SELECT min_confidence, min_delta_pct, min_evidence_score, updated_at
+        FROM push_policy_config
+        WHERE market = ?
+        LIMIT 1
+      `).get(market) as {
+        min_confidence: number;
+        min_delta_pct: number;
+        min_evidence_score: number;
+        updated_at: string;
+      } | undefined;
+
+      if (!row) return null;
+      return {
+        minConfidence: row.min_confidence || 65,
+        minDeltaPct: row.min_delta_pct || 15,
+        minEvidenceScore: row.min_evidence_score || 3,
+        updatedAt: row.updated_at
+      };
+    } catch {
+      return null;
+    }
   }
 
   getAssetPerformanceAdjustment(assetId: string): {

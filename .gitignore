@@ -28,6 +28,7 @@ data/polysignal.db
 data/polysignal.db-shm
 data/polysignal.db-wal
 data/*.lock
+data/policy-optimizer-log.txt
 
 # Editor directories and files
 .vscode/*

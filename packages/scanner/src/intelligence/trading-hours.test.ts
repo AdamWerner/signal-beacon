@@ -3,6 +3,7 @@ import {
   getAssetMarket,
   isMarketOpenAt,
   isPreMarketWindowAt,
+  EUROPEAN_SESSION_ASSETS,
   SWEDISH_MARKET_ASSETS
 } from './trading-hours.js';
 
@@ -28,5 +29,13 @@ describe('trading-hours per asset/market', () => {
   it('treats Spotify as US-hours and not OMX-hours', () => {
     expect(getAssetMarket('tech-spotify')).toBe('us');
     expect(SWEDISH_MARKET_ASSETS.has('tech-spotify')).toBe(false);
+  });
+
+  it('treats European-listed assets as daytime European session, not Swedish Focus', () => {
+    expect(getAssetMarket('oil-equinor')).toBe('swedish');
+    expect(getAssetMarket('oil-shell')).toBe('swedish');
+    expect(getAssetMarket('pharma-novo')).toBe('swedish');
+    expect(EUROPEAN_SESSION_ASSETS.has('oil-equinor')).toBe(true);
+    expect(SWEDISH_MARKET_ASSETS.has('oil-equinor')).toBe(false);
   });
 });

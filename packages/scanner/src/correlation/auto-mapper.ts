@@ -49,12 +49,18 @@ export class AutoMapper {
         console.warn(`Asset ${assetId} not found in ontology`);
         continue;
       }
+      const strictKeywordMatch = this.getMatchedKeywordsForAsset(market, assetId);
+      if (strictKeywordMatch.length === 0) {
+        // Guard against stale tracked_markets rows that were matched under older, looser rules.
+        // Sacred rule: title/description must include explicit ontology keywords for this asset.
+        continue;
+      }
 
       const correlationLogic = asset.correlation_logic;
 
-      const instruments = this.instrumentRegistry
-        ? this.instrumentRegistry.getBestInstruments(asset.avanza_search.underlying_terms[0])
-        : { bull: [], bear: [] };
+      const instruments = this.getBestInstrumentsForTerms(
+        asset.avanza_search.underlying_terms || []
+      );
 
       const bullInstruments: MappedInstrument[] = instruments.bull.length > 0
         ? instruments.bull.map(inst => ({
@@ -123,13 +129,52 @@ export class AutoMapper {
       .replace(/\s+(Technology|Holdings|Integrated|Services|Systems|Group)\b/gi, '')
       .trim();
     const baseSearchTerm = (preferredSearchTerm || shortName).trim();
+    const avanzaQuery = `${baseSearchTerm} certifikat`;
 
     return {
       name: `${dir} ${shortName} X3 AVA`,
       avanza_id: '',
       leverage: 3,
-      avanza_url: `https://www.avanza.se/sok.html?q=${encodeURIComponent(`${dir} ${baseSearchTerm}`)}`,
+      avanza_url: `https://www.avanza.se/sok.html?query=${encodeURIComponent(avanzaQuery)}`,
       issuer: null
+    };
+  }
+
+  private getBestInstrumentsForTerms(terms: string[]): { bull: any[]; bear: any[] } {
+    if (!this.instrumentRegistry) {
+      return { bull: [], bear: [] };
+    }
+
+    const bull = new Map<string, any>();
+    const bear = new Map<string, any>();
+
+    for (const term of terms) {
+      const trimmed = String(term || '').trim();
+      if (!trimmed) continue;
+      const candidates = this.instrumentRegistry.getBestInstruments(trimmed);
+
+      for (const instrument of candidates.bull) {
+        if (!bull.has(instrument.avanza_id)) {
+          bull.set(instrument.avanza_id, instrument);
+        }
+      }
+      for (const instrument of candidates.bear) {
+        if (!bear.has(instrument.avanza_id)) {
+          bear.set(instrument.avanza_id, instrument);
+        }
+      }
+    }
+
+    const sortByLeverage = (items: any[]) =>
+      items.sort((a, b) => {
+        const leverageA = a.leverage ?? Number.MAX_SAFE_INTEGER;
+        const leverageB = b.leverage ?? Number.MAX_SAFE_INTEGER;
+        return leverageA - leverageB;
+      }).slice(0, 3);
+
+    return {
+      bull: sortByLeverage(Array.from(bull.values())),
+      bear: sortByLeverage(Array.from(bear.values()))
     };
   }
 

@@ -17,8 +17,10 @@ try {
   console.log(`Brewed: ${result.brewed}`);
   console.log(`Duration: ${(result.duration / 1000).toFixed(1)}s`);
 
+  scanner.shutdown?.();
   process.exit(0);
 } catch (error) {
   console.error('Scan failed:', error);
+  scanner.shutdown?.();
   process.exit(1);
 }

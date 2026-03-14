@@ -23,9 +23,45 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+function normalizeAvanzaSearchTerm(value: string): string {
+  return value
+    .replace(/^(BULL|BEAR)\s+/i, '')
+    .replace(/\s+X\d+\b.*$/i, '')
+    .replace(/\s+certifikat\b/gi, '')
+    .replace(/\s+(Technology|Holdings|Integrated|Services|Systems|Group|Global|Mobil|Gaming)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function isApprovedForRanking(signal: any): boolean {
   return signal.verification_status === 'approved' &&
     ['claude', 'guard', 'guard_allowlist'].includes(String(signal.verification_source || ''));
+}
+
+function isApprovedForSwedishFocus(signal: any): boolean {
+  if (signal.verification_status !== 'approved') return false;
+
+  const source = String(signal.verification_source || '');
+  if (['claude', 'guard', 'guard_allowlist'].includes(source)) {
+    return true;
+  }
+
+  if (source !== 'fallback_guard') {
+    return false;
+  }
+
+  const score = Number(signal.verification_score || 0);
+  const flags = Array.isArray(signal.verification_flags)
+    ? signal.verification_flags
+    : safeJsonParse<string[]>(signal.verification_flags, []);
+  const highRiskFlags = new Set([
+    'unknown_entity',
+    'no_link',
+    'low_entity_confidence',
+    'unknown_person_legal_event'
+  ]);
+
+  return score >= 70 && !flags.some((flag: string) => highRiskFlags.has(String(flag)));
 }
 
 function parseSignal(signal: any) {
@@ -46,17 +82,11 @@ function parseSignal(signal: any) {
             ? (currentUrl.split('q=')[1] || '')
             : (currentUrl.split('query=')[1] || '');
           const decoded = decodeURIComponent(queryPart || '');
-          const cleaned = decoded
-            .replace(/^(BULL|BEAR)\s+/i, '')
-            .replace(/\s+X\d+\s+AVA$/i, '')
-            .trim();
+          const cleaned = normalizeAvanzaSearchTerm(decoded || currentName);
           const normalizedQuery = cleaned ? `${cleaned} certifikat` : decoded;
           nextUrl = `https://www.avanza.se/sok.html?query=${encodeURIComponent(normalizedQuery)}`;
         } else if (!currentUrl && currentName) {
-          const cleaned = currentName
-            .replace(/^(BULL|BEAR)\s+/i, '')
-            .replace(/\s+X\d+\s+AVA$/i, '')
-            .trim();
+          const cleaned = normalizeAvanzaSearchTerm(currentName);
           if (cleaned) {
             nextUrl = `https://www.avanza.se/sok.html?query=${encodeURIComponent(`${cleaned} certifikat`)}`;
           }
@@ -129,15 +159,18 @@ const SWEDISH_ASSET_IDS = SWEDISH_MARKET_ASSETS;
 router.get('/top/swedish', (req, res) => {
   try {
     const includeUnverified = req.query.include_unverified === 'true';
-    const signals = services.signalStore.findFiltered({ hours: 48, limit: 500 });
+    const signals = (services.signalStore as any).findByAssetIds(
+      Array.from(SWEDISH_ASSET_IDS),
+      { hours: 48, limit: 1000 }
+    ) as any[];
     const swedishPool = signals
-      .filter(s =>
+      .filter((s: any) =>
         s.status !== 'dismissed' &&
         !isNoiseMarketQuestion(String(s.market_title || '')) &&
-        (includeUnverified || isApprovedForRanking(s)) &&
+        (includeUnverified || isApprovedForSwedishFocus(s)) &&
         SWEDISH_ASSET_IDS.has(s.matched_asset_id)
       )
-      .sort((a, b) => b.confidence - a.confidence);
+      .sort((a: any, b: any) => b.confidence - a.confidence);
 
     const byAsset = new Map<string, any>();
     for (const signal of swedishPool) {
@@ -148,7 +181,7 @@ router.get('/top/swedish', (req, res) => {
     }
 
     const swedish = Array.from(byAsset.values())
-      .sort((a, b) => b.confidence - a.confidence)
+      .sort((a: any, b: any) => b.confidence - a.confidence)
       .slice(0, 5)
       .map(parseSignal);
     res.json(swedish);

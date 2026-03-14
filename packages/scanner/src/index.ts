@@ -305,6 +305,12 @@ export class PolySignalScanner {
     return await this.scanCycleJob.execute();
   }
 
+  shutdown(): void {
+    if (this.streamingSupervisor) {
+      this.streamingSupervisor.stop();
+    }
+  }
+
   async runMarketRefresh() {
     return await this.marketRefreshJob.execute();
   }

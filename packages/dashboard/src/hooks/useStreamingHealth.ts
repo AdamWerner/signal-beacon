@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 
 interface StreamingHealthPayload {
   enabled: boolean;
+  mode?: 'runtime' | 'database' | 'stale' | 'disabled';
+  staleMinutes?: number | null;
+  message?: string | null;
   db: Array<{ component: string; status: string; details: string; last_message_at: string }>;
   runtime: Array<{ component: string; status: string; details: string; lastMessageAt: number }>;
 }
@@ -31,4 +34,3 @@ export const useStreamingHealth = () => {
 
   return { data, isLoading };
 };
-

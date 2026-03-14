@@ -99,7 +99,7 @@ export function loadConfig(): Config {
     alertMinConfidenceHa: parseInt(process.env.ALERT_MIN_CONFIDENCE_HA || '65', 10),
 
     // Streaming / fusion
-    enableStreamingLayer: (process.env.ENABLE_STREAMING_LAYER || 'false').toLowerCase() === 'true',
+    enableStreamingLayer: (process.env.ENABLE_STREAMING_LAYER || 'true').toLowerCase() !== 'false',
     enableBinanceDepth: (process.env.ENABLE_BINANCE_DEPTH || 'true').toLowerCase() !== 'false',
     enableBinanceTrades: (process.env.ENABLE_BINANCE_TRADES || 'true').toLowerCase() !== 'false',
     enableLiquidations: (process.env.ENABLE_LIQUIDATIONS || 'false').toLowerCase() === 'true',
@@ -113,8 +113,8 @@ export function loadConfig(): Config {
       .map(symbol => symbol.trim().toUpperCase())
       .filter(Boolean),
     streamingStaleMs: parseInt(process.env.STREAMING_STALE_MS || '15000', 10),
-    fusionPHatMin: parseFloat(process.env.FUSION_P_HAT_MIN || '0.55'),
-    fusionExpectancyMinPct: parseFloat(process.env.FUSION_EXPECTANCY_MIN_PCT || '0.30'),
+    fusionPHatMin: parseFloat(process.env.FUSION_P_HAT_MIN || '0.53'),
+    fusionExpectancyMinPct: parseFloat(process.env.FUSION_EXPECTANCY_MIN_PCT || '0.20'),
 
     // Server
     apiPort: parseInt(process.env.API_PORT || '3100', 10),
