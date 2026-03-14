@@ -161,6 +161,12 @@ export class SignalGenerator {
             );
           }
 
+          // Max 3 signals per asset per cycle to prevent clustering
+          const assetCountThisCycle = signals.filter(s => s.matched_asset_id === signal.matched_asset_id).length;
+          if (assetCountThisCycle >= 3) {
+            continue; // silent skip — not worth logging every one
+          }
+
           const verificationContext: VerificationContext = {
             marketTitle: signal.market_title,
             marketDescription: market.description || null,
