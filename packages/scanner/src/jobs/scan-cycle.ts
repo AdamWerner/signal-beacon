@@ -36,6 +36,9 @@ interface FusionGateSummary {
 export class ScanCycleJob {
   private volatilityRegimeDetector = new VolatilityRegimeDetector();
   private futuresConfirmation = new FuturesConfirmationService();
+  private intelligence: IntelligenceEngine | null = null;
+  private newsCorrelator: NewsCorrelator | null = null;
+  private macroCalendar: MacroCalendar | null = null;
 
   constructor(
     private config: Config,
@@ -94,9 +97,12 @@ export class ScanCycleJob {
       const signals = await this.signalGenerator.generateSignals(oddsChanges);
 
       if (this.db && signals.length > 0) {
-        const intelligence = new IntelligenceEngine(this.db);
-        const newsCorrelator = new NewsCorrelator(this.db);
-        const macroCalendar = new MacroCalendar();
+        if (!this.intelligence) this.intelligence = new IntelligenceEngine(this.db);
+        if (!this.newsCorrelator) this.newsCorrelator = new NewsCorrelator(this.db);
+        if (!this.macroCalendar) this.macroCalendar = new MacroCalendar();
+        const intelligence = this.intelligence;
+        const newsCorrelator = this.newsCorrelator;
+        const macroCalendar = this.macroCalendar;
         const volContext = await this.volatilityRegimeDetector.getRegime();
         const volAdjustment = this.volatilityRegimeDetector.getConfidenceAdjustment(volContext.regime);
         await macroCalendar.refreshLiveEvents();
