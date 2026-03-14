@@ -56,7 +56,10 @@ export const NOISE_PATTERNS: RegExp[] = [
   /will .+ (join|leave|sign with|transfer to)/i,
   /\b(grammy|emmy|oscar|tony|golden globe)\s*(award|winner|nominee)/i,
   /\brap\s*beef\b|\bdiss\s*track\b/i,
-  /\bbreakup\b|\brelationship\b.*\bcelebrit/i
+  /\bbreakup\b|\brelationship\b.*\bcelebrit/i,
+  // Micro-timebox crypto markets (5-15 min windows, pure noise)
+  /\b(bitcoin|ethereum|solana|btc|eth|sol|bnb|doge|xrp)\b.+up or down/i,
+  /up or down\s*-\s*\w+\s+\d+.*\d{1,2}:\d{2}\s*(am|pm)/i
 ];
 
 export function isNoiseMarketQuestion(question: string): boolean {
