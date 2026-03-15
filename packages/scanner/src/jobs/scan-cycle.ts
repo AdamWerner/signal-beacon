@@ -108,6 +108,8 @@ export class ScanCycleJob {
         await macroCalendar.refreshLiveEvents();
         intelligence.processNewSignals(signals);
 
+        const pendingUpdates: Array<{ confidence: number; reasoning: string; id: string }> = [];
+
         for (const signal of signals) {
           let changed = false;
 
@@ -218,11 +220,21 @@ export class ScanCycleJob {
           changed = true;
 
           if (changed) {
-            try {
-              this.db.prepare('UPDATE signals SET confidence = ? WHERE id = ?').run(signal.confidence, signal.id);
-            } catch {
-              // Non-fatal, continue scan cycle.
-            }
+            pendingUpdates.push({ confidence: signal.confidence, reasoning: signal.reasoning, id: signal.id });
+          }
+        }
+
+        if (pendingUpdates.length > 0) {
+          try {
+            const stmt = this.db.prepare('UPDATE signals SET confidence = ?, reasoning = ? WHERE id = ?');
+            const batchUpdate = this.db.transaction((items: typeof pendingUpdates) => {
+              for (const item of items) {
+                stmt.run(item.confidence, item.reasoning, item.id);
+              }
+            });
+            batchUpdate(pendingUpdates);
+          } catch {
+            // Non-fatal, continue scan cycle.
           }
         }
       }
