@@ -242,7 +242,7 @@ export class IntelligenceEngine {
   /**
    * Generate market briefing using Claude CLI (with deterministic fallback).
    */
-  async generateMorningBriefing(market: 'swedish' | 'us'): Promise<string> {
+  async generateMorningBriefing(market: 'swedish' | 'us', lookbackHours = 16): Promise<string> {
     const today = this.getStockholmDateString();
     const marketName = market === 'swedish' ? 'Stockholm OMX' : 'US NYSE/NASDAQ';
     const assetList = market === 'swedish' ? Array.from(SWEDISH_MARKET_ASSETS) : Array.from(US_MARKET_ASSETS);
@@ -250,7 +250,7 @@ export class IntelligenceEngine {
     const placeholders = assetList.map(() => '?').join(',');
     const recentSignals = this.db.prepare(`
       SELECT * FROM signals
-      WHERE timestamp >= datetime('now', '-16 hours')
+      WHERE timestamp >= datetime('now', '-${lookbackHours} hours')
         AND matched_asset_id IN (${placeholders})
         AND requires_judgment = 0
         AND verification_status = 'approved'

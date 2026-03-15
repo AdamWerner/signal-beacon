@@ -278,7 +278,9 @@ async function checkMorningBriefings() {
       const existing = intel.getMorningBriefing(market);
       if (existing?.pushed_at) continue;
 
-      logScan(`[briefing] generating ${market} morning briefing...`);
+      const isMonday = new Date().toLocaleString('en-US', { timeZone: 'Europe/Stockholm', weekday: 'short' }) === 'Mon';
+      const lookbackHours = isMonday ? 72 : 16; // Weekend accumulation on Monday
+      logScan(`[briefing] generating ${market} morning briefing (lookback=${lookbackHours}h${isMonday ? ', Monday extended' : ''})...`);
 
       try {
         const tweetResult = await scanner.runTweetProcessing();
@@ -289,7 +291,7 @@ async function checkMorningBriefings() {
         logError(`tweet processing before briefing (${market})`, err);
       }
 
-      const text = await intel.generateMorningBriefing(market);
+      const text = await intel.generateMorningBriefing(market, lookbackHours);
 
       if (haUrl && haToken && haSvc) {
         const title = market === 'swedish' ? 'SE OMX Morning Brief' : 'US Market Brief';
