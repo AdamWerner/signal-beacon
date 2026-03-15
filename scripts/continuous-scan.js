@@ -349,9 +349,13 @@ async function loop() {
       logScan(`[WARNING] cycle took ${(elapsed / 1000).toFixed(0)}s — exceeds 8-minute budget. Check Claude CLI or network latency.`);
     }
 
-    // At least 30s rest between cycles regardless of how fast the cycle ran
-    const sleepMs = Math.max(30_000, SCAN_INTERVAL_MS - elapsed);
-    logScan(`[sleep] next scan in ${(sleepMs / 60000).toFixed(1)} minutes (cycle took ${(elapsed / 1000).toFixed(0)}s)...`);
+    // Extend interval to 30 min during dormant mode (nights/weekends)
+    const budgetModSleep = await import('../packages/scanner/dist/utils/ai-budget.js').catch(() => null);
+    const budgetModeSleep = budgetModSleep?.getAiBudgetMode?.() ?? 'active';
+    const intervalMs = budgetModeSleep === 'dormant' ? 30 * 60 * 1000 : SCAN_INTERVAL_MS;
+
+    const sleepMs = Math.max(30_000, intervalMs - elapsed);
+    logScan(`[sleep] next scan in ${(sleepMs / 60000).toFixed(1)} minutes (budget=${budgetModeSleep}, cycle took ${(elapsed / 1000).toFixed(0)}s)...`);
     await new Promise(resolve => setTimeout(resolve, sleepMs));
   }
 }
