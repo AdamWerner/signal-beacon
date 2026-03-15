@@ -1,10 +1,6 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { Signal } from '../storage/signal-store.js';
 import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
-import { trackClaudeCall } from '../utils/claude-usage.js';
-
-const execFileAsync = promisify(execFile);
+import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -17,27 +13,14 @@ interface RankCache {
 
 let cache: RankCache | null = null;
 
-// Common install paths for claude CLI on Windows and Unix
-const CLAUDE_CANDIDATES = [
-  'claude',
-  'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude',
-  '/usr/local/bin/claude',
-  '/usr/bin/claude',
-];
-
-async function callClaude(prompt: string, timeoutMs = 60000): Promise<string> {
-  for (const bin of CLAUDE_CANDIDATES) {
-    try {
-      const { stdout } = await execFileAsync(bin, ['-p', prompt], {
-        timeout: timeoutMs,
-        maxBuffer: 1024 * 1024
-      });
-      return stdout.trim();
-    } catch {
-      // Try next candidate
-    }
-  }
-  return '';
+async function callLocalAi(prompt: string, timeoutMs = 60000): Promise<string> {
+  const result = await runLocalAiPrompt(prompt, {
+    timeoutMs,
+    maxBufferBytes: 1024 * 1024,
+    usageContext: 'ai-ranking',
+    logContext: 'ai-ranking'
+  });
+  return result.ok ? result.stdout : '';
 }
 
 export type RankedSignal = Signal & { also_affects: string[] };
@@ -238,8 +221,7 @@ export async function getTopSignals(
   }
 
   const prompt = buildRankPrompt(candidates);
-  trackClaudeCall('ai-ranking');
-  const raw = await callClaude(prompt);
+  const raw = await callLocalAi(prompt);
 
   if (raw) {
     try {
@@ -282,6 +264,6 @@ In exactly 3 sentences: (1) explain WHY this market move affects ${signal.matche
 
 Be direct and professional. No markdown.`;
 
-  const result = await callClaude(prompt, 45000);
+  const result = await callLocalAi(prompt, 45000);
   return result || `${dir} signal on ${signal.matched_asset_name}. Market odds shifted ${deltaSign}${signal.delta_pct.toFixed(1)}% — monitor for follow-through. Rating: MODERATE.`;
 }

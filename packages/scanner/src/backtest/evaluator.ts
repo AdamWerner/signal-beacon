@@ -1,20 +1,8 @@
 import Database from 'better-sqlite3';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { YahooPriceClient, PricePoint } from './price-client.js';
 import { getYahooSymbol } from './symbol-map.js';
 import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from '../intelligence/trading-hours.js';
-
-const execFileAsync = promisify(execFile);
-
-const CLAUDE_CANDIDATES = [
-  'claude',
-  'claude.cmd',
-  'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude',
-  'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd',
-  '/usr/local/bin/claude',
-  '/usr/bin/claude'
-];
+import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 
 interface SignalCandidate {
   id: string;
@@ -866,14 +854,15 @@ export class SignalBacktestEvaluator {
     };
     const prompt = `${JSON.stringify(payload, null, 2)}\nReturn plain text only.`;
 
-    for (const binary of CLAUDE_CANDIDATES) {
-      try {
-        const { stdout } = await execFileAsync(binary, ['-p', prompt], { timeout: 30000 });
-        const note = stdout.trim();
-        if (note) return note.slice(0, 800);
-      } catch {
-        // Try next binary.
-      }
+    const result = await runLocalAiPrompt(prompt, {
+      timeoutMs: 30000,
+      maxBufferBytes: 1024 * 1024,
+      usageContext: 'backtest-summary',
+      logContext: 'backtest-summary'
+    });
+    if (result.ok) {
+      const note = result.stdout.trim();
+      if (note) return note.slice(0, 800);
     }
     return '';
   }

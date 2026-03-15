@@ -1,22 +1,5 @@
-import { spawn } from 'child_process';
 import { ClaudeVerificationResult, GuardDecision, VerificationContext } from './types.js';
-import { trackClaudeCall } from '../utils/claude-usage.js';
-
-const CLAUDE_CANDIDATES = [
-  'claude',
-  'claude.cmd',
-  'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude',
-  'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd',
-  '/usr/local/bin/claude',
-  '/usr/bin/claude'
-];
-
-function getCandidateBinaries(): string[] {
-  if (process.platform === 'win32') {
-    return CLAUDE_CANDIDATES.filter(candidate => !candidate.startsWith('/'));
-  }
-  return CLAUDE_CANDIDATES.filter(candidate => !candidate.includes(':\\'));
-}
+import { getLocalAiProviderLabel, runLocalAiPrompt } from '../utils/local-ai-cli.js';
 
 function clampAdjustment(value: number): number {
   return Math.max(-20, Math.min(20, Math.round(value)));
@@ -24,23 +7,6 @@ function clampAdjustment(value: number): number {
 
 function sanitizeClaudeJson(raw: string): string {
   return raw.replace(/```json/gi, '').replace(/```/g, '').trim();
-}
-
-function formatExecError(error: unknown): string {
-  if (!error || typeof error !== 'object') return 'unknown error';
-  const err = error as {
-    message?: string;
-    code?: string | number;
-    signal?: string;
-    killed?: boolean;
-  };
-  const parts = [
-    err.code ? `code=${String(err.code)}` : '',
-    err.signal ? `signal=${err.signal}` : '',
-    err.killed ? 'killed=true' : '',
-    err.message ? `msg=${err.message}` : ''
-  ].filter(Boolean);
-  return parts.join(' ');
 }
 
 function parseResultObject(parsed: unknown): ClaudeVerificationResult | null {
@@ -218,7 +184,7 @@ export class AiTradeVerifier {
     if (Date.now() >= this.backoffUntilMs) return false;
     if (Date.now() - this.lastBackoffLogAt > 60_000) {
       const seconds = Math.max(1, Math.round((this.backoffUntilMs - Date.now()) / 1000));
-      console.warn(`[verify] Claude ${scope} skipped during cooldown (${seconds}s remaining)`);
+      console.warn(`[verify] ${getLocalAiProviderLabel()} ${scope} skipped during cooldown (${seconds}s remaining)`);
       this.lastBackoffLogAt = Date.now();
     }
     return true;
@@ -236,80 +202,17 @@ export class AiTradeVerifier {
     this.lastBackoffLogAt = Date.now();
     const detail = errors.slice(-3).join(' | ');
     console.warn(
-      `[verify] Claude ${scope} failed (${this.consecutiveFailures}x); ` +
+      `[verify] ${getLocalAiProviderLabel()} ${scope} failed (${this.consecutiveFailures}x); ` +
       `cooldown ${Math.round(backoffMs / 1000)}s. ${detail}`
     );
 
     if (this.consecutiveFailures >= this.disableAfterFailures) {
       this.enabled = false;
       console.warn(
-        `[verify] Claude verifier disabled after ${this.consecutiveFailures} consecutive failures. ` +
+        `[verify] ${getLocalAiProviderLabel()} verifier disabled after ${this.consecutiveFailures} consecutive failures. ` +
         'Set CLAUDE_VERIFY_ENABLED=true and restart to re-enable.'
       );
     }
-  }
-
-  private async runClaudeCommand(
-    binary: string,
-    prompt: string,
-    timeout: number,
-    maxBuffer: number
-  ): Promise<{ stdout: string }> {
-    return await new Promise<{ stdout: string }>((resolve, reject) => {
-      const child = spawn(binary, ['-p'], {
-        shell: process.platform === 'win32' && binary.toLowerCase().endsWith('.cmd'),
-        windowsHide: true
-      });
-
-      let stdout = '';
-      let stderr = '';
-      let settled = false;
-      const finish = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        fn();
-      };
-
-      const timer = setTimeout(() => {
-        child.kill();
-        finish(() => reject({ code: 'ETIMEDOUT', message: `timeout after ${timeout}ms` }));
-      }, timeout);
-
-      child.stdout.on('data', chunk => {
-        if (settled) return;
-        stdout += chunk.toString();
-        if (stdout.length > maxBuffer) {
-          child.kill();
-          finish(() => reject({ code: 'E2BIG', message: `stdout exceeds ${maxBuffer} bytes` }));
-        }
-      });
-
-      child.stderr.on('data', chunk => {
-        if (settled) return;
-        stderr += chunk.toString();
-        if (stderr.length > maxBuffer) {
-          child.kill();
-          finish(() => reject({ code: 'E2BIG', message: `stderr exceeds ${maxBuffer} bytes` }));
-        }
-      });
-
-      child.on('error', error => {
-        finish(() => reject(error));
-      });
-
-      child.on('close', code => {
-        if (code === 0) {
-          finish(() => resolve({ stdout }));
-          return;
-        }
-        const msg = stderr.trim() || `process exited with code ${String(code)}`;
-        finish(() => reject({ code, message: msg }));
-      });
-
-      child.stdin.write(prompt);
-      child.stdin.end();
-    });
   }
 
   async verify(context: VerificationContext, guard: GuardDecision): Promise<ClaudeVerificationResult | null> {
@@ -317,21 +220,20 @@ export class AiTradeVerifier {
     if (this.isInBackoff('single')) return null;
 
     const prompt = buildPrompt(context, guard);
-    trackClaudeCall('verify-single');
-    const errors: string[] = [];
-
-    for (const binary of getCandidateBinaries()) {
-      try {
-        const { stdout } = await this.runClaudeCommand(binary, prompt, this.timeoutMs, 1024 * 1024);
-        const parsed = parseResult(stdout.trim());
-        if (parsed) {
-          this.recordSuccess();
-          return parsed;
-        }
-        errors.push(`${binary}: invalid JSON response`);
-      } catch (error) {
-        errors.push(`${binary}: ${formatExecError(error)}`);
+    const result = await runLocalAiPrompt(prompt, {
+      timeoutMs: this.timeoutMs,
+      maxBufferBytes: 1024 * 1024,
+      usageContext: 'verify-single',
+      logContext: 'verify-single'
+    });
+    const errors = [...result.errors];
+    if (result.ok) {
+      const parsed = parseResult(result.stdout);
+      if (parsed) {
+        this.recordSuccess();
+        return parsed;
       }
+      errors.push(`${result.binary || 'local-ai'}: invalid JSON response`);
     }
 
     this.recordFailure('single', errors);
@@ -348,21 +250,20 @@ export class AiTradeVerifier {
     if (this.isInBackoff('batch')) return null;
 
     const prompt = buildBatchPrompt(contexts, guards, newsContext);
-    trackClaudeCall('batch-verify');
-    const errors: string[] = [];
-
-    for (const binary of getCandidateBinaries()) {
-      try {
-        const { stdout } = await this.runClaudeCommand(binary, prompt, this.batchTimeoutMs, 2 * 1024 * 1024);
-        const parsed = parseBatchResult(stdout.trim(), contexts.length);
-        if (parsed) {
-          this.recordSuccess();
-          return parsed;
-        }
-        errors.push(`${binary}: invalid JSON response`);
-      } catch (error) {
-        errors.push(`${binary}: ${formatExecError(error)}`);
+    const result = await runLocalAiPrompt(prompt, {
+      timeoutMs: this.batchTimeoutMs,
+      maxBufferBytes: 2 * 1024 * 1024,
+      usageContext: 'batch-verify',
+      logContext: 'batch-verify'
+    });
+    const errors = [...result.errors];
+    if (result.ok) {
+      const parsed = parseBatchResult(result.stdout, contexts.length);
+      if (parsed) {
+        this.recordSuccess();
+        return parsed;
       }
+      errors.push(`${result.binary || 'local-ai'}: invalid JSON response`);
     }
 
     this.recordFailure('batch', errors);

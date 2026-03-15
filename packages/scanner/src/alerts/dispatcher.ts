@@ -5,6 +5,7 @@ import { AlertConfig } from './types.js';
 import { GeneratedSignal } from '../signals/types.js';
 import { getAssetMarket, isMarketOpen } from '../intelligence/trading-hours.js';
 import { estimateExecutionCost } from '../intelligence/execution-feasibility.js';
+import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 
 export class AlertDispatcher {
   private pushover?: PushoverClient;
@@ -724,23 +725,20 @@ or
 {"verdict":"reject","reason":"why not","confidence_adjustment":0}`;
 
     try {
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      const execFileAsync = promisify(execFile);
-
-      for (const bin of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude', '/usr/local/bin/claude']) {
-        try {
-          const { stdout } = await execFileAsync(bin, ['-p', prompt], { timeout: 30000 });
-          const cleaned = stdout.trim().replace(/```json|```/g, '').trim();
-          const parsed = JSON.parse(cleaned);
-          if (parsed.verdict === 'approve' || parsed.verdict === 'reject') {
-            const { trackClaudeCall } = await import('../utils/claude-usage.js');
-            trackClaudeCall('deep-verify-pre-push');
-            return parsed;
-          }
-        } catch { continue; }
+      const result = await runLocalAiPrompt(prompt, {
+        timeoutMs: 30000,
+        maxBufferBytes: 1024 * 1024,
+        usageContext: 'deep-verify-pre-push',
+        logContext: 'deep-verify-pre-push'
+      });
+      if (result.ok) {
+        const cleaned = result.stdout.trim().replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed.verdict === 'approve' || parsed.verdict === 'reject') {
+          return parsed;
+        }
       }
     } catch {}
-    return null; // Claude unavailable — proceed without deep verification
+    return null; // Local AI unavailable — proceed without deep verification
   }
 }

@@ -1,11 +1,7 @@
 ﻿import Database from 'better-sqlite3';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './trading-hours.js';
 import { NewsCorrelator } from './news-correlator.js';
-import { trackClaudeCall } from '../utils/claude-usage.js';
-
-const execFileAsync = promisify(execFile);
+import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 
 interface IntelligenceMemoryRow {
   id: number;
@@ -337,15 +333,14 @@ Rules:
 - Max 200 words.`;
 
     let briefingText = '';
-    trackClaudeCall('morning-briefing');
-    for (const binary of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd']) {
-      try {
-        const { stdout } = await execFileAsync(binary, ['-p', prompt], { timeout: 60000 });
-        briefingText = stdout.trim();
-        if (briefingText) break;
-      } catch {
-        // Try next binary.
-      }
+    const aiResult = await runLocalAiPrompt(prompt, {
+      timeoutMs: 60000,
+      maxBufferBytes: 1024 * 1024,
+      usageContext: 'morning-briefing',
+      logContext: 'morning-briefing'
+    });
+    if (aiResult.ok) {
+      briefingText = aiResult.stdout;
     }
 
     if (!briefingText) {

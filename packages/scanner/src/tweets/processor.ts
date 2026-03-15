@@ -1,10 +1,6 @@
 ﻿import Database from 'better-sqlite3';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { TweetStore, UnprocessedTweet } from '../storage/tweet-store.js';
-import { trackClaudeCall } from '../utils/claude-usage.js';
-
-const execFileAsync = promisify(execFile);
+import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 
 export interface TweetIntelResult {
   tweetsAnalyzed: number;
@@ -131,22 +127,14 @@ Rules:
   }
 
   private async runClaudePrompt(prompt: string): Promise<ParsedInsight[]> {
-    trackClaudeCall('tweet-process');
-    for (const bin of ['claude', 'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd']) {
-      try {
-        const { stdout } = await execFileAsync(bin, ['-p', prompt], {
-          timeout: 90000,
-          maxBuffer: 1024 * 1024
-        });
-
-        const parsed = this.parseInsights(stdout);
-        return parsed;
-      } catch {
-        // Try the next binary path.
-      }
-    }
-
-    return [];
+    const result = await runLocalAiPrompt(prompt, {
+      timeoutMs: 90000,
+      maxBufferBytes: 1024 * 1024,
+      usageContext: 'tweet-process',
+      logContext: 'tweet-process'
+    });
+    if (!result.ok) return [];
+    return this.parseInsights(result.stdout);
   }
 
   private parseInsights(rawOutput: string): ParsedInsight[] {
