@@ -280,11 +280,25 @@ export class IntelligenceEngine {
     // News reinforcement counts per top signal.
     const newsCorrelator = new NewsCorrelator(this.db);
     let totalNewsReinforced = 0;
-    const signalLines = topSignals.map(signal => {
+    const signalItems = topSignals.map((signal, idx) => {
       const nb = newsCorrelator.getBoostForAsset(signal.matched_asset_id, 16);
-      const newsTag = nb.sourceCount >= 2 ? ` [${nb.sourceCount} news sources, +${nb.boost}]` : '';
       if (nb.sourceCount >= 2) totalNewsReinforced++;
-      return `- ${signal.matched_asset_name}: ${signal.suggested_action} (${signal.confidence}%) — "${signal.market_title}" odds ${(signal.odds_before * 100).toFixed(0)}%->${(signal.odds_now * 100).toFixed(0)}%${newsTag}`;
+      const reasoning: string = signal.reasoning || '';
+      const reasoningTags = (reasoning.match(/\[[^\]]+\]/g) ?? []).slice(0, 6).join(' ');
+      return {
+        index: idx,
+        id: signal.id,
+        asset: signal.matched_asset_name,
+        action: signal.suggested_action,
+        confidence: signal.confidence,
+        market: (signal.market_title as string).substring(0, 80),
+        odds_before: (signal.odds_before * 100).toFixed(0) + '%',
+        odds_now: (signal.odds_now * 100).toFixed(0) + '%',
+        delta_pct: signal.delta_pct,
+        whale: signal.whale_detected ? `$${(signal.whale_amount_usd || 0).toLocaleString()}` : null,
+        news_sources: nb.sourceCount >= 2 ? nb.sourceCount : 0,
+        tags: reasoningTags || null
+      };
     });
 
     // Fetch yesterday's backtest summary for this market.
@@ -307,16 +321,20 @@ export class IntelligenceEngine {
         (backtestRow.ai_notes ? backtestRow.ai_notes.slice(0, 150) : '')
       : 'No backtest data for yesterday.';
 
-    const prompt = `You are advising a Swedish trader on Avanza who trades leveraged certificates (BULL/BEAR X3-X10). Write a pre-market briefing for ${marketName} open. Max 200 words.
+    const cetTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit' });
+    const openInMin = market === 'swedish' ? 15 : 15; // approximate until open
 
-OVERNIGHT POLYMARKET SIGNALS (sorted by confidence):
-${signalLines.join('\n')}
+    const prompt = `You are the morning pre-market analyst for a Swedish trader on Avanza trading leveraged certificates (BULL/BEAR X3-X10). It is ${cetTime} CET, ${marketName} opens in ~${openInMin} minutes.
+
+OVERNIGHT SIGNALS (${topSignals.length} top, sorted by confidence):
+${JSON.stringify(signalItems, null, 2)}
+
 News reinforcement: ${totalNewsReinforced} of ${topSignals.length} signals confirmed by 2+ independent news sources.
 
 OVERNIGHT NEWS (from financial RSS feeds):
 ${tweetContext || 'No news context available.'}
 
-YESTERDAY'S BACKTEST:
+YESTERDAY'S PERFORMANCE:
 ${backtestSummary}
 
 ACTIVE REINFORCING PATTERNS:
@@ -325,22 +343,66 @@ ${reinforcingMemories.map(m => `- ${m.insight} (+${m.confidence_boost})`).join('
 CROSS-SECTOR MACRO PATTERNS:
 ${crossSectorMemories.map(m => `- ${m.insight} (+${m.confidence_boost})`).join('\n') || 'None'}
 
+TASK: Perform THREE steps in ONE response. Respond with ONLY valid JSON, no markdown fences.
+
+{
+  "ranked_signals": [
+    {
+      "signal_id": "<id from input>",
+      "rank": 1,
+      "verdict": "trade",
+      "certificate": "BULL EQUINOR X3 AVA",
+      "reason": "Qatar LNG restart + crude futures confirm + 3 news sources",
+      "hold_minutes": 30
+    }
+  ],
+  "briefing_text": "1-2 paragraph morning brief. Mention specific Avanza certificate names. Be brutally honest — weak setups get NO recommendation.",
+  "market_outlook": "bullish|bearish|neutral",
+  "stay_flat": false
+}
+
 Rules:
-- CRITICAL: If no overnight signal has strong enough conviction, say "No clear trades today — stay flat." Do NOT force a recommendation. 1 excellent signal beats 5 mediocre ones.
-- For each trade: state the specific Avanza instrument (e.g. "BULL EQUINOR X3 AVA"), the entry reasoning, and expected holding time (5-30 min).
-- Weight signals higher if they appear in both Polymarket odds and news (news-reinforced tag).
-- Be brutally honest about confidence. Do not hype weak signals.
-- Max 200 words.`;
+- CRITICAL: If no signal has strong conviction, set stay_flat=true and briefing_text="No clear trades today — stay flat." Do NOT force trades.
+- verdict must be "trade" or "skip"
+- certificate must be a real Avanza instrument name (e.g. "BULL EQUINOR X3 AVA", "BEAR NVIDIA X3 AVA")
+- Weight signals higher if whale activity detected or news_sources >= 2
+- Reject signals with contradicting futures/vol tags`;
 
     let briefingText = '';
     const aiResult = await runLocalAiPrompt(prompt, {
-      timeoutMs: 60000,
-      maxBufferBytes: 1024 * 1024,
+      timeoutMs: 90000,
+      maxBufferBytes: 2 * 1024 * 1024,
       usageContext: 'morning-briefing',
       logContext: 'morning-briefing'
     });
     if (aiResult.ok) {
-      briefingText = aiResult.stdout;
+      try {
+        const cleaned = aiResult.stdout.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed.briefing_text) {
+          briefingText = parsed.stay_flat
+            ? parsed.briefing_text
+            : parsed.briefing_text;
+          // Store ranked signal verdicts back to DB for dashboard display
+          if (Array.isArray(parsed.ranked_signals)) {
+            for (const rs of parsed.ranked_signals) {
+              if (rs.signal_id && rs.verdict) {
+                try {
+                  this.db.prepare(
+                    `UPDATE signals SET ai_analysis = ? WHERE id = ?`
+                  ).run(
+                    `[${rs.verdict.toUpperCase()}] ${rs.certificate || ''} — ${rs.reason || ''} (hold ${rs.hold_minutes || '?'}min)`,
+                    rs.signal_id
+                  );
+                } catch { /* non-fatal */ }
+              }
+            }
+          }
+        }
+      } catch {
+        // JSON parse failed — fall back to raw text
+        briefingText = aiResult.stdout;
+      }
     }
 
     if (!briefingText) {
