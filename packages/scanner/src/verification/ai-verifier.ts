@@ -1,5 +1,6 @@
 import { ClaudeVerificationResult, GuardDecision, VerificationContext } from './types.js';
 import { getLocalAiProviderLabel, runLocalAiPrompt } from '../utils/local-ai-cli.js';
+import { shouldDoAiRanking } from '../utils/ai-budget.js';
 
 function clampAdjustment(value: number): number {
   return Math.max(-20, Math.min(20, Math.round(value)));
@@ -217,6 +218,7 @@ export class AiTradeVerifier {
 
   async verify(context: VerificationContext, guard: GuardDecision): Promise<ClaudeVerificationResult | null> {
     if (!this.enabled) return null;
+    if (!shouldDoAiRanking()) return null;
     if (this.isInBackoff('single')) return null;
 
     const prompt = buildPrompt(context, guard);
@@ -247,6 +249,7 @@ export class AiTradeVerifier {
   ): Promise<Array<ClaudeVerificationResult | null> | null> {
     if (contexts.length === 0) return [];
     if (!this.enabled) return null;
+    if (!shouldDoAiRanking()) return null;
     if (this.isInBackoff('batch')) return null;
 
     const prompt = buildBatchPrompt(contexts, guards, newsContext);

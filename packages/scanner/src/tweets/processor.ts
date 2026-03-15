@@ -1,6 +1,7 @@
 ﻿import Database from 'better-sqlite3';
 import { TweetStore, UnprocessedTweet } from '../storage/tweet-store.js';
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
+import { shouldDoTweetProcessing } from '../utils/ai-budget.js';
 
 export interface TweetIntelResult {
   tweetsAnalyzed: number;
@@ -27,6 +28,11 @@ export class TweetIntelligenceProcessor {
    * Process unprocessed tweets in a single batch AI call.
    */
   async processTweetBatch(): Promise<TweetIntelResult> {
+    if (!shouldDoTweetProcessing()) {
+      console.log('  [ai-budget] Skipping tweet AI processing (dormant mode)');
+      return { tweetsAnalyzed: 0, insightsGenerated: 0, tokensUsed: 0 };
+    }
+
     const tweets = this.tweetStore.getUnprocessedTweets(200);
 
     if (tweets.length < 10) {

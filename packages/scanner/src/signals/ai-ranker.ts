@@ -1,6 +1,7 @@
 import { Signal } from '../storage/signal-store.js';
 import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
+import { shouldDoAiRanking } from '../utils/ai-budget.js';
 
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -212,6 +213,12 @@ export async function getTopSignals(
   const candidates = [...deduped]
     .sort((a, b) => scoreForFallback(b) - scoreForFallback(a))
     .slice(0, 20);
+
+  // Skip Claude during dormant mode (nights/weekends)
+  if (!shouldDoAiRanking()) {
+    console.log('  [ai-budget] Skipping AI ranking (dormant mode)');
+    return fallbackRank(candidates).slice(0, 10);
+  }
 
   // Skip Claude when no high-quality candidates — saves tokens on low-signal cycles
   const highQuality = candidates.filter(s => s.confidence >= 50).length;

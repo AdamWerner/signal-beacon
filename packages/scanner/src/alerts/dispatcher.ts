@@ -6,6 +6,7 @@ import { GeneratedSignal } from '../signals/types.js';
 import { getAssetMarket, isMarketOpen } from '../intelligence/trading-hours.js';
 import { estimateExecutionCost } from '../intelligence/execution-feasibility.js';
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
+import { shouldDoDeepVerify } from '../utils/ai-budget.js';
 
 export class AlertDispatcher {
   private pushover?: PushoverClient;
@@ -641,6 +642,9 @@ export class AlertDispatcher {
     reason: string;
     confidence_adjustment: number;
   } | null> {
+    if (!shouldDoDeepVerify()) {
+      return null; // Proceed without deep-verify — guard already approved
+    }
     const isBull = signal.suggested_action.toLowerCase().includes('bull');
     const oddsBefore = (signal.odds_before * 100).toFixed(1);
     const oddsNow = (signal.odds_now * 100).toFixed(1);
