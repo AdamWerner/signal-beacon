@@ -143,6 +143,10 @@ async function runOneCycle() {
   cycleCount += 1;
   const start = Date.now();
 
+  const budgetMod = await import('../packages/scanner/dist/utils/ai-budget.js').catch(() => null);
+  const budgetMode = budgetMod?.getAiBudgetMode?.() ?? 'unknown';
+  logScan(`[cycle ${cycleCount}] ai_budget=${budgetMode}`);
+
   if (Date.now() - lastRefreshAt > REFRESH_INTERVAL_MS) {
     try {
       logScan(`[cycle ${cycleCount}] running market refresh...`);

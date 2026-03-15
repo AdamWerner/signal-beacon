@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { scanner, getClaudeUsage } from '@polysignal/scanner';
+import { scanner, getClaudeUsage, getAiBudgetMode } from '@polysignal/scanner';
 import { loadConfig } from '@polysignal/scanner/dist/config.js';
 
 const router = Router();
@@ -25,6 +25,7 @@ router.get('/', (req, res) => {
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
       claude_cli_calls_today: getClaudeUsage().today,
+      ai_budget_mode: getAiBudgetMode(),
       last_scan_at: lastScanAt,
       avanza: services.avanzaAvailable ? 'connected' : 'not connected',
       scanner: {

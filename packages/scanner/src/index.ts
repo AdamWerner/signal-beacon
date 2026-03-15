@@ -414,6 +414,7 @@ export { TweetIntelligenceProcessor } from './tweets/processor.js';
 export { isNoiseMarketQuestion } from './polymarket/noise-filter.js';
 export { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './intelligence/trading-hours.js';
 export { getClaudeUsage } from './utils/claude-usage.js';
+export { getAiBudgetMode } from './utils/ai-budget.js';
 export { StreamingSupervisor } from './streaming/jobs/streaming-supervisor.js';
 export { StreamingFeatureService } from './streaming/services/streaming-feature-service.js';
 export { FusionEngine } from './streaming/fusion/engine.js';
