@@ -104,6 +104,17 @@ export class MarketStore {
     stmt.run(condition_id);
   }
 
+  updateMatching(condition_id: string, matchedAssetIds: string[], relevanceScore: number): void {
+    this.db.prepare(`
+      UPDATE tracked_markets
+      SET matched_asset_ids = ?,
+          relevance_score = ?,
+          is_active = TRUE,
+          last_checked_at = CURRENT_TIMESTAMP
+      WHERE condition_id = ?
+    `).run(JSON.stringify(matchedAssetIds), relevanceScore, condition_id);
+  }
+
   updateLastChecked(condition_id: string): void {
     const stmt = this.db.prepare(`
       UPDATE tracked_markets

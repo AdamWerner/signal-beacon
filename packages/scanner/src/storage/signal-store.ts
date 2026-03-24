@@ -31,6 +31,13 @@ export interface Signal {
   verification_updated_at: string | null;
   push_sent_at: string | null;
   push_channel: string | null;
+  primary_source_family?: string | null;
+  catalyst_score?: number | null;
+  catalyst_summary?: string | null;
+  execution_replay_gate?: 'open' | 'watch' | 'block' | 'unknown' | null;
+  execution_replay_expectancy_pct?: number | null;
+  execution_replay_samples?: number | null;
+  execution_replay_win_rate?: number | null;
   status: 'new' | 'viewed' | 'dismissed' | 'acted';
 }
 
@@ -109,6 +116,46 @@ export class SignalStore {
       JSON.stringify(signal.verification_flags),
       signal.verification_source,
       signal.verification_record
+    );
+  }
+
+  updateCatalystContext(
+    id: string,
+    fields: {
+      primarySourceFamily: string;
+      catalystScore: number;
+      catalystSummary: string;
+      executionReplayGate: 'open' | 'watch' | 'block' | 'unknown';
+      executionReplayExpectancyPct: number;
+      executionReplaySamples: number;
+      executionReplayWinRate: number;
+      confidence: number;
+      reasoning: string;
+    }
+  ): void {
+    this.db.prepare(`
+      UPDATE signals
+      SET primary_source_family = ?,
+          catalyst_score = ?,
+          catalyst_summary = ?,
+          execution_replay_gate = ?,
+          execution_replay_expectancy_pct = ?,
+          execution_replay_samples = ?,
+          execution_replay_win_rate = ?,
+          confidence = ?,
+          reasoning = ?
+      WHERE id = ?
+    `).run(
+      fields.primarySourceFamily,
+      fields.catalystScore,
+      fields.catalystSummary,
+      fields.executionReplayGate,
+      fields.executionReplayExpectancyPct,
+      fields.executionReplaySamples,
+      fields.executionReplayWinRate,
+      fields.confidence,
+      fields.reasoning,
+      id
     );
   }
 
@@ -472,6 +519,40 @@ export class SignalStore {
         minDeltaPct: row.min_delta_pct || 15,
         minEvidenceScore: row.min_evidence_score || 3,
         updatedAt: row.updated_at
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  getSourceFamilyPerformance(sourceFamily: string): {
+    samples: number;
+    hitRate30m: number;
+    hitRate60m: number;
+    expectancyPct: number;
+    reliabilityScore: number;
+  } | null {
+    try {
+      const row = this.db.prepare(`
+        SELECT samples, hit_rate_30m, hit_rate_60m, expectancy_pct, reliability_score
+        FROM source_family_diagnostics
+        WHERE source_family = ?
+        LIMIT 1
+      `).get(sourceFamily) as {
+        samples: number;
+        hit_rate_30m: number;
+        hit_rate_60m: number;
+        expectancy_pct: number;
+        reliability_score: number;
+      } | undefined;
+
+      if (!row) return null;
+      return {
+        samples: row.samples || 0,
+        hitRate30m: row.hit_rate_30m || 0,
+        hitRate60m: row.hit_rate_60m || 0,
+        expectancyPct: row.expectancy_pct || 0,
+        reliabilityScore: row.reliability_score || 0
       };
     } catch {
       return null;

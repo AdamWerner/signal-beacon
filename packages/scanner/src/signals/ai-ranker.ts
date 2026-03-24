@@ -2,6 +2,7 @@ import { Signal } from '../storage/signal-store.js';
 import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 import { shouldDoAiRanking } from '../utils/ai-budget.js';
+import { isDashboardEligibleSignal } from './dashboard-eligibility.js';
 
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -187,9 +188,10 @@ export async function getTopSignals(
   if (rawSignals.length === 0) return [];
   const includeUnverified = options?.includeUnverified ?? false;
   const nonNoisePool = rawSignals.filter(signal => !isNoiseMarketQuestion(signal.market_title || ''));
+  const dashboardEligiblePool = nonNoisePool.filter(signal => isDashboardEligibleSignal(signal));
   const verifiedPool = includeUnverified
-    ? nonNoisePool
-    : nonNoisePool.filter(signal => isVerificationApproved(signal));
+    ? dashboardEligiblePool
+    : dashboardEligiblePool.filter(signal => isVerificationApproved(signal));
   const deduped = deduplicateSignals(verifiedPool);
   if (deduped.length === 0) return [];
 

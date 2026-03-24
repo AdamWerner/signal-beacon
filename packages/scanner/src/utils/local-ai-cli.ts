@@ -28,6 +28,8 @@ const CLAUDE_CANDIDATES = [
   '/usr/bin/claude'
 ];
 
+const providerCooldowns = new Map<LocalAiProvider, { until: number; reason: string }>();
+
 function getProviderFromEnv(): LocalAiProvider {
   return (process.env.LOCAL_AI_PROVIDER || 'claude').toLowerCase() === 'openai'
     ? 'openai'
@@ -85,6 +87,59 @@ function formatExecError(error: unknown): string {
   return parts.join(' ');
 }
 
+function parseResetHour(message: string): number | null {
+  const match = message.match(/resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!match) return null;
+
+  let hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2] || '0', 10);
+  const meridiem = match[3].toLowerCase();
+
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  if (meridiem === 'am' && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
+
+function detectTemporaryLimit(message: string): { until: number; reason: string } | null {
+  if (!/hit your limit|rate limit|quota/i.test(message)) {
+    return null;
+  }
+
+  const now = new Date();
+  const resetMinutes = parseResetHour(message);
+  if (resetMinutes == null) {
+    return {
+      until: Date.now() + 60 * 60 * 1000,
+      reason: message.trim()
+    };
+  }
+
+  const target = new Date(now);
+  target.setHours(Math.floor(resetMinutes / 60), resetMinutes % 60, 0, 0);
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+
+  return {
+    until: target.getTime(),
+    reason: message.trim()
+  };
+}
+
+function getCooldown(provider: LocalAiProvider): { until: number; reason: string } | null {
+  const cooldown = providerCooldowns.get(provider);
+  if (!cooldown) return null;
+  if (cooldown.until <= Date.now()) {
+    providerCooldowns.delete(provider);
+    return null;
+  }
+  return cooldown;
+}
+
+function setCooldown(provider: LocalAiProvider, cooldown: { until: number; reason: string }): void {
+  providerCooldowns.set(provider, cooldown);
+}
+
 async function runBinary(
   binary: string,
   prompt: string,
@@ -139,7 +194,7 @@ async function runBinary(
         finish(() => resolve({ stdout }));
         return;
       }
-      const message = stderr.trim() || `process exited with code ${String(code)}`;
+      const message = stderr.trim() || stdout.trim() || `process exited with code ${String(code)}`;
       finish(() => reject({ code, message }));
     });
 
@@ -153,6 +208,22 @@ export async function runLocalAiPrompt(
   options: LocalAiPromptOptions = {}
 ): Promise<LocalAiPromptResult> {
   const provider = getProviderFromEnv();
+  const cooldown = getCooldown(provider);
+  if (cooldown) {
+    const minutes = Math.max(1, Math.ceil((cooldown.until - Date.now()) / 60000));
+    const message = `${cooldown.reason} (cooldown ${minutes} min remaining)`;
+    if (options.logContext) {
+      console.warn(`[ai-cli:${provider}] ${options.logContext} skipped: ${message}`);
+    }
+    return {
+      ok: false,
+      provider,
+      stdout: '',
+      errors: [message],
+      disabledReason: message
+    };
+  }
+
   const disabledReason = getLocalAiDisabledReason(provider);
   if (disabledReason) {
     if (options.logContext) {
@@ -197,7 +268,16 @@ export async function runLocalAiPrompt(
         errors
       };
     } catch (error) {
-      errors.push(`${binary}: ${formatExecError(error)}`);
+      const formatted = `${binary}: ${formatExecError(error)}`;
+      errors.push(formatted);
+      const limit = detectTemporaryLimit(formatted);
+      if (limit) {
+        setCooldown(provider, limit);
+        if (options.logContext) {
+          console.warn(`[ai-cli:${provider}] ${options.logContext} cooldown set: ${limit.reason}`);
+        }
+        break;
+      }
     }
   }
 

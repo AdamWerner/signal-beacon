@@ -1,5 +1,5 @@
 ﻿import Database from 'better-sqlite3';
-import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from './trading-hours.js';
+import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS, getStockholmDateStringAt } from './trading-hours.js';
 import { NewsCorrelator } from './news-correlator.js';
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 
@@ -45,6 +45,22 @@ function getSectorForAsset(assetId: string): string | null {
     if (peers.includes(assetId)) return sector;
   }
   return null;
+}
+
+export function isBriefingCandidate(signal: { [key: string]: any }): boolean {
+  const confidence = Number(signal.confidence || 0);
+  const source = String(signal.verification_source || '');
+  const reasoning = String(signal.reasoning || '');
+  const hasObjectiveConfirmation =
+    Boolean(signal.whale_detected) ||
+    /\[news:\+\d+/i.test(reasoning) ||
+    /\[futures:[^\]]*confirms/i.test(reasoning) ||
+    /\[macro:/i.test(reasoning);
+
+  if (confidence >= 60) return true;
+  if ((source === 'claude' || source === 'guard_allowlist') && confidence >= 45) return true;
+  if (hasObjectiveConfirmation && confidence >= 45) return true;
+  return false;
 }
 
 export class IntelligenceEngine {
@@ -263,7 +279,14 @@ export class IntelligenceEngine {
       return fallback;
     }
 
-    const topSignals = this.getTopSignalsByAsset(recentSignals, 5);
+    const briefingPool = recentSignals.filter(isBriefingCandidate);
+    if (briefingPool.length === 0) {
+      const stayFlat = 'No clear trades today — stay flat.';
+      this.storeBriefing(today, market, stayFlat, []);
+      return stayFlat;
+    }
+
+    const topSignals = this.getTopSignalsByAsset(briefingPool, 5);
     const activeMemories = this.getActiveMemories().slice(0, 8);
     const crossSectorMemories = activeMemories.filter(m => m.category.includes('-'));
     const reinforcingMemories = activeMemories.filter(m => !m.category.includes('-')).slice(0, 5);
@@ -304,7 +327,7 @@ export class IntelligenceEngine {
     // Fetch yesterday's backtest summary for this market.
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yDate = yesterday.toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+    const yDate = getStockholmDateStringAt(yesterday);
     const backtestRow = this.db.prepare(`
       SELECT signals_evaluated, hit_rate_30m, hit_rate_60m, avg_move_30m, ai_notes
       FROM daily_backtest_runs WHERE date = ? AND market = ? LIMIT 1
@@ -498,7 +521,7 @@ Rules:
   }
 
   private getStockholmDateString(): string {
-    return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+    return getStockholmDateStringAt(new Date());
   }
 
   private safeJsonArray(value: string): string[] {

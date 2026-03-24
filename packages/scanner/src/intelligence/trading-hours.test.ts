@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getStockholmClockPartsAt,
+  getStockholmDateStringAt,
   getAssetMarket,
+  isApproachingPreMarketWindowAt,
   isMarketOpenAt,
   isPreMarketWindowAt,
   EUROPEAN_SESSION_ASSETS,
@@ -37,5 +40,16 @@ describe('trading-hours per asset/market', () => {
     expect(getAssetMarket('pharma-novo')).toBe('swedish');
     expect(EUROPEAN_SESSION_ASSETS.has('oil-equinor')).toBe(true);
     expect(SWEDISH_MARKET_ASSETS.has('oil-equinor')).toBe(false);
+  });
+
+  it('uses deterministic Stockholm clock parts for the Swedish pre-market approach window', () => {
+    const date = new Date('2026-03-19T07:09:53Z'); // 08:09:53 CET
+    expect(getStockholmClockPartsAt(date)).toEqual({ day: 4, minutes: 8 * 60 + 9 });
+    expect(isApproachingPreMarketWindowAt(date)).toBe(true);
+  });
+
+  it('formats Stockholm dates deterministically as YYYY-MM-DD', () => {
+    const date = new Date('2026-03-19T07:09:53Z');
+    expect(getStockholmDateStringAt(date)).toBe('2026-03-19');
   });
 });

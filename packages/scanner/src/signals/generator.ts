@@ -14,6 +14,7 @@ import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
 const DEDUP_WINDOW_HOURS = 4;
 const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
 const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 40;
+const PROXY_CLUSTER_WINDOW_HOURS = 12;
 
 export class SignalGenerator {
   constructor(
@@ -38,7 +39,9 @@ export class SignalGenerator {
     let noInstrumentSkipped = 0;
     let lowConfidenceSkipped = 0;
     let cycleEscalationSkipped = 0;
+    let proxyClusterSkipped = 0;
     const cycleAbsDeltaByKey = new Map<string, number>();
+    const cycleClusterCounts = new Map<string, number>();
     const minStoreConfidence = Math.max(0, parseInt(process.env.SIGNAL_MIN_CONFIDENCE_STORE || '12', 10));
     const minStoreConfidenceMicro = Math.max(
       minStoreConfidence,
@@ -119,6 +122,31 @@ export class SignalGenerator {
               ` opp:${instability.oppositeDirection}]`;
           }
 
+          const marketChurn = this.getSameMarketChurnPenalty(recentSignals, signal);
+          if (marketChurn.penalty > 0) {
+            signal.confidence = Math.max(0, signal.confidence - marketChurn.penalty);
+            signal.reasoning +=
+              ` [market_churn:-${marketChurn.penalty} recent:${marketChurn.totalRecent}` +
+              ` flips:${marketChurn.oppositeDirection}]`;
+          }
+
+          const proxyContext = this.getProxyMarketContext(market.title, signal.matched_asset_id);
+          if (proxyContext) {
+            signal.reasoning += ` [proxy:${proxyContext.clusterKey}]`;
+            if (proxyContext.penalty > 0) {
+              signal.confidence = Math.max(0, signal.confidence - proxyContext.penalty);
+              signal.reasoning += ` [proxy_penalty:-${proxyContext.penalty}]`;
+            }
+
+            const proxyPenalty = this.getProxyClusterPenalty(recentSignals, signal, proxyContext.clusterKey);
+            if (proxyPenalty.penalty > 0) {
+              signal.confidence = Math.max(0, signal.confidence - proxyPenalty.penalty);
+              signal.reasoning +=
+                ` [proxy_cluster:-${proxyPenalty.penalty} recent:${proxyPenalty.recentCount}` +
+                ` flips:${proxyPenalty.oppositeDirection}]`;
+            }
+          }
+
           // Append momentum trend to reasoning
           if (momentum.trend !== 'insufficient_data') {
             signal.reasoning += ` Momentum: ${momentum.trend} (${momentum.cyclesInDirection} cycles).`;
@@ -167,6 +195,22 @@ export class SignalGenerator {
             continue; // silent skip — not worth logging every one
           }
 
+          if (proxyContext) {
+            const directionTag = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+            const clusterCycleKey = `${proxyContext.clusterKey}:${directionTag}`;
+            const clusterCount = cycleClusterCounts.get(clusterCycleKey) || 0;
+            if (clusterCount >= proxyContext.maxPerCycle) {
+              proxyClusterSkipped += 1;
+              if (proxyClusterSkipped <= 12) {
+                console.log(
+                  `  [cluster] skipping ${mapping.assetName} proxy cluster ${proxyContext.clusterKey} ` +
+                  `(cycle ${clusterCount + 1} > max ${proxyContext.maxPerCycle})`
+                );
+              }
+              continue;
+            }
+          }
+
           const verificationContext: VerificationContext = {
             marketTitle: signal.market_title,
             marketDescription: market.description || null,
@@ -203,18 +247,6 @@ export class SignalGenerator {
             signal.suggested_action = verification.suggestedActionOverride;
           }
 
-          if (
-            guardFromRecord &&
-            (guardFromRecord.status === 'approved' || guardFromRecord.status === 'needs_review')
-          ) {
-            batchCandidates.push({
-              signalId: signal.id,
-              confidence: signal.confidence,
-              context: verificationContext,
-              guard: guardFromRecord
-            });
-          }
-
           // Confidence breakdown tag for transparency in push notifications + detail page
           const breakdown: string[] = [`base:${baseConfidence}`];
           if (momentum.boost !== 0) breakdown.push(`mom:${momentum.boost > 0 ? '+' : ''}${momentum.boost}`);
@@ -238,6 +270,22 @@ export class SignalGenerator {
           signals.push(signal);
           this.signalStore.insert(signal);
           cycleAbsDeltaByKey.set(signal.deduplication_key, Math.abs(signal.delta_pct));
+          if (proxyContext) {
+            const directionTag = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+            const clusterCycleKey = `${proxyContext.clusterKey}:${directionTag}`;
+            cycleClusterCounts.set(clusterCycleKey, (cycleClusterCounts.get(clusterCycleKey) || 0) + 1);
+          }
+          if (
+            guardFromRecord &&
+            (guardFromRecord.status === 'approved' || guardFromRecord.status === 'needs_review')
+          ) {
+            batchCandidates.push({
+              signalId: signal.id,
+              confidence: signal.confidence,
+              context: verificationContext,
+              guard: guardFromRecord
+            });
+          }
 
           recentSignals.unshift({
             ...signal,
@@ -266,6 +314,9 @@ export class SignalGenerator {
     }
     if (lowConfidenceSkipped > 12) {
       console.log(`  [quality] skipped ${lowConfidenceSkipped - 12} low-confidence signals (suppressed)`);
+    }
+    if (proxyClusterSkipped > 12) {
+      console.log(`  [cluster] skipped ${proxyClusterSkipped - 12} additional proxy-cluster signals (suppressed)`);
     }
 
     if (batchCandidates.length > 0) {
@@ -535,5 +586,145 @@ export class SignalGenerator {
     }
 
     return { penalty: 0, sameDirection, oppositeDirection };
+  }
+
+  private getSameMarketChurnPenalty(
+    recentSignals: Array<{ [key: string]: any }>,
+    signal: GeneratedSignal
+  ): { penalty: number; totalRecent: number; oppositeDirection: number } {
+    const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+    const opposite = direction === 'bull' ? 'bear' : 'bull';
+    const cutoffMs = Date.now() - (24 * 60 * 60 * 1000);
+
+    let totalRecent = 0;
+    let oppositeDirection = 0;
+
+    for (const existing of recentSignals) {
+      if (existing.matched_asset_id !== signal.matched_asset_id) continue;
+      if (existing.market_condition_id !== signal.market_condition_id) continue;
+      const tsRaw = String(existing.timestamp || '');
+      const ts = Date.parse(tsRaw.replace(' ', 'T') + (tsRaw.endsWith('Z') ? '' : 'Z'));
+      if (!Number.isFinite(ts) || ts < cutoffMs) continue;
+
+      totalRecent += 1;
+      const action = String(existing.suggested_action || '').toLowerCase();
+      if (action.includes(opposite)) {
+        oppositeDirection += 1;
+      }
+    }
+
+    if (totalRecent >= 8 && oppositeDirection >= 3) {
+      return { penalty: 18, totalRecent, oppositeDirection };
+    }
+    if (totalRecent >= 6 && oppositeDirection >= 2) {
+      return { penalty: 12, totalRecent, oppositeDirection };
+    }
+    if (totalRecent >= 4 && oppositeDirection >= 1) {
+      return { penalty: 6, totalRecent, oppositeDirection };
+    }
+
+    return { penalty: 0, totalRecent, oppositeDirection };
+  }
+
+  private getProxyMarketContext(
+    title: string,
+    assetId: string
+  ): { clusterKey: string; penalty: number; maxPerCycle: number } | null {
+    const normalized = String(title || '').toLowerCase();
+    if (assetId === 'crypto-coinbase') {
+      if (/\bup or down\b/.test(normalized) && /\b(et|eastern)\b/.test(normalized)) {
+        return { clusterKey: 'crypto_proxy_intraday', penalty: 24, maxPerCycle: 1 };
+      }
+
+      if (/\baverage monthly\b.+\b(gas price|gwei)\b/.test(normalized)) {
+        return { clusterKey: 'crypto_proxy_metric', penalty: 16, maxPerCycle: 1 };
+      }
+
+      if (
+        /\bprice of\b.*\b(bitcoin|ethereum|solana|btc|eth)\b/.test(normalized) ||
+        /\b(bitcoin|ethereum|solana|btc|eth)\b.*\b(above|below|between|reach|hit|over|under|dip to)\b/.test(normalized) ||
+        /\$\d[\d,]*\s*-\s*\$\d[\d,]*/.test(normalized)
+      ) {
+        return { clusterKey: 'crypto_proxy_price', penalty: 20, maxPerCycle: 1 };
+      }
+      return null;
+    }
+
+    if (assetId.startsWith('oil-')) {
+      if (
+        /\b(crude oil|wti|brent|cl)\b/.test(normalized) &&
+        (/\bprice of\b/.test(normalized) ||
+          /\b(above|below|between|reach|hit|over|under|dip to)\b/.test(normalized) && /\$\d/.test(normalized) ||
+          /\$\d[\d,]*\s*-\s*\$\d[\d,]*/.test(normalized))
+      ) {
+        return { clusterKey: 'commodity_proxy_price', penalty: 18, maxPerCycle: 1 };
+      }
+      return null;
+    }
+
+    if (assetId === 'ev-tesla') {
+      if (
+        /\b(tesla|tsla)\b/.test(normalized) &&
+        (/\bclose above|close below|dip to\b/.test(normalized) ||
+          /\b(above|below|between|reach|hit|over|under)\b/.test(normalized) && /\$\d/.test(normalized) ||
+          /\$\d[\d,]*\s*-\s*\$\d[\d,]*/.test(normalized))
+      ) {
+        return { clusterKey: 'equity_proxy_price', penalty: 18, maxPerCycle: 1 };
+      }
+      return null;
+    }
+
+    if (assetId === 'sp500' || assetId === 'nasdaq100' || assetId === 'omx30') {
+      if (
+        /\b(s&p 500|sp500|nasdaq|omx)\b/.test(normalized) &&
+        (/\bclose above|close below\b/.test(normalized) ||
+          /\b(above|below|between|reach|hit|over|under)\b/.test(normalized) && /\d/.test(normalized))
+      ) {
+        return { clusterKey: 'index_proxy_price', penalty: 16, maxPerCycle: 1 };
+      }
+    }
+
+    return null;
+  }
+
+  private getProxyClusterPenalty(
+    recentSignals: Array<{ [key: string]: any }>,
+    signal: GeneratedSignal,
+    clusterKey: string
+  ): { penalty: number; recentCount: number; oppositeDirection: number } {
+    const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+    const opposite = direction === 'bull' ? 'bear' : 'bull';
+    const cutoffMs = Date.now() - (PROXY_CLUSTER_WINDOW_HOURS * 60 * 60 * 1000);
+    const proxyTag = `[proxy:${clusterKey}]`;
+
+    let recentCount = 0;
+    let oppositeDirection = 0;
+
+    for (const existing of recentSignals) {
+      if (existing.matched_asset_id !== signal.matched_asset_id) continue;
+      const reasoning = String(existing.reasoning || '');
+      if (!reasoning.includes(proxyTag)) continue;
+      const tsRaw = String(existing.timestamp || '');
+      const ts = Date.parse(tsRaw.replace(' ', 'T') + (tsRaw.endsWith('Z') ? '' : 'Z'));
+      if (!Number.isFinite(ts) || ts < cutoffMs) continue;
+
+      recentCount += 1;
+      const action = String(existing.suggested_action || '').toLowerCase();
+      if (action.includes(opposite)) {
+        oppositeDirection += 1;
+      }
+    }
+
+    if (recentCount >= 8) {
+      return { penalty: 18, recentCount, oppositeDirection };
+    }
+    if (recentCount >= 5) {
+      return { penalty: 12, recentCount, oppositeDirection };
+    }
+    if (recentCount >= 3) {
+      return { penalty: 6, recentCount, oppositeDirection };
+    }
+
+    return { penalty: 0, recentCount, oppositeDirection };
   }
 }

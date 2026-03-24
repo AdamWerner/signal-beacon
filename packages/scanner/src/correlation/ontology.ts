@@ -8,6 +8,17 @@ const __dirname = dirname(__filename);
 
 export type { OntologyAsset };
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsKeyword(text: string, keyword: string): boolean {
+  const pattern = escapeRegExp(keyword.trim())
+    .replace(/\s+/g, '\\s+');
+  const regex = new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i');
+  return regex.test(text);
+}
+
 export class OntologyEngine {
   private ontology: Ontology;
 
@@ -55,16 +66,14 @@ export class OntologyEngine {
 
       // Keyword matching
       for (const keyword of asset.polymarket_patterns.keywords) {
-        const keywordLower = keyword.toLowerCase();
-
         // Title matches score 3x
-        if (titleLower.includes(keywordLower)) {
+        if (containsKeyword(titleLower, keyword)) {
           score += 3;
           matchedKeywords.push(keyword);
           hasTitleKeywordMatch = true;
         }
         // Description matches score 1x
-        else if (descLower.includes(keywordLower)) {
+        else if (containsKeyword(descLower, keyword)) {
           score += 1;
           matchedKeywords.push(keyword);
         }
@@ -79,7 +88,7 @@ export class OntologyEngine {
 
       // Exclude keywords (disqualify if found in title)
       const hasExclude = asset.polymarket_patterns.exclude_keywords.some(exclude =>
-        titleLower.includes(exclude.toLowerCase())
+        containsKeyword(titleLower, exclude)
       );
 
       if (hasExclude) {

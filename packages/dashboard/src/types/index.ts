@@ -30,8 +30,29 @@ export interface Signal {
   verification_flags?: string[];
   verification_source?: string | null;
   verification_record?: string | null;
+  primary_source_family?: string | null;
+  catalyst_score?: number | null;
+  catalyst_summary?: string | null;
+  execution_replay_gate?: "open" | "watch" | "block" | "unknown" | null;
+  execution_replay_expectancy_pct?: number | null;
+  execution_replay_samples?: number | null;
+  execution_replay_win_rate?: number | null;
+  proxy?: boolean;
+  proxy_source_signal_id?: string | null;
   also_affects?: string[];
   status: "new" | "viewed" | "dismissed" | "acted";
+}
+
+export interface Briefing {
+  id: number;
+  date: string;
+  market: "swedish" | "us";
+  briefing_generated_at: string | null;
+  pushed_at: string | null;
+  briefing_text: string;
+  signal_count: number;
+  top_assets: string[];
+  url: string;
 }
 
 export interface MarketWatch {

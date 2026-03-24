@@ -36,7 +36,7 @@ function fail(label, value) {
   console.log(`  ${FAIL} ${label}: ${value}`);
 }
 
-console.log('\n[1/8] Loading scanner module...');
+console.log('\n[1/10] Loading scanner module...');
 let scanner;
 try {
   const mod = await import('@polysignal/scanner');
@@ -51,7 +51,7 @@ try {
 const services = scanner.getServices();
 const db = services.db;
 
-console.log('\n[2/8] Database...');
+console.log('\n[2/10] Database...');
 try {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
   ok('Tables', tables.map(t => t.name).join(', '));
@@ -63,7 +63,7 @@ try {
   fail('DB', err.message);
 }
 
-console.log('\n[3/8] Markets...');
+console.log('\n[3/10] Markets...');
 try {
   const markets = services.marketStore.findAll(true);
   const total = services.marketStore.findAll(false).length;
@@ -76,7 +76,7 @@ try {
   fail('Markets', err.message);
 }
 
-console.log('\n[4/8] Signals (last 24h)...');
+console.log('\n[4/10] Signals (last 24h)...');
 try {
   const rows = db.prepare(`
     SELECT verification_status, COUNT(*) as cnt, AVG(confidence) as avg_conf
@@ -102,7 +102,7 @@ try {
   fail('Signals', err.message);
 }
 
-console.log('\n[5/9] News feeds...');
+console.log('\n[5/10] News feeds...');
 try {
   const total = db.prepare(`SELECT COUNT(*) as cnt FROM tweet_accounts WHERE collect_enabled = 1`).get();
   const active = db.prepare(`
@@ -124,7 +124,7 @@ try {
   fail('News feeds', err.message);
 }
 
-console.log('\n[6/9] Streaming health...');
+console.log('\n[6/10] Streaming health...');
 try {
   const rows = services.streamingStore?.getStreamingHealth?.() || [];
   if (rows.length === 0) {
@@ -146,7 +146,7 @@ try {
   fail('Streaming health', err.message);
 }
 
-console.log('\n[7/9] Avanza instruments...');
+console.log('\n[7/10] Avanza instruments...');
 try {
   const counts = services.instrumentStore.countByUnderlying();
   const total = Object.values(counts).reduce((sum, count) => sum + count.bull + count.bear, 0);
@@ -160,7 +160,23 @@ try {
   fail('Instruments', err.message);
 }
 
-console.log('\n[8/9] DRY_RUN scan cycle...');
+console.log('\n[8/10] Catalyst diagnostics...');
+try {
+  const catalystCount = db.prepare(`SELECT COUNT(*) as cnt FROM external_catalysts`).get();
+  const linkCount = db.prepare(`SELECT COUNT(*) as cnt FROM signal_catalyst_links`).get();
+  const diagCount = db.prepare(`SELECT COUNT(*) as cnt FROM source_family_diagnostics`).get();
+  ok('Catalysts persisted', catalystCount.cnt);
+  ok('Signal-catalyst links', linkCount.cnt);
+  if (diagCount.cnt === 0) {
+    warn('Source-family diagnostics', '0 rows - waiting for catalyst backfill/backtest refresh');
+  } else {
+    ok('Source-family diagnostics', diagCount.cnt);
+  }
+} catch (err) {
+  fail('Catalyst diagnostics', err.message);
+}
+
+console.log('\n[9/10] DRY_RUN scan cycle...');
 try {
   const start = Date.now();
   const result = await scanner.runScanCycle();
@@ -186,7 +202,7 @@ try {
   fail('Scan cycle', err.message);
 }
 
-console.log('\n[9/9] Backtest (yesterday)...');
+console.log('\n[10/10] Backtest (yesterday)...');
 try {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);

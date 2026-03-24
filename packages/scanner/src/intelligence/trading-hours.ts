@@ -40,17 +40,52 @@ export function getAssetMarket(assetId: string): 'swedish' | 'us' {
   return 'us';
 }
 
-function getStockholmMinutes(now = new Date()): { minutes: number; day: number } {
-  const stockholmStr = now.toLocaleString('en-US', { timeZone: 'Europe/Stockholm' });
-  const s = new Date(stockholmStr);
+const STOCKHOLM_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Stockholm',
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23'
+});
+
+const STOCKHOLM_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Stockholm',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit'
+});
+
+const WEEKDAY_TO_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6
+};
+
+export function getStockholmClockPartsAt(now = new Date()): { minutes: number; day: number } {
+  const parts = STOCKHOLM_TIME_FORMATTER.formatToParts(now);
+  const weekday = parts.find(part => part.type === 'weekday')?.value ?? 'Mon';
+  const hour = parseInt(parts.find(part => part.type === 'hour')?.value ?? '0', 10);
+  const minute = parseInt(parts.find(part => part.type === 'minute')?.value ?? '0', 10);
   return {
-    minutes: s.getHours() * 60 + s.getMinutes(),
-    day: s.getDay()
+    minutes: hour * 60 + minute,
+    day: WEEKDAY_TO_INDEX[weekday] ?? 1
   };
 }
 
+export function getStockholmDateStringAt(now = new Date()): string {
+  const parts = STOCKHOLM_DATE_FORMATTER.formatToParts(now);
+  const year = parts.find(part => part.type === 'year')?.value ?? '1970';
+  const month = parts.find(part => part.type === 'month')?.value ?? '01';
+  const day = parts.find(part => part.type === 'day')?.value ?? '01';
+  return `${year}-${month}-${day}`;
+}
+
 export function isMarketOpenAt(market: 'swedish' | 'us', now: Date): boolean {
-  const { minutes, day } = getStockholmMinutes(now);
+  const { minutes, day } = getStockholmClockPartsAt(now);
   if (day === 0 || day === 6) return false;
   const cfg = TRADING_HOURS[market];
   const open  = cfg.open.hour  * 60 + cfg.open.minute;
@@ -63,16 +98,37 @@ export function isMarketOpen(market: 'swedish' | 'us'): boolean {
 }
 
 export function isPreMarketWindowAt(market: 'swedish' | 'us', now: Date): boolean {
-  const { minutes, day } = getStockholmMinutes(now);
+  const { minutes, day } = getStockholmClockPartsAt(now);
   if (day === 0 || day === 6) return false;
   const cfg = TRADING_HOURS[market];
   const push = cfg.preMarketPush.hour * 60 + cfg.preMarketPush.minute;
   const open = cfg.open.hour * 60 + cfg.open.minute;
-  return minutes >= push && minutes < open;
+  // Extend window 45 min past market open to survive a 30-min dormant sleep gap
+  // (pushed_at guard prevents double-sending)
+  return minutes >= push && minutes < open + 45;
 }
 
 export function isPreMarketWindow(market: 'swedish' | 'us'): boolean {
   return isPreMarketWindowAt(market, new Date());
+}
+
+export function isApproachingPreMarketWindowAt(now: Date, leadMinutes = 60): boolean {
+  const { minutes, day } = getStockholmClockPartsAt(now);
+  if (day === 0 || day === 6) return false;
+
+  for (const market of Object.keys(TRADING_HOURS) as Array<'swedish' | 'us'>) {
+    const cfg = TRADING_HOURS[market];
+    const push = cfg.preMarketPush.hour * 60 + cfg.preMarketPush.minute;
+    if (minutes >= push - leadMinutes && minutes < push) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function isApproachingPreMarketWindow(leadMinutes = 60): boolean {
+  return isApproachingPreMarketWindowAt(new Date(), leadMinutes);
 }
 
 /**

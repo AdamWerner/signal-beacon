@@ -32,12 +32,35 @@ const ORG_HINTS = [
   'equinor'
 ];
 
+const EVOLUTION_BLOCK_TERMS = [
+  'sports betting',
+  'sportsbook',
+  'osb',
+  'event-contract',
+  'license',
+  'licensed in ohio',
+  'ohio casino control commission',
+  'type a license'
+];
+
+const EVOLUTION_POSITIVE_TERMS = [
+  'igaming',
+  'live casino',
+  'online casino',
+  'live dealer',
+  'evolution gaming'
+];
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
 function unique(values: string[]): string[] {
   return [...new Set(values.map(v => v.trim()).filter(Boolean))];
+}
+
+function includesAny(text: string, terms: string[]): boolean {
+  return terms.some(term => text.includes(term));
 }
 
 function extractPersons(text: string): string[] {
@@ -63,6 +86,7 @@ export class EntityRelevanceGuard {
   evaluate(context: VerificationContext): GuardDecision {
     const baseText = [context.marketTitle, context.marketDescription || ''].join(' ').trim();
     const lower = baseText.toLowerCase();
+    const titleLower = String(context.marketTitle || '').toLowerCase();
     const matchedKeywords = unique(context.ontologyKeywords);
     const explicitKeywordMatch = matchedKeywords.length > 0;
 
@@ -75,11 +99,29 @@ export class EntityRelevanceGuard {
     const knownPersonLinked = extractedPersons.some(person =>
       this.knowledge.personLinkedToAsset(person, context.matchedAssetId)
     );
-    const entityLinked = this.knowledge.entityLinkedToAsset(baseText, context.matchedAssetId);
-    const directAssetMention = lower.includes(context.matchedAssetName.toLowerCase());
+    const entityLinked = this.knowledge.entityLinkedToAsset(context.marketTitle, context.matchedAssetId);
+    const directAssetMention = titleLower.includes(context.matchedAssetName.toLowerCase());
     const knownEntityLinked = knownPersonLinked || entityLinked || directAssetMention;
 
     const allowlistedMarketType = this.knowledge.isAllowlistedMarketType(baseText);
+
+    if (context.matchedAssetId === 'gaming-evolution') {
+      const looksLikeSportsbookRegulation = includesAny(lower, EVOLUTION_BLOCK_TERMS);
+      const hasEvolutionSpecificContext = includesAny(lower, EVOLUTION_POSITIVE_TERMS);
+      if (looksLikeSportsbookRegulation && !hasEvolutionSpecificContext) {
+        return {
+          status: 'rejected',
+          score: 15,
+          reason: 'Blocked sportsbook/operator regulation market: no direct Evolution Gaming catalyst',
+          flags: ['weak_gaming_link', 'sportsbook_operator_regulation'],
+          matchedKeywords,
+          extractedPersons,
+          extractedEntities,
+          knownEntityLinked: false,
+          allowlistedMarketType
+        };
+      }
+    }
 
     let score = 0.25;
     if (explicitKeywordMatch) score += 0.35;

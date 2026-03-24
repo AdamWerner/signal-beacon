@@ -1,5 +1,13 @@
 import { Router } from 'express';
-import { scanner, getTopSignals, analyzeSignal, IntelligenceEngine, isNoiseMarketQuestion, SWEDISH_MARKET_ASSETS } from '@polysignal/scanner';
+import {
+  scanner,
+  getTopSignals,
+  analyzeSignal,
+  IntelligenceEngine,
+  isNoiseMarketQuestion,
+  SWEDISH_MARKET_ASSETS,
+  isDashboardEligibleSignal
+} from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
@@ -108,6 +116,114 @@ function parseSignal(signal: any) {
   };
 }
 
+type SwedishProxyRule = {
+  assetId: string;
+  assetName: string;
+  searchTerm: string;
+  families: string[];
+  pattern: RegExp;
+  confidencePenalty: number;
+  reason: string;
+};
+
+const SWEDISH_PROXY_RULES: SwedishProxyRule[] = [
+  {
+    assetId: 'defense-saab',
+    assetName: 'Saab B',
+    searchTerm: 'SAAB B certifikat',
+    families: ['defense_geopolitical'],
+    pattern: /\b(nato|defense spending|missile|fighter jet|air defense|ukraine|russia|taiwan|gripen)\b/i,
+    confidencePenalty: 8,
+    reason: 'Swedish defense proxy: Saab is the clearest Avanza-tradable Nordic beneficiary.'
+  },
+  {
+    assetId: 'omx30',
+    assetName: 'OMX S30',
+    searchTerm: 'OMXS30 certifikat',
+    families: ['macro_rates', 'macro_growth', 'swedish_macro_proxy'],
+    pattern: /\b(fed|ecb|riksbank|inflation|cpi|ppi|payroll|nfp|recession|pmi|consumer confidence|gdp|tariff|trade war)\b/i,
+    confidencePenalty: 10,
+    reason: 'Swedish macro proxy: OMX reacts quickly to the same Europe/US macro regime shift.'
+  },
+  {
+    assetId: 'steel-ssab',
+    assetName: 'SSAB',
+    searchTerm: 'SSAB certifikat',
+    families: ['regulation_sector', 'macro_growth'],
+    pattern: /\b(steel|tariff|trade war|industrial policy|green steel)\b/i,
+    confidencePenalty: 12,
+    reason: 'Swedish industrial proxy: SSAB is directly exposed to tariff and steel-policy shifts.'
+  },
+  {
+    assetId: 'mining-boliden',
+    assetName: 'Boliden',
+    searchTerm: 'Boliden certifikat',
+    families: ['regulation_sector', 'macro_growth'],
+    pattern: /\b(copper|mining|metal|tariff|trade war|industrial demand)\b/i,
+    confidencePenalty: 12,
+    reason: 'Swedish metals proxy: Boliden tracks Nordic metals demand and copper-sensitive macro.'
+  }
+];
+
+function buildProxyInstrument(rule: SwedishProxyRule, direction: 'bull' | 'bear') {
+  return [{
+    name: `${direction.toUpperCase()} ${rule.assetName} X3 AVA`,
+    avanza_id: '',
+    leverage: 3,
+    avanza_url: `https://www.avanza.se/sok.html?query=${encodeURIComponent(rule.searchTerm)}`,
+    issuer: null
+  }];
+}
+
+function buildSwedishProxySignals(signals: any[], existingAssetIds: Set<string>) {
+  const derived: any[] = [];
+  const seen = new Set<string>();
+
+  for (const signal of signals) {
+    if (signal.status === 'dismissed') continue;
+    if (signal.verification_status !== 'approved') continue;
+    if (SWEDISH_ASSET_IDS.has(signal.matched_asset_id)) continue;
+    if (isNoiseMarketQuestion(String(signal.market_title || ''))) continue;
+    if (Number(signal.confidence || 0) < 72) continue;
+    if (String(signal.primary_source_family || '') === 'crypto_proxy_market') continue;
+    if (String(signal.execution_replay_gate || '') === 'block') continue;
+
+    const family = String(signal.primary_source_family || '');
+    const direction = String(signal.suggested_action || '').toLowerCase().includes('bull') ? 'bull' : 'bear';
+    const haystack = `${signal.market_title || ''} ${signal.catalyst_summary || ''} ${signal.reasoning || ''}`;
+
+    for (const rule of SWEDISH_PROXY_RULES) {
+      if (existingAssetIds.has(rule.assetId)) continue;
+      if (!rule.families.includes(family)) continue;
+      if (!rule.pattern.test(haystack)) continue;
+
+      const dedupKey = `${rule.assetId}:${signal.id}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      existingAssetIds.add(rule.assetId);
+
+      derived.push({
+        ...signal,
+        id: `proxy:${rule.assetId}:${signal.id}`,
+        matched_asset_id: rule.assetId,
+        matched_asset_name: rule.assetName,
+        confidence: Math.max(48, Number(signal.confidence || 0) - rule.confidencePenalty),
+        suggested_instruments: JSON.stringify(buildProxyInstrument(rule, direction)),
+        verification_source: 'catalyst_proxy',
+        verification_reason: `${rule.reason} Source: ${signal.matched_asset_name}.`,
+        reasoning:
+          `${signal.reasoning || ''} [swedish_proxy_from:${signal.matched_asset_id}] ` +
+          `[swedish_proxy_reason:${rule.reason}]`,
+        proxy: true,
+        proxy_source_signal_id: signal.id
+      });
+      break;
+    }
+  }
+
+  return derived;
+}
+
 // GET /api/signals - Get signals with optional filters
 // Query params: limit, status, hours (recency), min_confidence
 router.get('/', (req, res) => {
@@ -122,7 +238,10 @@ router.get('/', (req, res) => {
       : services.signalStore.findAll(limit, status);
 
     const parsed = signals
-      .filter(signal => !isNoiseMarketQuestion(String(signal.market_title || '')))
+      .filter(signal =>
+        !isNoiseMarketQuestion(String(signal.market_title || '')) &&
+        isDashboardEligibleSignal(signal)
+      )
       .map(parseSignal);
 
     res.json(parsed);
@@ -159,14 +278,16 @@ const SWEDISH_ASSET_IDS = SWEDISH_MARKET_ASSETS;
 router.get('/top/swedish', (req, res) => {
   try {
     const includeUnverified = req.query.include_unverified === 'true';
-    const signals = (services.signalStore as any).findByAssetIds(
+    const allRecentSignals = services.signalStore.findFiltered({ hours: 48, limit: 1000 }) as any[];
+    const directSignals = (services.signalStore as any).findByAssetIds(
       Array.from(SWEDISH_ASSET_IDS),
       { hours: 48, limit: 1000 }
     ) as any[];
-    const swedishPool = signals
+    const swedishPool = directSignals
       .filter((s: any) =>
         s.status !== 'dismissed' &&
         !isNoiseMarketQuestion(String(s.market_title || '')) &&
+        isDashboardEligibleSignal(s) &&
         (includeUnverified || isApprovedForSwedishFocus(s)) &&
         SWEDISH_ASSET_IDS.has(s.matched_asset_id)
       )
@@ -180,11 +301,27 @@ router.get('/top/swedish', (req, res) => {
       }
     }
 
-    const swedish = Array.from(byAsset.values())
+    const existingAssetIds = new Set<string>(Array.from(byAsset.keys()));
+    const proxySignals = includeUnverified
+      ? []
+      : buildSwedishProxySignals(
+          allRecentSignals
+            .filter(signal =>
+              !isNoiseMarketQuestion(String(signal.market_title || '')) &&
+              isDashboardEligibleSignal(signal)
+            )
+            .sort((a, b) => b.confidence - a.confidence),
+          existingAssetIds
+        );
+
+    const combined = [
+      ...Array.from(byAsset.values()),
+      ...proxySignals
+    ]
       .sort((a: any, b: any) => b.confidence - a.confidence)
       .slice(0, 5)
       .map(parseSignal);
-    res.json(swedish);
+    res.json(combined);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch Swedish signals' });
   }
@@ -255,6 +392,10 @@ router.get('/:id/detail', async (req, res) => {
           ORDER BY so.entry_time DESC
           LIMIT 6
         `).all(signal.matched_asset_id) as any[])
+      : [];
+
+    const signalCatalysts = (services as any).catalystStore
+      ? (services as any).catalystStore.getSignalCatalysts(signal.id)
       : [];
 
     const marketMeta = services.marketStore.findByConditionId(signal.market_condition_id);
@@ -332,6 +473,21 @@ ${aiAnalysis ? `
   <p style="margin:0;line-height:1.6;font-size:0.9rem">${aiAnalysis.replace(/\n/g, '<br>')}</p>
 </div>
 ` : ''}
+
+${signal.primary_source_family || signal.catalyst_summary ? `
+<div class="box">
+  <div class="label">Catalyst Context</div>
+  <p style="margin:0;line-height:1.6;font-size:0.9rem">
+    Primary family: ${escapeHtml(signal.primary_source_family || 'unknown')}<br>
+    Catalyst score: ${Number(signal.catalyst_score || 0).toFixed(1)}<br>
+    Summary: ${escapeHtml(signal.catalyst_summary || 'No catalyst summary')}<br>
+    Replay gate: ${escapeHtml(signal.execution_replay_gate || 'unknown')}
+    ${signal.execution_replay_samples ? ` (n=${signal.execution_replay_samples}, exp=${Number(signal.execution_replay_expectancy_pct || 0).toFixed(2)}%)` : ''}
+  </p>
+  ${signalCatalysts.length > 0 ? `<ul style="margin-top:8px">${signalCatalysts.slice(0, 6).map((row: any) => `<li>${escapeHtml(row.relation)}: ${escapeHtml(row.source_family)} - ${escapeHtml(row.normalized_summary || row.title)}</li>`).join('')}</ul>` : ''}
+</div>
+` : ''}
+
 <div class="box">
   <div class="label">Signal Reasoning</div>
   <p style="margin:0;line-height:1.5;font-size:0.9rem">${signal.reasoning}</p>

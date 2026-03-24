@@ -13,6 +13,8 @@ import { StreamingFeatureService } from '../streaming/services/streaming-feature
 import { StreamingStore } from '../streaming/storage/streaming-store.js';
 import { FusionEngine } from '../streaming/fusion/engine.js';
 import { TradeDirection } from '../streaming/fusion/types.js';
+import { CatalystEngine } from '../intelligence/catalyst-engine.js';
+import { SourceDiagnosticsService } from '../intelligence/source-diagnostics.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -50,6 +52,8 @@ export class ScanCycleJob {
     private streamingFeatureService: StreamingFeatureService | null = null,
     private streamingStore?: StreamingStore,
     private fusionEngine?: FusionEngine,
+    private catalystEngine?: CatalystEngine,
+    private sourceDiagnostics?: SourceDiagnosticsService,
     private fusionOptions: {
       enableFusionGating: boolean;
       enableSuppressedDecisionStorage: boolean;
@@ -100,6 +104,8 @@ export class ScanCycleJob {
         if (!this.intelligence) this.intelligence = new IntelligenceEngine(this.db);
         if (!this.newsCorrelator) this.newsCorrelator = new NewsCorrelator(this.db);
         if (!this.macroCalendar) this.macroCalendar = new MacroCalendar();
+        this.catalystEngine?.backfillHistoricalSignals(45);
+        this.sourceDiagnostics?.refreshIfStale();
         const intelligence = this.intelligence;
         const newsCorrelator = this.newsCorrelator;
         const macroCalendar = this.macroCalendar;
@@ -236,6 +242,13 @@ export class ScanCycleJob {
           } catch {
             // Non-fatal, continue scan cycle.
           }
+        }
+
+        if (this.catalystEngine && signals.length > 0) {
+          this.catalystEngine.enrichSignals(signals, {
+            newsCorrelator,
+            macroCalendar
+          });
         }
       }
 

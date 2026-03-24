@@ -24,7 +24,7 @@
       "name": "Saab B",
       "category": "defense",
       "polymarket_patterns": {
-        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "sweden nato", "eu defense", "gripen", "fighter jet", "military aircraft", "fighter aircraft", "saab gripen", "swedish defense", "jas gripen", "airborne radar"],
+        "keywords": ["nato spending", "nato expansion", "european defense", "rearmament", "europe rearmament", "ukraine weapons", "defense budget europe", "defense spending", "sweden nato", "eu defense", "gripen", "fighter jet", "fighter jet export", "military aircraft", "fighter aircraft", "air defense", "missile defense", "saab gripen", "swedish defense", "jas gripen", "airborne radar"],
         "categories": ["geopolitics", "defense", "europe"],
         "exclude_keywords": []
       },
@@ -222,7 +222,7 @@
       "name": "Boliden",
       "category": "mining",
       "polymarket_patterns": {
-        "keywords": ["copper price", "zinc price", "lead price", "base metals", "critical minerals", "ev battery", "copper demand", "mining regulation", "metal prices", "copper mine", "base metal prices"],
+        "keywords": ["copper price", "copper supply", "zinc price", "zinc supply", "lead price", "nickel supply", "base metals", "critical minerals", "ev battery", "copper demand", "mining regulation", "metal prices", "copper mine", "metal smelter", "base metal prices"],
         "categories": ["commodities", "mining", "environment"],
         "exclude_keywords": []
       },
@@ -258,7 +258,7 @@
       "name": "SSAB",
       "category": "steel",
       "polymarket_patterns": {
-        "keywords": ["eu steel tariff", "cbam", "carbon border tax", "green steel", "infrastructure spending", "steel demand", "carbon tax", "fossil-free steel", "green steel transition", "hybrit", "decarbonize steel", "steel import", "iron ore"],
+        "keywords": ["eu steel tariff", "steel tariff", "europe steel", "cbam", "carbon border tax", "green steel", "infrastructure spending", "steel demand", "carbon tax", "fossil-free steel", "green steel transition", "hybrit", "decarbonize steel", "steel import", "steel import tariff", "iron ore"],
         "categories": ["economics", "environment", "europe"],
         "exclude_keywords": []
       },
@@ -312,7 +312,7 @@
       "name": "Ericsson B",
       "category": "telecom",
       "polymarket_patterns": {
-        "keywords": ["huawei ban", "5g rollout", "open ran", "6g", "5g infrastructure", "telecom security", "china telecom ban", "telecom infrastructure", "5g expansion", "network equipment", "telecom merger", "broadband"],
+        "keywords": ["huawei ban", "5g rollout", "5g auction", "spectrum auction", "open ran", "6g", "5g infrastructure", "telecom security", "china telecom ban", "telecom infrastructure", "telecom equipment", "5g expansion", "network equipment", "mobile network", "wireless infrastructure", "telecom merger", "broadband"],
         "categories": ["technology", "regulation", "trade"],
         "exclude_keywords": []
       },
@@ -384,9 +384,9 @@
       "name": "Evolution Gaming",
       "category": "gaming",
       "polymarket_patterns": {
-        "keywords": ["online gambling", "igaming", "igaming legalization", "sports betting", "casino regulation", "gambling license", "us gambling", "live casino", "online casino"],
+        "keywords": ["igaming", "igaming legalization", "live casino", "online casino", "live dealer", "online casino regulation", "casino licensing"],
         "categories": ["regulation", "gaming"],
-        "exclude_keywords": ["gambling ban", "prohibit gambling", "ban online gambling"]
+        "exclude_keywords": ["gambling ban", "prohibit gambling", "ban online gambling", "sports betting", "sportsbook", "osb", "event-contract", "licensed in ohio", "ohio casino control commission"]
       },
       "avanza_search": {
         "underlying_terms": ["EVOLUTION GAMING", "EVOLUTION"],
@@ -394,7 +394,7 @@
       },
       "correlation_logic": {
         "default_polarity": "direct",
-        "explanation": "iGaming legalization odds UP = BULL EVO. Gambling ban markets excluded via exclude_keywords."
+        "explanation": "Online casino and live-casino regulation odds UP = BULL EVO. Sportsbook/operator-license markets are excluded because Evolution is a live-casino supplier, not a US sportsbook operator."
       }
     },
     {
@@ -402,7 +402,7 @@
       "name": "Hennes and Mauritz B",
       "category": "retail",
       "polymarket_patterns": {
-        "keywords": ["eu fast fashion", "textile regulation", "fashion sustainability", "clothing import tariff", "fast fashion ban", "retail tariff", "cotton price", "supply chain fashion", "ecommerce regulation"],
+        "keywords": ["eu fast fashion", "textile regulation", "fashion sustainability", "clothing import tariff", "apparel tariff", "consumer spending europe", "retail sales europe", "fast fashion ban", "retail tariff", "cotton price", "supply chain fashion", "clothing demand", "ecommerce regulation"],
         "categories": ["regulation", "environment", "trade"],
         "exclude_keywords": []
       },
@@ -420,7 +420,7 @@
       "name": "Volvo Group",
       "category": "transport",
       "polymarket_patterns": {
-        "keywords": ["ev truck", "autonomous trucking", "freight", "heavy vehicle", "commercial vehicle", "truck electrification", "volvo trucks", "self-driving truck", "freight automation", "eu truck emission", "zero emission truck"],
+        "keywords": ["ev truck", "autonomous trucking", "freight", "freight recession", "heavy vehicle", "commercial vehicle", "commercial vehicle demand", "truck orders", "truck sales europe", "truck electrification", "volvo trucks", "self-driving truck", "freight automation", "eu truck emission", "truck tariff", "zero emission truck"],
         "categories": ["technology", "transport"],
         "exclude_keywords": ["volvo cars"]
       },
@@ -438,9 +438,9 @@
       "name": "Spotify Technology",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["spotify", "streaming royalty", "music royalty", "music licensing", "digital music license", "music industry"],
+        "keywords": ["spotify", "streaming royalty", "music royalty", "music licensing", "digital music license", "royalty rate"],
         "categories": ["technology", "regulation", "media"],
-        "exclude_keywords": []
+        "exclude_keywords": ["release a new song", "release a new album", "#1 hit", "album before gta vi"]
       },
       "avanza_search": {
         "underlying_terms": ["SPOTIFY TECHNOLOGY", "SPOTIFY"],
@@ -492,7 +492,25 @@
       "name": "OMX S30",
       "category": "index",
       "polymarket_patterns": {
-        "keywords": ["sweden economy", "riksbank", "nordic recession", "swedish gdp"],
+        "keywords": [
+          "sweden economy",
+          "swedish inflation",
+          "riksbank",
+          "riksbank rate",
+          "nordic recession",
+          "swedish gdp",
+          "swedish krona",
+          "sek rate",
+          "stockholm exchange",
+          "tariff",
+          "trade war",
+          "us recession",
+          "europe recession",
+          "eurozone recession",
+          "fed rate hike",
+          "federal reserve rate hike",
+          "ecb rate hike"
+        ],
         "categories": ["economics", "europe"],
         "exclude_keywords": []
       },
@@ -502,7 +520,7 @@
       },
       "correlation_logic": {
         "default_polarity": "inverse",
-        "explanation": "Negative Swedish/Nordic economic events = BEAR OMX."
+        "explanation": "Negative Swedish/Nordic or clearly risk-off global macro events are generally BEAR OMX."
       }
     }
   ]

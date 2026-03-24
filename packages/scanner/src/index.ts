@@ -1,4 +1,5 @@
 ﻿import cron from 'node-cron';
+import { resolve } from 'path';
 import { loadConfig, validateConfig } from './config.js';
 import { initializeDatabase } from './storage/db.js';
 import { InstrumentStore } from './storage/instrument-store.js';
@@ -6,6 +7,7 @@ import { MarketStore } from './storage/market-store.js';
 import { SnapshotStore } from './storage/snapshot-store.js';
 import { SignalStore } from './storage/signal-store.js';
 import { WhaleStore } from './storage/whale-store.js';
+import { CatalystStore } from './storage/catalyst-store.js';
 import { OntologyEngine } from './correlation/ontology.js';
 import { createAvanzaClient } from './avanza/search-client.js';
 import { InstrumentRegistry } from './avanza/instrument-registry.js';
@@ -32,6 +34,10 @@ import { StreamingSymbolMap } from './streaming/services/symbol-map.js';
 import { StreamingSupervisor } from './streaming/jobs/streaming-supervisor.js';
 import { FusionEngine } from './streaming/fusion/engine.js';
 import { MicrostructureBacktestRunner } from './streaming/backtest/microstructure-backtest.js';
+import { SourceDiagnosticsService } from './intelligence/source-diagnostics.js';
+import { ExecutionReplayService } from './intelligence/execution-replay.js';
+import { CatalystEngine } from './intelligence/catalyst-engine.js';
+import { ScannerLock } from './utils/scanner-lock.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -42,6 +48,7 @@ export class PolySignalScanner {
   private snapshotStore = new SnapshotStore(this.db);
   private signalStore = new SignalStore(this.db);
   private whaleStore = new WhaleStore(this.db);
+  private catalystStore = new CatalystStore(this.db);
   private tweetStore = new TweetStore(this.db);
   private streamingStore = new StreamingStore(this.db);
   private symbolMap = new StreamingSymbolMap();
@@ -49,6 +56,9 @@ export class PolySignalScanner {
   private tweetProcessor: TweetIntelligenceProcessor;
   private backtestEvaluator: SignalBacktestEvaluator;
   private microstructureBacktestRunner: MicrostructureBacktestRunner;
+  private sourceDiagnostics = new SourceDiagnosticsService(this.catalystStore);
+  private executionReplay = new ExecutionReplayService(this.catalystStore);
+  private catalystEngine: CatalystEngine;
 
   private ontology = new OntologyEngine();
   private avanzaClient: ReturnType<typeof createAvanzaClient> | null = null;
@@ -68,6 +78,7 @@ export class PolySignalScanner {
     expectancyMinPct: this.config.fusionExpectancyMinPct
   });
   private streamingSupervisor: StreamingSupervisor | null = null;
+  private scanLock = new ScannerLock(resolve(process.cwd(), 'data', 'scanner.lock'));
 
   private scanCycleJob: ScanCycleJob;
   private marketRefreshJob: MarketRefreshJob;
@@ -103,6 +114,12 @@ export class PolySignalScanner {
       this.marketStore,
       this.config.polyMarketRelevanceThreshold
     );
+    const revalidation = this.marketDiscoverer.revalidateTrackedMarkets();
+    if (revalidation.resolved > 0 || revalidation.updated > 0) {
+      console.log(
+        `Tracked markets revalidated on startup: resolved=${revalidation.resolved}, updated=${revalidation.updated}`
+      );
+    }
 
     this.oddsTracker = new OddsTracker(this.polymarketClient, this.snapshotStore, this.marketStore);
     this.whaleDetector = new WhaleDetector(
@@ -157,6 +174,18 @@ export class PolySignalScanner {
         : undefined
     });
 
+    this.catalystEngine = new CatalystEngine({
+      catalystStore: this.catalystStore,
+      signalStore: this.signalStore,
+      sourceDiagnostics: this.sourceDiagnostics,
+      executionReplay: this.executionReplay
+    });
+    const backfilledCatalysts = this.catalystEngine.backfillHistoricalSignals(45);
+    if (backfilledCatalysts > 0) {
+      this.sourceDiagnostics.refreshIfStale(0);
+      console.log(`Historical catalyst backfill complete (${backfilledCatalysts} signals linked)`);
+    }
+
     this.scanCycleJob = new ScanCycleJob(
       this.config,
       this.oddsTracker,
@@ -167,6 +196,8 @@ export class PolySignalScanner {
       null,
       this.streamingStore,
       this.fusionEngine,
+      this.catalystEngine,
+      this.sourceDiagnostics,
       {
         enableFusionGating: this.config.enableFusionGating,
         enableSuppressedDecisionStorage: this.config.enableSuppressedDecisionStorage,
@@ -233,6 +264,7 @@ export class PolySignalScanner {
 
   start() {
     logger.info('Starting PolySignal Scanner');
+    this.scanLock.acquire('continuous-scan');
 
     cron.schedule(this.config.jobScanCron, async () => {
       try {
@@ -299,16 +331,28 @@ export class PolySignalScanner {
   }
 
   async runScanCycle() {
+    let acquiredTemporarily = false;
+    if (!this.scanLock.isHeld()) {
+      this.scanLock.acquire('manual-scan');
+      acquiredTemporarily = true;
+    }
     if (this.streamingSupervisor) {
       await this.streamingSupervisor.start();
     }
-    return await this.scanCycleJob.execute();
+    try {
+      return await this.scanCycleJob.execute();
+    } finally {
+      if (acquiredTemporarily) {
+        this.scanLock.release();
+      }
+    }
   }
 
   shutdown(): void {
     if (this.streamingSupervisor) {
       this.streamingSupervisor.stop();
     }
+    this.scanLock.release();
   }
 
   async runMarketRefresh() {
@@ -388,6 +432,7 @@ export class PolySignalScanner {
       snapshotStore: this.snapshotStore,
       signalStore: this.signalStore,
       whaleStore: this.whaleStore,
+      catalystStore: this.catalystStore,
       tweetStore: this.tweetStore,
       ontology: this.ontology,
       instrumentRegistry: this.instrumentRegistry,
@@ -398,6 +443,9 @@ export class PolySignalScanner {
       streamingFeatureService: this.streamingSupervisor?.getFeatureService() ?? null,
       streamingSupervisor: this.streamingSupervisor,
       microstructureBacktestRunner: this.microstructureBacktestRunner,
+      sourceDiagnostics: this.sourceDiagnostics,
+      executionReplay: this.executionReplay,
+      catalystEngine: this.catalystEngine,
       db: this.db as any
     };
   }
@@ -405,6 +453,7 @@ export class PolySignalScanner {
 
 export { AutoMapper } from './correlation/auto-mapper.js';
 export { getTopSignals, analyzeSignal } from './signals/ai-ranker.js';
+export { isDashboardEligibleSignal, getSignalTradeType } from './signals/dashboard-eligibility.js';
 export { IntelligenceEngine } from './intelligence/engine.js';
 export { TradeVerificationGate } from './verification/trade-gate.js';
 export { SignalBacktestEvaluator } from './backtest/evaluator.js';
@@ -419,6 +468,10 @@ export { StreamingSupervisor } from './streaming/jobs/streaming-supervisor.js';
 export { StreamingFeatureService } from './streaming/services/streaming-feature-service.js';
 export { FusionEngine } from './streaming/fusion/engine.js';
 export { MicrostructureBacktestRunner } from './streaming/backtest/microstructure-backtest.js';
+export { CatalystStore } from './storage/catalyst-store.js';
+export { SourceDiagnosticsService } from './intelligence/source-diagnostics.js';
+export { ExecutionReplayService } from './intelligence/execution-replay.js';
+export { CatalystEngine } from './intelligence/catalyst-engine.js';
 
 export const scanner = new PolySignalScanner();
 

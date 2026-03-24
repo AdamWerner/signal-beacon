@@ -1,6 +1,6 @@
 ﻿import { PolymarketClient } from './client.js';
 import { OntologyEngine } from '../correlation/ontology.js';
-import { MarketStore, InsertMarket } from '../storage/market-store.js';
+import { MarketStore, InsertMarket, TrackedMarket } from '../storage/market-store.js';
 import { isNoiseMarketQuestion } from './noise-filter.js';
 
 export { NOISE_PATTERNS } from './noise-filter.js';
@@ -11,6 +11,11 @@ export interface DiscoveryResult {
   marketsUpdated: number;
   marketsResolved: number;
   duration: number;
+}
+
+export interface RevalidationResult {
+  resolved: number;
+  updated: number;
 }
 
 export class MarketDiscoverer {
@@ -158,6 +163,46 @@ export class MarketDiscoverer {
     return removed;
   }
 
+  revalidateTrackedMarkets(): RevalidationResult {
+    const markets = this.store.findAll(true);
+    let resolved = 0;
+    let updated = 0;
+
+    for (const market of markets) {
+      if (isNoiseMarketQuestion(market.title)) {
+        this.store.markAsResolved(market.condition_id);
+        resolved += 1;
+        continue;
+      }
+
+      const matches = this.ontology.matchMarket(
+        market.title,
+        market.description || null,
+        market.category || null
+      );
+      const relevanceScore = this.ontology.calculateRelevance(matches);
+
+      if (matches.length === 0 || relevanceScore < this.relevanceThreshold) {
+        this.store.markAsResolved(market.condition_id);
+        resolved += 1;
+        continue;
+      }
+
+      const nextAssetIds = matches.map(match => match.assetId);
+      const currentAssetIds = this.safeJsonArray(market);
+      const sameAssets =
+        currentAssetIds.length === nextAssetIds.length &&
+        currentAssetIds.every((assetId, index) => assetId === nextAssetIds[index]);
+
+      if (!sameAssets || Math.abs((market.relevance_score || 0) - relevanceScore) >= 0.001) {
+        this.store.updateMatching(market.condition_id, nextAssetIds, relevanceScore);
+        updated += 1;
+      }
+    }
+
+    return { resolved, updated };
+  }
+
   /**
    * Get discovery statistics.
    */
@@ -167,6 +212,17 @@ export class MarketDiscoverer {
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private safeJsonArray(market: TrackedMarket): string[] {
+    try {
+      const parsed = JSON.parse(market.matched_asset_ids);
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === 'string')
+        : [];
+    } catch {
+      return [];
+    }
   }
 }
 

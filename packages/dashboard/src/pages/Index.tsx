@@ -3,6 +3,8 @@ import { useSignals } from "@/hooks/useSignals";
 import { useTopSignals } from "@/hooks/useTopSignals";
 import { useStreamingHealth } from "@/hooks/useStreamingHealth";
 import { useFusionDecisions } from "@/hooks/useFusionDecisions";
+import { useCatalysts } from "@/hooks/useCatalysts";
+import { useBriefings } from "@/hooks/useBriefings";
 import { SignalCard } from "@/components/SignalCard";
 import { Signal } from "@/types";
 import { Zap, Trophy, SlidersHorizontal, Flag, ExternalLink, ChevronDown, ChevronUp, Activity } from "lucide-react";
@@ -38,9 +40,11 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
   const isBull = signal.suggested_action.toLowerCase().includes("bull");
   const dirColor = isBull ? "text-bull" : "text-bear";
   const directionLabel = isBull ? "BULL" : "BEAR";
+  const tradeType = signal.proxy ? "proxy" : "direct";
   const deltaSign = signal.delta_pct > 0 ? "+" : "";
   const polyUrl = "https://polymarket.com/search?q=" + encodeURIComponent(signal.market_title.substring(0, 50));
-  const detailUrl = "/api/signals/" + signal.id + "/detail";
+  const detailTargetId = signal.proxy_source_signal_id || signal.id;
+  const detailUrl = "/api/signals/" + detailTargetId + "/detail";
   const instrument = signal.suggested_instruments?.[0];
   const verificationStatus = signal.verification_status || "pending";
   const verificationSource = signal.verification_source || "none";
@@ -67,6 +71,13 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
           {directionLabel}
         </span>
         <span className="text-sm font-semibold flex-1 truncate">{signal.matched_asset_name}</span>
+        <span className={`text-[10px] font-mono uppercase shrink-0 px-1.5 py-0.5 rounded border ${
+          signal.proxy
+            ? "border-whale/40 bg-whale/10 text-whale"
+            : "border-muted/40 bg-background/60 text-muted-foreground"
+        }`}>
+          {tradeType}
+        </span>
         <span className="text-xs font-mono text-muted-foreground hidden sm:block truncate max-w-[200px]">
           {signal.market_title.substring(0, 55)}
         </span>
@@ -86,6 +97,9 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
             <span className="text-muted-foreground">Setup:</span>
             <span className={`font-mono font-bold ${dirColor}`}>{directionLabel}</span>
             <span className="font-mono">{signal.matched_asset_name}</span>
+            {signal.proxy && (
+              <span className="text-whale">Swedish catalyst proxy</span>
+            )}
             {instrument?.name && (
               <span className="text-muted-foreground">via {instrument.name}</span>
             )}
@@ -98,6 +112,12 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
             <span className="text-foreground">{verificationReason}</span>
             <span className="text-muted-foreground"> ({verificationSource})</span>
           </div>
+
+          {signal.proxy && signal.proxy_source_signal_id && (
+            <p className="text-whale/80">
+              Derived from a higher-confidence non-Swedish catalyst so Swedish Focus stays useful even when direct OMX titles are sparse.
+            </p>
+          )}
 
           <p className="font-mono text-muted-foreground">
             Odds: {(signal.odds_before * 100).toFixed(0)}% -&gt; {(signal.odds_now * 100).toFixed(0)}%{" "}
@@ -127,7 +147,7 @@ function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: stri
           <div className="flex flex-wrap gap-3">
             <a href={detailUrl} target="_blank" rel="noopener noreferrer"
               className="text-bull hover:underline flex items-center gap-1">
-              Open signal detail <ExternalLink className="h-2.5 w-2.5" />
+              {signal.proxy ? "Open source signal detail" : "Open signal detail"} <ExternalLink className="h-2.5 w-2.5" />
             </a>
             <a href={polyUrl} target="_blank" rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground flex items-center gap-1">
@@ -152,7 +172,7 @@ function ContextCard({ bull, bear }: { bull: Signal; bear: Signal }) {
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-medium text-foreground truncate">{bull.market_title}</h3>
           <p className="text-xs font-mono text-muted-foreground mt-0.5">
-            {new Date(bull.timestamp).toLocaleString()} · {bull.matched_asset_name}
+            {new Date(bull.timestamp).toLocaleString()} | {bull.matched_asset_name}
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -261,13 +281,25 @@ const CONF_OPTIONS = [
 const SignalFeed = () => {
   const [hours, setHours] = useState<number | undefined>(24);
   const [minConfidence, setMinConfidence] = useState(0);
+  const [swedishTradeFilter, setSwedishTradeFilter] = useState<"all" | "direct" | "proxy">("all");
   const { data: signals, isLoading } = useSignals({ hours, minConfidence: minConfidence || undefined, limit: 200 });
   const { data: topSignals, isLoading: topLoading, includeUnverified, setIncludeUnverified } = useTopSignals();
   const { data: swedishSignals, isLoading: sweLoading } = useSwedishSignals();
+  const { data: briefings, isLoading: briefingsLoading } = useBriefings(10);
   const { data: streamingHealth, isLoading: streamingLoading } = useStreamingHealth();
   const { decisions: fusionDecisions, suppressed: fusionSuppressed, isLoading: fusionLoading } = useFusionDecisions();
+  const { recent: recentCatalysts, diagnostics: catalystDiagnostics, isLoading: catalystLoading } = useCatalysts();
 
   const grouped = useMemo(() => groupContextPairs(signals), [signals]);
+  const filteredSwedishSignals = useMemo(() => {
+    if (swedishTradeFilter === "direct") {
+      return swedishSignals.filter(signal => !signal.proxy);
+    }
+    if (swedishTradeFilter === "proxy") {
+      return swedishSignals.filter(signal => Boolean(signal.proxy));
+    }
+    return swedishSignals;
+  }, [swedishSignals, swedishTradeFilter]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -307,20 +339,80 @@ const SignalFeed = () => {
         <div className="flex items-center gap-2 mb-1">
           <Flag className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold">Swedish Focus</h2>
-          <span className="text-xs font-mono text-muted-foreground">Saab · SSAB · Boliden</span>
+          <span className="text-xs font-mono text-muted-foreground">Saab | SSAB | Boliden</span>
+          <div className="flex items-center gap-1 ml-2">
+            {(["all", "direct", "proxy"] as const).map(mode => (
+              <Button
+                key={mode}
+                size="sm"
+                variant={swedishTradeFilter === mode ? "default" : "outline"}
+                className="h-6 text-[10px] px-2 font-mono uppercase"
+                onClick={() => setSwedishTradeFilter(mode)}
+              >
+                {mode}
+              </Button>
+            ))}
+          </div>
           <span className="text-xs font-mono text-muted-foreground ml-auto">
-            {sweLoading ? "..." : `${swedishSignals.length} signals`}
+            {sweLoading ? "..." : `${filteredSwedishSignals.length} shown`}
           </span>
         </div>
         {sweLoading ? (
           <p className="text-xs text-muted-foreground font-mono">Loading...</p>
-        ) : swedishSignals.length === 0 ? (
+        ) : filteredSwedishSignals.length === 0 ? (
           <p className="text-xs text-muted-foreground font-mono">No Swedish signals yet.</p>
         ) : (
           <div className="space-y-1">
-            {swedishSignals.map((signal, i) => (
+            {filteredSwedishSignals.map((signal, i) => (
               <TopTradeItem key={signal.id} signal={signal} rank={i + 1} />
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Morning Briefings */}
+      <div className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Morning Briefings</h2>
+          <span className="text-xs font-mono text-muted-foreground ml-auto">
+            {briefingsLoading ? "..." : `${briefings.length} recent`}
+          </span>
+        </div>
+        {briefingsLoading ? (
+          <p className="text-xs text-muted-foreground font-mono">Loading briefing history...</p>
+        ) : briefings.length === 0 ? (
+          <p className="text-xs text-muted-foreground font-mono">No briefings generated yet.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {briefings.map(briefing => {
+              const flag = briefing.market === "swedish" ? "[SE]" : "[US]";
+              const marketLabel = briefing.market === "swedish" ? "OMX" : "US";
+              const preview = briefing.briefing_text?.trim() || "No briefing text saved.";
+
+              return (
+                <a
+                  key={`${briefing.market}-${briefing.date}`}
+                  href={briefing.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded border border-border/60 bg-background/40 p-3 hover:border-bull/40 hover:bg-secondary/20 transition-colors space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{flag}</span>
+                    <span className="text-xs font-mono uppercase">{marketLabel}</span>
+                    <span className="text-xs font-mono text-muted-foreground ml-auto">{briefing.date}</span>
+                  </div>
+                  <p className="text-xs text-foreground leading-relaxed line-clamp-3">
+                    {preview}
+                  </p>
+                  <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
+                    <span>{briefing.signal_count} signals | {briefing.top_assets.slice(0, 2).join(" | ") || "No top assets"}</span>
+                    <span>{briefing.pushed_at ? "pushed" : "saved"}</span>
+                  </div>
+                </a>
+              );
+            })}
           </div>
         )}
       </div>
@@ -377,6 +469,56 @@ const SignalFeed = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Catalyst bus */}
+      <div className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Catalyst Bus</h2>
+          <span className="text-xs font-mono text-muted-foreground ml-auto">
+            {catalystLoading ? "..." : `${recentCatalysts.length} recent / ${catalystDiagnostics.length} tracked`}
+          </span>
+        </div>
+        {catalystLoading ? (
+          <p className="text-xs font-mono text-muted-foreground">Loading catalyst diagnostics...</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded border border-border/60 bg-background/40 p-2">
+              <p className="text-[11px] font-mono text-muted-foreground mb-1">Recent catalysts</p>
+              <div className="space-y-1">
+                {recentCatalysts.slice(0, 5).map((row) => (
+                  <div key={row.id} className="text-[11px] font-mono">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate">{row.source_family}</span>
+                      <span>{(row.causal_strength * 100).toFixed(0)}</span>
+                    </div>
+                    <div className="text-muted-foreground truncate">{row.normalized_summary || row.title}</div>
+                  </div>
+                ))}
+                {recentCatalysts.length === 0 && (
+                  <p className="text-[11px] font-mono text-muted-foreground">No recent catalysts yet.</p>
+                )}
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-background/40 p-2">
+              <p className="text-[11px] font-mono text-muted-foreground mb-1">Source-family edge</p>
+              <div className="space-y-1">
+                {catalystDiagnostics.slice(0, 5).map((row) => (
+                  <div key={row.source_family} className="flex items-center justify-between gap-2 text-[11px] font-mono">
+                    <span className="truncate">{row.source_family}</span>
+                    <span>
+                      {(row.reliability_score * 100).toFixed(0)} / {(row.hit_rate_30m * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                ))}
+                {catalystDiagnostics.length === 0 && (
+                  <p className="text-[11px] font-mono text-muted-foreground">Diagnostics will appear after backtest runs.</p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -446,3 +588,4 @@ const SignalFeed = () => {
 };
 
 export default SignalFeed;
+

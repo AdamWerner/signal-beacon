@@ -64,4 +64,18 @@ describe('EntityRelevanceGuard', () => {
     expect(result.status).toBe('approved');
     expect(result.allowlistedMarketType).toBe(true);
   });
+
+  it('rejects sportsbook license enforcement for Evolution Gaming', () => {
+    const result = guard.evaluate(buildContext({
+      marketTitle: 'Will Ohio Revoke Any OSB License Over Event-Contract Activity by March 31?',
+      marketDescription: 'This market resolves based on an online sports betting provider licensed in Ohio.',
+      matchedAssetId: 'gaming-evolution',
+      matchedAssetName: 'Evolution Gaming',
+      ontologyKeywords: []
+    }));
+
+    expect(result.status).toBe('rejected');
+    expect(result.reason).toContain('Evolution Gaming');
+    expect(result.flags).toContain('sportsbook_operator_regulation');
+  });
 });

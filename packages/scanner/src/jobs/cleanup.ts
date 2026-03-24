@@ -65,6 +65,12 @@ export class CleanupJob {
       const noiseRemoved = this.marketDiscoverer.cleanupNoiseMarkets();
       console.log(`  Removed ${noiseRemoved} noise markets`);
 
+      console.log('Revalidating tracked markets against current ontology...');
+      const revalidated = this.marketDiscoverer.revalidateTrackedMarkets();
+      console.log(
+        `  Revalidated tracked markets (resolved ${revalidated.resolved}, updated ${revalidated.updated})`
+      );
+
       // Dismiss signals from markets that are now inactive (resolved or noise-cleaned)
       console.log('Dismissing signals from inactive markets...');
       const dismissedNoise = this.signalStore.dismissFromInactiveMarkets();
@@ -153,7 +159,7 @@ export class CleanupJob {
         signalsExpired,
         signalsDeleted,
         whalesDeleted,
-        marketsResolved,
+        marketsResolved: marketsResolved + revalidated.resolved,
         tweetsDeleted,
         streamingRowsDeleted,
         duration

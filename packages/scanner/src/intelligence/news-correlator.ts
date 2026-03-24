@@ -14,6 +14,14 @@ export interface NewsBoostResult {
   matchedSources: string[];
 }
 
+export interface NewsEvidenceItem {
+  accountHandle: string;
+  text: string;
+  timestamp: string;
+  matchedTerms: string[];
+  weight: number;
+}
+
 interface OntologyAsset {
   id: string;
   name: string;
@@ -105,5 +113,59 @@ export class NewsCorrelator {
       sourceCount: n,
       matchedSources: Array.from(matchedSources)
     };
+  }
+
+  getEvidenceForAsset(assetId: string, hours = 6, limit = 5): NewsEvidenceItem[] {
+    const keywords = this.keywordMap.get(assetId) ?? [];
+    const nameTokens = this.nameMap.get(assetId) ?? [];
+    const allTerms = [...new Set([...keywords, ...nameTokens])];
+    if (allTerms.length === 0) return [];
+
+    let rows: Array<{
+      account_handle: string;
+      tweet_text: string;
+      scraped_at: string;
+      weight: number;
+    }> = [];
+
+    try {
+      rows = this.db.prepare(`
+        SELECT ts.account_handle, ts.tweet_text, ts.scraped_at, COALESCE(ta.weight, 1.0) as weight
+        FROM tweet_snapshots ts
+        LEFT JOIN tweet_accounts ta ON ta.handle = ts.account_handle
+        WHERE ts.scraped_at >= datetime('now', '-' || ? || ' hours')
+        ORDER BY ts.scraped_at DESC
+        LIMIT 500
+      `).all(hours) as Array<{
+        account_handle: string;
+        tweet_text: string;
+        scraped_at: string;
+        weight: number;
+      }>;
+    } catch {
+      return [];
+    }
+
+    const bySource = new Map<string, NewsEvidenceItem>();
+
+    for (const row of rows) {
+      const text = row.tweet_text.toLowerCase();
+      const matchedTerms = allTerms.filter(term => text.includes(term));
+      if (matchedTerms.length === 0) continue;
+
+      const existing = bySource.get(row.account_handle);
+      if (!existing) {
+        bySource.set(row.account_handle, {
+          accountHandle: row.account_handle,
+          text: row.tweet_text,
+          timestamp: row.scraped_at,
+          matchedTerms,
+          weight: row.weight || 1
+        });
+      }
+      if (bySource.size >= limit) break;
+    }
+
+    return [...bySource.values()];
   }
 }

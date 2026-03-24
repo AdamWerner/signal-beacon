@@ -33,8 +33,10 @@ export const NOISE_PATTERNS: RegExp[] = [
   /mukbang/i,
   // Entertainment / celebrity
   /bridgerton/i,
-  /release an? (album|single|ep|song)/i,
+  /release an? (new )?(album|single|ep|song)/i,
+  /album before gta vi/i,
   /\b(film|movie|season \d|episode)\b/i,
+  /#1 hit|\bnumber one hit\b/i,
   /taylor swift|beyonce|drake|kanye|rihanna/i,
   /celebrity|famous|influencer/i,
   /\b(nba|nfl|nhl|mlb|fifa|champions league)\b/i,
@@ -50,6 +52,7 @@ export const NOISE_PATTERNS: RegExp[] = [
   /appear on .+ (podcast|show|stream)/i,
   /\b(podcast|episode|interview|livestream)\b.*(by|before|december|january)/i,
   /uponly|bankless pod|unchained pod/i,
+  /joe rogan/i,
   // More entertainment/social noise
   /\bfollowers?\b.*\b(million|thousand|[0-9]+[mk])\b/i,
   /\bretweet|like|subscribe|view count\b/i,
@@ -57,6 +60,16 @@ export const NOISE_PATTERNS: RegExp[] = [
   /\b(grammy|emmy|oscar|tony|golden globe)\s*(award|winner|nominee)/i,
   /\brap\s*beef\b|\bdiss\s*track\b/i,
   /\bbreakup\b|\brelationship\b.*\bcelebrit/i,
+  /^[A-Z]{2,5}:\s.+\svs\.\s.+/i,
+  // State-level sportsbook/operator enforcement is not actionable for this asset universe
+  /\brevoke any osb license\b/i,
+  /\bevent-contract activity\b/i,
+  // Climate/science and speech word-count markets are not actionable here
+  /minimum arctic sea ice extent/i,
+  /^will .+ say ["“].+["”].*(during|before|at)/i,
+  /\b\d+\+\s*times\b.*\b(speech|remarks|press conference|event)\b/i,
+  /\b(powell|jerome powell)\b.*\bsay\b.*\bpress conference\b/i,
+  /\bpress conference\b.*\b(say|times)\b/i,
   // Micro-timebox crypto markets (5-15 min windows, pure noise)
   /\b(bitcoin|ethereum|solana|btc|eth|sol|bnb|doge|xrp)\b.+up or down/i,
   /up or down\s*-\s*\w+\s+\d+.*\d{1,2}:\d{2}\s*(am|pm)/i

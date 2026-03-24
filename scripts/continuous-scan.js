@@ -110,7 +110,6 @@ acquireLockOrExit();
 
 let scanner;
 let IntelligenceEngine;
-let isPreMarketWindow;
 let tradingHoursConfig;
 
 try {
@@ -121,7 +120,6 @@ try {
   const tradingHours = await import('../packages/scanner/dist/intelligence/trading-hours.js').catch(() => null);
   const engineMod = await import('../packages/scanner/dist/intelligence/engine.js').catch(() => null);
 
-  isPreMarketWindow = tradingHours?.isPreMarketWindow;
   tradingHoursConfig = tradingHours?.TRADING_HOURS;
   IntelligenceEngine = engineMod?.IntelligenceEngine;
   logScan('[init] scanner module loaded');
@@ -223,12 +221,54 @@ async function runOneCycle() {
 }
 
 function getStockholmNowParts() {
-  const now = new Date();
-  const stockholm = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Stockholm' }));
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Stockholm',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date());
+  const weekday = parts.find(part => part.type === 'weekday')?.value ?? 'Mon';
+  const hour = parseInt(parts.find(part => part.type === 'hour')?.value ?? '0', 10);
+  const minute = parseInt(parts.find(part => part.type === 'minute')?.value ?? '0', 10);
+  const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return {
-    day: stockholm.getDay(),
-    minutes: stockholm.getHours() * 60 + stockholm.getMinutes()
+    day: weekdayMap[weekday] ?? 1,
+    minutes: hour * 60 + minute
   };
+}
+
+/**
+ * Returns true when we're within 60 minutes of a pre-market push window on a weekday.
+ * Used to tighten the scan interval so we don't sleep through the briefing window.
+ * Swedish: approach = 07:45–08:45 CET (pre-market fires at 08:45)
+ * US:      approach = 14:15–15:15 CET (pre-market fires at 15:15)
+ */
+function isApproachingPreMarket() {
+  if (!tradingHoursConfig) return false;
+  const { day, minutes } = getStockholmNowParts();
+  if (day === 0 || day === 6) return false;
+  for (const market of ['swedish', 'us']) {
+    const cfg = tradingHoursConfig[market];
+    if (!cfg) continue;
+    const push = cfg.preMarketPush.hour * 60 + cfg.preMarketPush.minute;
+    if (minutes >= push - 60 && minutes < push) return true;
+  }
+  return false;
+}
+
+function isBriefingWindow(market) {
+  if (!tradingHoursConfig || !tradingHoursConfig[market]) return false;
+  const { day, minutes } = getStockholmNowParts();
+  if (day === 0 || day === 6) return false;
+
+  const cfg = tradingHoursConfig[market];
+  const pushMinutes = cfg.preMarketPush.hour * 60 + cfg.preMarketPush.minute;
+  const openMinutes = cfg.open.hour * 60 + cfg.open.minute;
+
+  // Allow catch-up after open if a dormant 30-minute sleep or a long cycle
+  // straddled the nominal pre-market push time.
+  return minutes >= pushMinutes && minutes < openMinutes + 60;
 }
 
 function shouldRunBacktest(market) {
@@ -263,7 +303,7 @@ async function checkDailyBacktests() {
 }
 
 async function checkMorningBriefings() {
-  if (!isPreMarketWindow || !IntelligenceEngine) return;
+  if (!IntelligenceEngine) return;
 
   const haUrl = process.env.HA_URL;
   const haToken = process.env.HA_TOKEN;
@@ -271,7 +311,7 @@ async function checkMorningBriefings() {
   const pubUrl = process.env.PUBLIC_URL || 'http://192.168.0.15:3100';
 
   for (const market of ['swedish', 'us']) {
-    if (!isPreMarketWindow(market)) continue;
+    if (!isBriefingWindow(market)) continue;
 
     try {
       const services = scanner.getServices();
@@ -280,7 +320,10 @@ async function checkMorningBriefings() {
 
       const intel = new IntelligenceEngine(db);
       const existing = intel.getMorningBriefing(market);
-      if (existing?.pushed_at) continue;
+      if (existing?.pushed_at) {
+        logScan(`[briefing] ${market} already pushed for today`);
+        continue;
+      }
 
       const isMonday = new Date().toLocaleString('en-US', { timeZone: 'Europe/Stockholm', weekday: 'short' }) === 'Mon';
       const lookbackHours = isMonday ? 72 : 16; // Weekend accumulation on Monday
@@ -352,7 +395,10 @@ async function loop() {
     // Extend interval to 30 min during dormant mode (nights/weekends)
     const budgetModSleep = await import('../packages/scanner/dist/utils/ai-budget.js').catch(() => null);
     const budgetModeSleep = budgetModSleep?.getAiBudgetMode?.() ?? 'active';
-    const intervalMs = budgetModeSleep === 'dormant' ? 30 * 60 * 1000 : SCAN_INTERVAL_MS;
+    // Tighten to 5 min when approaching a pre-market window so we never sleep through the briefing
+    const intervalMs = budgetModeSleep === 'dormant'
+      ? (isApproachingPreMarket() ? 5 * 60 * 1000 : 30 * 60 * 1000)
+      : SCAN_INTERVAL_MS;
 
     const sleepMs = Math.max(30_000, intervalMs - elapsed);
     logScan(`[sleep] next scan in ${(sleepMs / 60000).toFixed(1)} minutes (budget=${budgetModeSleep}, cycle took ${(elapsed / 1000).toFixed(0)}s)...`);

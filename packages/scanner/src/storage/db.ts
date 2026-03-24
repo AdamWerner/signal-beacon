@@ -97,6 +97,13 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE signals ADD COLUMN verification_updated_at DATETIME`,
     `ALTER TABLE signals ADD COLUMN push_sent_at DATETIME`,
     `ALTER TABLE signals ADD COLUMN push_channel TEXT`,
+    `ALTER TABLE signals ADD COLUMN primary_source_family TEXT`,
+    `ALTER TABLE signals ADD COLUMN catalyst_score REAL DEFAULT 0`,
+    `ALTER TABLE signals ADD COLUMN catalyst_summary TEXT`,
+    `ALTER TABLE signals ADD COLUMN execution_replay_gate TEXT DEFAULT 'unknown'`,
+    `ALTER TABLE signals ADD COLUMN execution_replay_expectancy_pct REAL`,
+    `ALTER TABLE signals ADD COLUMN execution_replay_samples INTEGER DEFAULT 0`,
+    `ALTER TABLE signals ADD COLUMN execution_replay_win_rate REAL`,
     `ALTER TABLE whale_events ADD COLUMN trade_id TEXT`,
     `ALTER TABLE tracked_markets ADD COLUMN gamma_id TEXT`,
     `ALTER TABLE tracked_markets ADD COLUMN event_slug TEXT`,
@@ -124,6 +131,99 @@ function runMigrations(db: Database.Database): void {
     db.exec(`UPDATE signals SET confidence = 92 WHERE confidence > 92`);
   } catch {
     // signals table/column may not exist in very old schemas
+  }
+
+  // One-time cleanup: sportsbook/operator regulation markets were historically
+  // misclassified as Evolution Gaming. Reject those stored signals and stop
+  // tracking the stale markets.
+  try {
+    db.exec(`
+      UPDATE signals
+      SET verification_status = 'rejected',
+          verification_score = 15,
+          verification_reason = 'Blocked sportsbook/operator regulation market: no direct Evolution Gaming catalyst',
+          verification_flags = '["weak_gaming_link","sportsbook_operator_regulation"]',
+          verification_source = 'cleanup',
+          requires_judgment = TRUE,
+          verification_updated_at = datetime('now')
+      WHERE matched_asset_id = 'gaming-evolution'
+        AND verification_status <> 'rejected'
+        AND (
+          lower(market_title) LIKE '%sports betting%' OR
+          lower(market_title) LIKE '%osb%' OR
+          lower(market_title) LIKE '%event-contract%'
+        );
+
+      UPDATE tracked_markets
+      SET is_active = FALSE
+      WHERE matched_asset_ids LIKE '%gaming-evolution%'
+        AND is_active = TRUE
+        AND (
+          lower(title) LIKE '%sports betting%' OR
+          lower(title) LIKE '%osb%' OR
+          lower(title) LIKE '%event-contract%'
+        );
+    `);
+  } catch {
+    // schema may not exist in very old databases
+  }
+
+  // One-time cleanup: reject historical junk signal families that were
+  // discovered before the title-only/noise-filter hardening pass.
+  try {
+    db.exec(`
+      UPDATE signals
+      SET verification_status = 'rejected',
+          verification_score = 10,
+          verification_reason = 'Historical noise cleanup: celebrity/media/climate/phrase-count market',
+          verification_flags = '["historical_noise_cleanup"]',
+          verification_source = 'cleanup',
+          requires_judgment = TRUE,
+          verification_updated_at = datetime('now')
+      WHERE verification_status <> 'rejected'
+        AND (
+          lower(market_title) LIKE '%joe rogan%' OR
+          lower(market_title) LIKE '%#1 hit%' OR
+          lower(market_title) LIKE '%number one hit%' OR
+          lower(market_title) LIKE '%release a new song%' OR
+          lower(market_title) LIKE '%release a new album%' OR
+          lower(market_title) LIKE '%album before gta vi%' OR
+          lower(market_title) LIKE '%arctic sea ice%' OR
+          lower(market_title) LIKE 'ahl:%' OR
+          (
+            lower(market_title) LIKE 'will % say %'
+            AND lower(market_title) LIKE '%times%'
+          ) OR
+          (
+            lower(market_title) LIKE '%press conference%'
+            AND lower(market_title) LIKE '%will powell say%'
+          )
+        );
+
+      UPDATE tracked_markets
+      SET is_active = FALSE
+      WHERE is_active = TRUE
+        AND (
+          lower(title) LIKE '%joe rogan%' OR
+          lower(title) LIKE '%#1 hit%' OR
+          lower(title) LIKE '%number one hit%' OR
+          lower(title) LIKE '%release a new song%' OR
+          lower(title) LIKE '%release a new album%' OR
+          lower(title) LIKE '%album before gta vi%' OR
+          lower(title) LIKE '%arctic sea ice%' OR
+          lower(title) LIKE 'ahl:%' OR
+          (
+            lower(title) LIKE 'will % say %'
+            AND lower(title) LIKE '%times%'
+          ) OR
+          (
+            lower(title) LIKE '%press conference%'
+            AND lower(title) LIKE '%will powell say%'
+          )
+        );
+    `);
+  } catch {
+    // schema may not exist in very old databases
   }
 
   try {
@@ -438,6 +538,66 @@ function runMigrations(db: Database.Database): void {
         is_active BOOLEAN DEFAULT FALSE
       );
 
+      CREATE TABLE IF NOT EXISTS external_catalysts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_type TEXT NOT NULL,
+        source_key TEXT NOT NULL UNIQUE,
+        source_family TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT,
+        asset_ids TEXT NOT NULL,
+        direction_hint TEXT,
+        horizon_minutes INTEGER DEFAULT 60,
+        causal_strength REAL DEFAULT 0.5,
+        novelty_score REAL DEFAULT 0.5,
+        source_quality_score REAL DEFAULT 0.5,
+        normalized_summary TEXT,
+        metadata_json TEXT,
+        catalyst_time DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS signal_catalyst_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_id TEXT NOT NULL,
+        catalyst_id INTEGER NOT NULL,
+        relation TEXT NOT NULL CHECK(relation IN ('primary', 'supporting', 'contradicting')),
+        evidence_score REAL DEFAULT 0.5,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(signal_id, catalyst_id, relation),
+        FOREIGN KEY (signal_id) REFERENCES signals(id),
+        FOREIGN KEY (catalyst_id) REFERENCES external_catalysts(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS source_family_diagnostics (
+        source_family TEXT PRIMARY KEY,
+        samples INTEGER DEFAULT 0,
+        hit_rate_30m REAL DEFAULT 0,
+        hit_rate_60m REAL DEFAULT 0,
+        avg_move_30m REAL DEFAULT 0,
+        avg_move_60m REAL DEFAULT 0,
+        expectancy_pct REAL DEFAULT 0,
+        reliability_score REAL DEFAULT 0.5,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS execution_replay_profiles (
+        profile_key TEXT PRIMARY KEY,
+        asset_id TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK(direction IN ('bull', 'bear')),
+        source_family TEXT NOT NULL,
+        samples INTEGER DEFAULT 0,
+        win_rate_30m REAL DEFAULT 0,
+        avg_move_30m REAL DEFAULT 0,
+        avg_favorable_60m REAL DEFAULT 0,
+        avg_adverse_60m REAL DEFAULT 0,
+        expectancy_pct REAL DEFAULT 0,
+        typical_cost_pct REAL DEFAULT 0,
+        gate TEXT DEFAULT 'unknown' CHECK(gate IN ('open', 'watch', 'block', 'unknown')),
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE INDEX IF NOT EXISTS idx_feature_snapshots_1s_symbol_time
       ON feature_snapshots_1s(symbol, timestamp DESC);
 
@@ -458,6 +618,21 @@ function runMigrations(db: Database.Database): void {
 
       CREATE INDEX IF NOT EXISTS idx_push_perf_gate
       ON asset_push_performance(gate, reliability_score DESC, samples DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_external_catalysts_created
+      ON external_catalysts(created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_external_catalysts_family
+      ON external_catalysts(source_family, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_signal_catalyst_links_signal
+      ON signal_catalyst_links(signal_id, relation, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_signal_catalyst_links_catalyst
+      ON signal_catalyst_links(catalyst_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_replay_profiles_asset
+      ON execution_replay_profiles(asset_id, source_family, updated_at DESC);
 
       INSERT OR IGNORE INTO push_policy_config (market, min_confidence, min_delta_pct, min_evidence_score)
       VALUES
@@ -586,6 +761,13 @@ function createTables(db: Database.Database): void {
       verification_updated_at DATETIME,
       push_sent_at DATETIME,
       push_channel TEXT,
+      primary_source_family TEXT,
+      catalyst_score REAL DEFAULT 0,
+      catalyst_summary TEXT,
+      execution_replay_gate TEXT DEFAULT 'unknown',
+      execution_replay_expectancy_pct REAL,
+      execution_replay_samples INTEGER DEFAULT 0,
+      execution_replay_win_rate REAL,
       status TEXT DEFAULT 'new' CHECK(status IN ('new', 'viewed', 'dismissed', 'acted')),
       FOREIGN KEY (market_condition_id) REFERENCES tracked_markets(condition_id)
     );
@@ -910,6 +1092,66 @@ function createTables(db: Database.Database): void {
       is_active BOOLEAN DEFAULT FALSE
     );
 
+    CREATE TABLE IF NOT EXISTS external_catalysts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_type TEXT NOT NULL,
+      source_key TEXT NOT NULL UNIQUE,
+      source_family TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      asset_ids TEXT NOT NULL,
+      direction_hint TEXT,
+      horizon_minutes INTEGER DEFAULT 60,
+      causal_strength REAL DEFAULT 0.5,
+      novelty_score REAL DEFAULT 0.5,
+      source_quality_score REAL DEFAULT 0.5,
+      normalized_summary TEXT,
+      metadata_json TEXT,
+      catalyst_time DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS signal_catalyst_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_id TEXT NOT NULL,
+      catalyst_id INTEGER NOT NULL,
+      relation TEXT NOT NULL CHECK(relation IN ('primary', 'supporting', 'contradicting')),
+      evidence_score REAL DEFAULT 0.5,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(signal_id, catalyst_id, relation),
+      FOREIGN KEY (signal_id) REFERENCES signals(id),
+      FOREIGN KEY (catalyst_id) REFERENCES external_catalysts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS source_family_diagnostics (
+      source_family TEXT PRIMARY KEY,
+      samples INTEGER DEFAULT 0,
+      hit_rate_30m REAL DEFAULT 0,
+      hit_rate_60m REAL DEFAULT 0,
+      avg_move_30m REAL DEFAULT 0,
+      avg_move_60m REAL DEFAULT 0,
+      expectancy_pct REAL DEFAULT 0,
+      reliability_score REAL DEFAULT 0.5,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS execution_replay_profiles (
+      profile_key TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK(direction IN ('bull', 'bear')),
+      source_family TEXT NOT NULL,
+      samples INTEGER DEFAULT 0,
+      win_rate_30m REAL DEFAULT 0,
+      avg_move_30m REAL DEFAULT 0,
+      avg_favorable_60m REAL DEFAULT 0,
+      avg_adverse_60m REAL DEFAULT 0,
+      expectancy_pct REAL DEFAULT 0,
+      typical_cost_pct REAL DEFAULT 0,
+      gate TEXT DEFAULT 'unknown' CHECK(gate IN ('open', 'watch', 'block', 'unknown')),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_feature_snapshots_1s_symbol_time
     ON feature_snapshots_1s(symbol, timestamp DESC);
 
@@ -930,6 +1172,21 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_push_perf_gate
     ON asset_push_performance(gate, reliability_score DESC, samples DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_external_catalysts_created
+    ON external_catalysts(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_external_catalysts_family
+    ON external_catalysts(source_family, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_signal_catalyst_links_signal
+    ON signal_catalyst_links(signal_id, relation, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_signal_catalyst_links_catalyst
+    ON signal_catalyst_links(catalyst_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_execution_replay_profiles_asset
+    ON execution_replay_profiles(asset_id, source_family, updated_at DESC);
 
     INSERT OR IGNORE INTO push_policy_config (market, min_confidence, min_delta_pct, min_evidence_score)
     VALUES

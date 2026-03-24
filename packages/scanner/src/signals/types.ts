@@ -29,6 +29,13 @@ export interface GeneratedSignal {
   verification_flags: string[];
   verification_source: string;
   verification_record: string | null;
+  primary_source_family?: string;
+  catalyst_score?: number;
+  catalyst_summary?: string;
+  execution_replay_gate?: 'open' | 'watch' | 'block' | 'unknown';
+  execution_replay_expectancy_pct?: number;
+  execution_replay_samples?: number;
+  execution_replay_win_rate?: number;
   fusion_p_hat?: number;
   fusion_expectancy_pct?: number;
   fusion_decision?: 'allow' | 'suppress' | 'fallback_phase1';

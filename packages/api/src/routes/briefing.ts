@@ -3,6 +3,17 @@ import { scanner, IntelligenceEngine } from '@polysignal/scanner';
 
 const router = Router();
 const services = scanner.getServices();
+const db = (services as any).db;
+
+type BriefingRow = {
+  id: number;
+  date: string;
+  market: 'swedish' | 'us';
+  briefing_generated_at: string | null;
+  briefing_text: string | null;
+  top_signals: string;
+  pushed_at: string | null;
+};
 
 const TICKER_MAP: Record<string, string> = {
   'Lockheed Martin': 'LMT',
@@ -47,6 +58,65 @@ function getIntelligenceEngine(): IntelligenceEngine {
   return new IntelligenceEngine((services as any).db);
 }
 
+function parseTopSignals(value: string | null | undefined): Array<any> {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function getBriefingRow(market: 'swedish' | 'us', date?: string): BriefingRow | null {
+  if (date) {
+    return db.prepare(
+      'SELECT * FROM daily_briefing WHERE market = ? AND date = ? LIMIT 1'
+    ).get(market, date) as BriefingRow | null;
+  }
+
+  return getIntelligenceEngine().getMorningBriefing(market) as BriefingRow | null;
+}
+
+router.get('/recent', (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(30, parseInt(String(req.query.limit || '12'), 10)));
+    const marketFilter = String(req.query.market || '').toLowerCase();
+    const rows = marketFilter === 'swedish' || marketFilter === 'us'
+      ? db.prepare(`
+          SELECT * FROM daily_briefing
+          WHERE market = ?
+          ORDER BY date DESC, market ASC
+          LIMIT ?
+        `).all(marketFilter, limit) as BriefingRow[]
+      : db.prepare(`
+          SELECT * FROM daily_briefing
+          ORDER BY date DESC, market ASC
+          LIMIT ?
+        `).all(limit) as BriefingRow[];
+
+    return res.json(rows.map(row => {
+      const topSignals = parseTopSignals(row.top_signals);
+      return {
+        id: row.id,
+        date: row.date,
+        market: row.market,
+        briefing_generated_at: row.briefing_generated_at,
+        pushed_at: row.pushed_at,
+        briefing_text: row.briefing_text || '',
+        signal_count: topSignals.length,
+        top_assets: topSignals
+          .slice(0, 3)
+          .map((signal: any) => String(signal?.matched_asset_name || '').trim())
+          .filter(Boolean),
+        url: `/api/briefing/${row.market}?date=${encodeURIComponent(row.date)}`
+      };
+    }));
+  } catch (error) {
+    console.error('Briefing recent route error:', error);
+    return res.status(500).json({ error: 'Failed to load briefing history' });
+  }
+});
+
 // GET /api/briefing/:market - HTML morning briefing page
 router.get('/:market', async (req, res) => {
   try {
@@ -55,12 +125,15 @@ router.get('/:market', async (req, res) => {
       return res.status(400).send('<h1>Market must be "swedish" or "us"</h1>');
     }
 
-    const intelligence = getIntelligenceEngine();
-    const briefing = intelligence.getMorningBriefing(market);
+    const requestedDate = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const briefing = getBriefingRow(market, requestedDate);
 
     const flag = market === 'swedish' ? '🇸🇪' : '🇺🇸';
     const marketName = market === 'swedish' ? 'OMX Stockholm' : 'US NYSE/NASDAQ';
-    const today = new Date().toLocaleDateString('en-SE', {
+    const displayDate = requestedDate || new Date().toLocaleDateString('en-CA', {
+      timeZone: 'Europe/Stockholm'
+    });
+    const today = new Date(`${displayDate}T12:00:00Z`).toLocaleDateString('en-SE', {
       weekday: 'short',
       year: 'numeric',
       month: 'short',
@@ -73,13 +146,7 @@ router.get('/:market', async (req, res) => {
 
     if (briefing) {
       briefingText = briefing.briefing_text || 'No briefing text generated.';
-      const topSignals: Array<any> = (() => {
-        try {
-          return JSON.parse(briefing.top_signals || '[]');
-        } catch {
-          return [];
-        }
-      })();
+      const topSignals = parseTopSignals(briefing.top_signals);
 
       signalRows = topSignals.map((signal, index) => {
         const isBull = `${signal.suggested_action || ''}`.toLowerCase().includes('bull');
@@ -132,6 +199,7 @@ router.get('/:market', async (req, res) => {
       }).join('');
     }
 
+    const intelligence = getIntelligenceEngine();
     const memories = intelligence.getActiveMemories().slice(0, 5);
     const memoryHtml = memories.length > 0
       ? memories.map(memory => {

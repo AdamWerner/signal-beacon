@@ -75,6 +75,7 @@ export class AlertDispatcher {
       skippedThresholds: 0,
       skippedExecution: 0,
       skippedQuality: 0,
+      skippedReplay: 0,
       skippedWhipsaw: 0,
       skippedPolicy: 0,
       skippedEvidence: 0,
@@ -129,7 +130,7 @@ export class AlertDispatcher {
       `  Push audit: total=${diagnostics.totalSignals} pushed=${diagnostics.pushed} brewed_closed=${brewed} ` +
       `skip[min=${diagnostics.skippedMinConfidence}, judgment=${diagnostics.skippedRequiresJudgment}, ` +
       `verify=${diagnostics.skippedVerification}, thresholds=${diagnostics.skippedThresholds}, ` +
-      `execution=${diagnostics.skippedExecution}, quality=${diagnostics.skippedQuality}, ` +
+      `execution=${diagnostics.skippedExecution}, quality=${diagnostics.skippedQuality}, replay=${diagnostics.skippedReplay}, ` +
       `whipsaw=${diagnostics.skippedWhipsaw}, policy=${diagnostics.skippedPolicy}, ` +
       `evidence=${diagnostics.skippedEvidence}, deep=${diagnostics.skippedDeepVerify}]`
     );
@@ -148,6 +149,7 @@ export class AlertDispatcher {
       skippedThresholds: number;
       skippedExecution: number;
       skippedQuality: number;
+      skippedReplay: number;
       skippedWhipsaw: number;
       skippedPolicy: number;
       skippedEvidence: number;
@@ -247,6 +249,13 @@ export class AlertDispatcher {
         continue;
       }
 
+      const replayGate = this.evaluateExecutionReplayGate(candidate);
+      if (!replayGate.allowed) {
+        diagnostics.skippedReplay += 1;
+        console.log(`  Skip push ${candidate.id} replay gate: ${replayGate.reason}`);
+        continue;
+      }
+
       const regimeGate = this.evaluateRegimeShiftGate(candidate);
       if (!regimeGate.allowed) {
         diagnostics.skippedWhipsaw += 1;
@@ -293,9 +302,6 @@ export class AlertDispatcher {
         const dryTitle = `${candidate.suggested_action} ${candidate.matched_asset_name} ${candidate.confidence}%`;
         const dryMessage = `${candidate.reasoning} | ${candidate.verification_reason}`;
         console.log(`[DRY_RUN] Would push: ${dryTitle} | ${dryMessage}`);
-        if (this.onSignalsPushed) {
-          this.onSignalsPushed([candidate.id], market);
-        }
         return 1;
       }
 
@@ -504,6 +510,17 @@ export class AlertDispatcher {
       signal.confidence >= (this.haMinConfidence + 15) &&
       absDelta >= 30 &&
       whaleStrong;
+    const sourceFamily = String(signal.primary_source_family || '').trim();
+    const sourcePerf = sourceFamily
+      ? this.signalStore.getSourceFamilyPerformance(sourceFamily)
+      : null;
+
+    if (sourceFamily === 'crypto_proxy_market' && !highConvictionOverride) {
+      return {
+        allowed: false,
+        reason: 'source family crypto_proxy_market requires extraordinary override'
+      };
+    }
 
     if (policy.gate === 'block') {
       if (highConvictionOverride) {
@@ -533,6 +550,39 @@ export class AlertDispatcher {
           reason:
             `asset gate=watch requires stronger setup (conf=${signal.confidence}%, delta=${absDelta.toFixed(1)}%)`
         };
+      }
+    }
+
+    if (sourcePerf && sourcePerf.samples >= 6) {
+      const poorFamily =
+        sourcePerf.reliabilityScore < 0.25 ||
+        sourcePerf.expectancyPct <= -1;
+      if (poorFamily && !highConvictionOverride) {
+        return {
+          allowed: false,
+          reason:
+            `source family ${sourceFamily} weak ` +
+            `(n=${sourcePerf.samples}, rel=${sourcePerf.reliabilityScore.toFixed(2)}, ` +
+            `exp=${sourcePerf.expectancyPct.toFixed(2)}%)`
+        };
+      }
+
+      const watchFamily =
+        sourcePerf.reliabilityScore < 0.45 ||
+        sourcePerf.expectancyPct < 0;
+      if (watchFamily) {
+        const strongFamilyCandidate =
+          signal.confidence >= (this.haMinConfidence + 10) &&
+          absDelta >= 25 &&
+          (whaleStrong || signal.verification_source === 'claude');
+        if (!strongFamilyCandidate) {
+          return {
+            allowed: false,
+            reason:
+              `source family ${sourceFamily} requires stronger setup ` +
+              `(rel=${sourcePerf.reliabilityScore.toFixed(2)}, exp=${sourcePerf.expectancyPct.toFixed(2)}%)`
+          };
+        }
       }
     }
 
@@ -613,6 +663,26 @@ export class AlertDispatcher {
       score -= 3;
     }
 
+    if (signal.primary_source_family === 'crypto_proxy_market') {
+      score -= 3;
+    }
+
+    if (typeof signal.catalyst_score === 'number') {
+      if (signal.catalyst_score >= 75) score += 1;
+      else if (signal.catalyst_score <= 45) score -= 1;
+    }
+
+    const sourcePerf = signal.primary_source_family
+      ? this.signalStore.getSourceFamilyPerformance(signal.primary_source_family)
+      : null;
+    if (sourcePerf && sourcePerf.samples >= 6) {
+      if (sourcePerf.reliabilityScore >= 0.65 && sourcePerf.expectancyPct > 0.3) {
+        score += 1;
+      } else if (sourcePerf.reliabilityScore < 0.35 || sourcePerf.expectancyPct < -0.5) {
+        score -= 2;
+      }
+    }
+
     const highConvictionOverride =
       signal.confidence >= (minConfidence + 18) &&
       absDelta >= 35 &&
@@ -630,6 +700,40 @@ export class AlertDispatcher {
     return {
       allowed: true,
       reason: `score=${score}/${minEvidenceScore} reinforcement=${reinforcement}`
+    };
+  }
+
+  private evaluateExecutionReplayGate(signal: GeneratedSignal): { allowed: boolean; reason: string } {
+    const gate = signal.execution_replay_gate || 'unknown';
+    const samples = signal.execution_replay_samples || 0;
+    const expectancy = signal.execution_replay_expectancy_pct || 0;
+    const hitRate = signal.execution_replay_win_rate || 0;
+
+    if (gate === 'block' && samples >= 6) {
+      return {
+        allowed: false,
+        reason: `historical replay block (n=${samples}, hit30=${(hitRate * 100).toFixed(0)}%, exp=${expectancy.toFixed(2)}%)`
+      };
+    }
+
+    if (gate === 'watch' && samples >= 6) {
+      const strongOverride =
+        signal.confidence >= this.haMinConfidence + 10 &&
+        Math.abs(signal.delta_pct) >= 25 &&
+        (signal.whale_amount_usd || 0) >= 10_000;
+      if (!strongOverride) {
+        return {
+          allowed: false,
+          reason: `replay watch requires stronger setup (n=${samples}, exp=${expectancy.toFixed(2)}%)`
+        };
+      }
+    }
+
+    return {
+      allowed: true,
+      reason: gate === 'unknown'
+        ? 'no replay profile yet'
+        : `${gate} (n=${samples}, exp=${expectancy.toFixed(2)}%)`
     };
   }
 

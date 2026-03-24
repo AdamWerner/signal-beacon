@@ -16,6 +16,7 @@ import tweetsRouter from './routes/tweets.js';
 import backtestRouter from './routes/backtest.js';
 import streamingRouter from './routes/streaming.js';
 import fusionRouter from './routes/fusion.js';
+import catalystsRouter from './routes/catalysts.js';
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3100', 10);
@@ -36,6 +37,7 @@ app.use('/api/tweets', tweetsRouter);
 app.use('/api/backtest', backtestRouter);
 app.use('/api/streaming', streamingRouter);
 app.use('/api/fusion', fusionRouter);
+app.use('/api/catalysts', catalystsRouter);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -54,7 +56,8 @@ app.get('/', (_req, res) => {
       '/api/tweets',
       '/api/backtest',
       '/api/streaming',
-      '/api/fusion'
+      '/api/fusion',
+      '/api/catalysts'
     ]
   });
 });

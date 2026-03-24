@@ -190,13 +190,14 @@ export class AutoMapper {
 
   /**
    * Return the ontology keywords for a specific asset that explicitly appear in
-   * the market title/description. Used by the verification guard.
+   * the market title. Used by the verification guard.
+   * Sacred rule: title keyword evidence only.
    */
   getMatchedKeywordsForAsset(market: TrackedMarket, assetId: string): string[] {
     const asset = this.ontology.getAsset(assetId);
     if (!asset) return [];
 
-    const haystack = `${market.title} ${market.description || ''}`.toLowerCase();
+    const haystack = String(market.title || '').toLowerCase();
     return asset.polymarket_patterns.keywords.filter(keyword =>
       haystack.includes(keyword.toLowerCase())
     );

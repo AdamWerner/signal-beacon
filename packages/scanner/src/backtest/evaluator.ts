@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import { YahooPriceClient, PricePoint } from './price-client.js';
 import { getYahooSymbol } from './symbol-map.js';
-import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS } from '../intelligence/trading-hours.js';
+import { SWEDISH_MARKET_ASSETS, US_MARKET_ASSETS, getStockholmDateStringAt } from '../intelligence/trading-hours.js';
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
+import { CatalystStore } from '../storage/catalyst-store.js';
 
 interface SignalCandidate {
   id: string;
@@ -63,6 +64,14 @@ export interface BacktestRunResult {
     };
     volatilityRegime: Record<string, { count: number; hitRate30m: number; hitRate60m: number }>;
   };
+  sourceFamilyBreakdowns?: Array<{
+    sourceFamily: string;
+    count: number;
+    hitRate30m: number;
+    hitRate60m: number;
+    avgMove30m: number;
+    expectancyPct: number;
+  }>;
 }
 
 export type BacktestCandidateMode = 'push_only' | 'hybrid';
@@ -72,7 +81,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function getStockholmDateString(date = new Date()): string {
-  return date.toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+  return getStockholmDateStringAt(date);
 }
 
 function directionalMovePct(entry: number, price: number, isBull: boolean): number {
@@ -92,8 +101,11 @@ function pickPoint(points: PricePoint[], targetMs: number): PricePoint | null {
 
 export class SignalBacktestEvaluator {
   private priceClient = new YahooPriceClient();
+  private catalystStore: CatalystStore;
 
-  constructor(private db: Database.Database) {}
+  constructor(private db: Database.Database) {
+    this.catalystStore = new CatalystStore(db);
+  }
 
   async runDailyBacktest(
     market: 'swedish' | 'us',
@@ -119,6 +131,7 @@ export class SignalBacktestEvaluator {
     let alreadyRan = readCached(date);
     if (alreadyRan) {
       const indicatorBreakdowns = this.calculateIndicatorBreakdowns(date, market);
+      const sourceFamilyBreakdowns = this.calculateSourceFamilyBreakdowns(date, market);
       return {
         date,
         market,
@@ -130,7 +143,8 @@ export class SignalBacktestEvaluator {
         aiNotes: alreadyRan.ai_notes || '',
         skipped: true,
         candidateMode: mode,
-        indicatorBreakdowns
+        indicatorBreakdowns,
+        sourceFamilyBreakdowns
       };
     }
 
@@ -148,6 +162,7 @@ export class SignalBacktestEvaluator {
         alreadyRan = readCached(date);
         if (alreadyRan) {
           const indicatorBreakdowns = this.calculateIndicatorBreakdowns(date, market);
+          const sourceFamilyBreakdowns = this.calculateSourceFamilyBreakdowns(date, market);
           return {
             date,
             market,
@@ -159,7 +174,8 @@ export class SignalBacktestEvaluator {
             aiNotes: alreadyRan.ai_notes || '',
             skipped: true,
             candidateMode: mode,
-            indicatorBreakdowns
+            indicatorBreakdowns,
+            sourceFamilyBreakdowns
           };
         }
       }
@@ -265,7 +281,10 @@ export class SignalBacktestEvaluator {
     this.refreshAssetPerformance(market);
     this.refreshPushPerformance(market);
     this.optimizePushPolicy(market);
+    this.catalystStore.refreshSourceFamilyDiagnostics();
+    this.catalystStore.refreshExecutionReplayProfiles();
     const indicatorBreakdowns = this.calculateIndicatorBreakdowns(date, market);
+    const sourceFamilyBreakdowns = this.calculateSourceFamilyBreakdowns(date, market);
 
     return {
       date,
@@ -283,7 +302,8 @@ export class SignalBacktestEvaluator {
       skippedTooFresh,
       skippedNoPriceData,
       candidateMode: mode,
-      indicatorBreakdowns
+      indicatorBreakdowns,
+      sourceFamilyBreakdowns
     };
   }
 
@@ -500,6 +520,40 @@ export class SignalBacktestEvaluator {
       },
       volatilityRegime
     };
+  }
+
+  private calculateSourceFamilyBreakdowns(date: string, market: 'swedish' | 'us') {
+    return this.db.prepare(`
+      SELECT
+        ec.source_family as sourceFamily,
+        COUNT(DISTINCT so.signal_id) as count,
+        AVG(COALESCE(so.direction_correct_30m, 0)) as hitRate30m,
+        AVG(COALESCE(so.direction_correct_60m, 0)) as hitRate60m,
+        AVG(COALESCE(so.move_30m_pct, 0)) as avgMove30m,
+        AVG(
+          CASE
+            WHEN COALESCE(so.direction_correct_30m, 0) = 1 THEN 3
+            ELSE -2
+          END
+        ) as expectancyPct
+      FROM signal_outcomes so
+      JOIN signal_catalyst_links scl
+        ON scl.signal_id = so.signal_id
+       AND scl.relation = 'primary'
+      JOIN external_catalysts ec
+        ON ec.id = scl.catalyst_id
+      WHERE so.market = ?
+        AND date(so.entry_time) = ?
+      GROUP BY ec.source_family
+      ORDER BY expectancyPct DESC, count DESC
+    `).all(market, date) as Array<{
+      sourceFamily: string;
+      count: number;
+      hitRate30m: number;
+      hitRate60m: number;
+      avgMove30m: number;
+      expectancyPct: number;
+    }>;
   }
 
   private storeRunSummary(
