@@ -325,6 +325,26 @@ export class TechnicalScanner {
         });
       }
     }
+    if (currentRsi !== null) {
+      if (currentRsi > 60 && prevRsi !== null && currentRsi > prevRsi + 2) {
+        conditions.push({
+          key: 'rsi_bull_momentum',
+          direction: 'bull',
+          urgency: 'medium',
+          boost: 2,
+          description: `RSI momentum bullish (${currentRsi.toFixed(1)}, rising)`
+        });
+      }
+      if (currentRsi < 40 && prevRsi !== null && currentRsi < prevRsi - 2) {
+        conditions.push({
+          key: 'rsi_bear_momentum',
+          direction: 'bear',
+          urgency: 'medium',
+          boost: 2,
+          description: `RSI momentum bearish (${currentRsi.toFixed(1)}, falling)`
+        });
+      }
+    }
 
     const currentHistogram = typeof currentMacd?.histogram === 'number' ? currentMacd.histogram : null;
     const prevHistogram = typeof prevMacd?.histogram === 'number' ? prevMacd.histogram : null;
@@ -347,10 +367,30 @@ export class TechnicalScanner {
           description: `MACD histogram turned negative (${prevHistogram.toFixed(4)} -> ${currentHistogram.toFixed(4)})`
         });
       }
+
+      const histChange = Math.abs(currentHistogram) - Math.abs(prevHistogram);
+      if (currentHistogram > 0 && histChange > 0 && Math.abs(currentHistogram) > 0.05) {
+        conditions.push({
+          key: 'macd_bull_expanding',
+          direction: 'bull',
+          urgency: 'medium',
+          boost: 3,
+          description: `MACD histogram expanding bullish (${currentHistogram.toFixed(4)})`
+        });
+      }
+      if (currentHistogram < 0 && histChange > 0 && Math.abs(currentHistogram) > 0.05) {
+        conditions.push({
+          key: 'macd_bear_expanding',
+          direction: 'bear',
+          urgency: 'medium',
+          boost: 3,
+          description: `MACD histogram expanding bearish (${currentHistogram.toFixed(4)})`
+        });
+      }
     }
 
     if (typeof currentBb?.upper === 'number' && typeof currentBb?.lower === 'number') {
-      if (lastBar.close > currentBb.upper && volumeRatio > 1.5) {
+      if (lastBar.close > currentBb.upper && volumeRatio > 1.2) {
         conditions.push({
           key: 'bollinger_upper_breakout',
           direction: 'bull',
@@ -359,7 +399,7 @@ export class TechnicalScanner {
           description: `Price broke above upper Bollinger band with ${volumeRatio.toFixed(2)}x volume`
         });
       }
-      if (lastBar.close < currentBb.lower && volumeRatio > 1.5) {
+      if (lastBar.close < currentBb.lower && volumeRatio > 1.2) {
         conditions.push({
           key: 'bollinger_lower_breakdown',
           direction: 'bear',
@@ -370,7 +410,7 @@ export class TechnicalScanner {
       }
     }
 
-    if (volumeRatio > 3 && Math.abs(move5mPct) > 1) {
+    if (volumeRatio > 2 && Math.abs(move5mPct) > 0.5) {
       const direction = move5mPct > 0 ? 'bull' : 'bear';
       conditions.push({
         key: 'volume_momentum',
