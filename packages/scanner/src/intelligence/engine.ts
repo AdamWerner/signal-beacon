@@ -287,6 +287,10 @@ export class IntelligenceEngine {
     }
 
     const topSignals = this.getTopSignalsByAsset(briefingPool, 5);
+    const catalystSignals = this.getTopSignalsByAsset(
+      briefingPool.filter(signal => signal.signal_origin === 'catalyst_convergence' || signal.signal_origin === 'hybrid'),
+      5
+    );
     const activeMemories = this.getActiveMemories().slice(0, 8);
     const crossSectorMemories = activeMemories.filter(m => m.category.includes('-'));
     const reinforcingMemories = activeMemories.filter(m => !m.category.includes('-')).slice(0, 5);
@@ -314,6 +318,7 @@ export class IntelligenceEngine {
         asset: signal.matched_asset_name,
         action: signal.suggested_action,
         confidence: signal.confidence,
+        origin: signal.signal_origin || 'polymarket',
         market: (signal.market_title as string).substring(0, 80),
         odds_before: (signal.odds_before * 100).toFixed(0) + '%',
         odds_now: (signal.odds_now * 100).toFixed(0) + '%',
@@ -323,6 +328,18 @@ export class IntelligenceEngine {
         tags: reasoningTags || null
       };
     });
+
+    const catalystItems = catalystSignals.map((signal, idx) => ({
+      index: idx,
+      id: signal.id,
+      asset: signal.matched_asset_name,
+      action: signal.suggested_action,
+      confidence: signal.confidence,
+      source_family: signal.primary_source_family || 'mixed',
+      convergence_count: Number(signal.catalyst_score || 0),
+      summary: signal.catalyst_summary || signal.market_title,
+      market: (signal.market_title as string).substring(0, 80)
+    }));
 
     // Fetch yesterday's backtest summary for this market.
     const yesterday = new Date();
@@ -351,6 +368,9 @@ export class IntelligenceEngine {
 
 OVERNIGHT SIGNALS (${topSignals.length} top, sorted by confidence):
 ${JSON.stringify(signalItems, null, 2)}
+
+CATALYST-ORIGINATED SIGNALS (from non-Polymarket sources):
+${catalystItems.length > 0 ? JSON.stringify(catalystItems, null, 2) : 'None'}
 
 News reinforcement: ${totalNewsReinforced} of ${topSignals.length} signals confirmed by 2+ independent news sources.
 
