@@ -212,7 +212,7 @@ export class ScanCycleJob {
         }
         intelligence.processNewSignals(signals);
 
-        const pendingUpdates: Array<{ confidence: number; reasoning: string; id: string }> = [];
+        const pendingUpdates: Array<{ confidence: number; reasoning: string; signalOrigin: string; id: string }> = [];
 
         for (const signal of signals) {
           let changed = false;
@@ -294,11 +294,17 @@ export class ScanCycleJob {
 
             if (confirming.length >= 2) {
               signal.confidence = Math.min(signal.confidence + 10, 92);
-              signal.reasoning += ` [cross-source: ${confirming.length} external catalysts confirm]`;
+              const familyLabels = this.describeCatalystFamilies(confirming);
+              signal.reasoning +=
+                ` [cross-source: ${confirming.length} external catalysts confirm ${familyLabels.join('+')}]`;
+              signal.signal_origin = 'hybrid';
               changed = true;
             } else if (confirming.length === 1) {
               signal.confidence = Math.min(signal.confidence + 5, 92);
-              signal.reasoning += ' [cross-source: 1 external catalyst confirms]';
+              const familyLabels = this.describeCatalystFamilies(confirming);
+              signal.reasoning +=
+                ` [cross-source: 1 external catalyst confirms ${familyLabels.join('+')}]`;
+              signal.signal_origin = 'hybrid';
               changed = true;
             }
           }
@@ -319,6 +325,7 @@ export class ScanCycleJob {
               signal.confidence = Math.min(signal.confidence + boost, 92);
               signal.reasoning +=
                 ` [poly-confirms: +${boost} from ${bestPoly.matched_asset_name} ${bestPoly.confidence}%]`;
+              signal.signal_origin = 'hybrid';
               changed = true;
             }
           }
@@ -366,16 +373,21 @@ export class ScanCycleJob {
           changed = true;
 
           if (changed) {
-            pendingUpdates.push({ confidence: signal.confidence, reasoning: signal.reasoning, id: signal.id });
+            pendingUpdates.push({
+              confidence: signal.confidence,
+              reasoning: signal.reasoning,
+              signalOrigin: signal.signal_origin || 'polymarket',
+              id: signal.id
+            });
           }
         }
 
         if (pendingUpdates.length > 0) {
           try {
-            const stmt = this.db.prepare('UPDATE signals SET confidence = ?, reasoning = ? WHERE id = ?');
+            const stmt = this.db.prepare('UPDATE signals SET confidence = ?, reasoning = ?, signal_origin = ? WHERE id = ?');
             const batchUpdate = this.db.transaction((items: typeof pendingUpdates) => {
               for (const item of items) {
-                stmt.run(item.confidence, item.reasoning, item.id);
+                stmt.run(item.confidence, item.reasoning, item.signalOrigin, item.id);
               }
             });
             batchUpdate(pendingUpdates);
@@ -561,5 +573,34 @@ export class ScanCycleJob {
     const regex = new RegExp(`\\[${tag}:[^\\]]+\\]`, 'i');
     const found = (reasoning || '').match(regex);
     return found?.[0];
+  }
+
+  private describeCatalystFamilies(catalysts: SourceCatalyst[]): string[] {
+    const labels = new Set<string>();
+    for (const catalyst of catalysts) {
+      switch (catalyst.sourceType) {
+        case 'technical_breakout':
+          labels.add('technical');
+          break;
+        case 'finviz_news':
+          labels.add('news');
+          break;
+        case 'econ_surprise':
+          labels.add('macro');
+          break;
+        case 'finviz_insider':
+        case 'congressional_trade':
+        case 'sec_insider':
+          labels.add('insider');
+          break;
+        case 'finviz_volume':
+          labels.add('price alert');
+          break;
+        default:
+          labels.add(String(catalyst.sourceType || 'catalyst'));
+          break;
+      }
+    }
+    return Array.from(labels.values());
   }
 }

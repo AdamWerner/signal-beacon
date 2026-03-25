@@ -17,6 +17,7 @@ const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
 const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 40;
 const PROXY_CLUSTER_WINDOW_HOURS = 12;
 const CATALYST_SIGNAL_WINDOW_MINUTES = 60;
+const CATALYST_REEMIT_MINUTES = 10;
 
 export class SignalGenerator {
   constructor(
@@ -421,11 +422,25 @@ export class SignalGenerator {
       const existing = this.signalStore.findRecentByDeduplicationKey(signal.deduplication_key, DEDUP_WINDOW_HOURS);
       if (existing) {
         const existingCatalystScore = Number(existing.catalyst_score || 0);
-        if (
-          signal.confidence <= existing.confidence + 4 &&
-          sourceCount <= Math.max(2, Math.round(existingCatalystScore))
-        ) {
-          continue;
+        const existingTimestamp = this.parseSignalTimestamp(existing.timestamp);
+        const minutesSinceExisting = existingTimestamp
+          ? (Date.now() - existingTimestamp.getTime()) / 60000
+          : Number.POSITIVE_INFINITY;
+        const canReemitUnpushedCatalyst =
+          String(existing.signal_origin || 'polymarket') === 'catalyst_convergence' &&
+          !existing.push_sent_at &&
+          Number.isFinite(minutesSinceExisting) &&
+          minutesSinceExisting >= CATALYST_REEMIT_MINUTES &&
+          sourceCount >= Math.max(2, Math.round(existingCatalystScore)) &&
+          signal.confidence >= existing.confidence - 2;
+
+        if (!canReemitUnpushedCatalyst) {
+          if (
+            signal.confidence <= existing.confidence + 4 &&
+            sourceCount <= Math.max(2, Math.round(existingCatalystScore))
+          ) {
+            continue;
+          }
         }
       }
 
@@ -715,6 +730,16 @@ export class SignalGenerator {
         confidence: Number(existing.confidence || 0),
         direction: opposite
       }));
+  }
+
+  private parseSignalTimestamp(value: unknown): Date | null {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const withZone = /z$/i.test(normalized) ? normalized : `${normalized}Z`;
+    const parsed = new Date(withZone);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
   }
 
   private async applyBatchVerification(

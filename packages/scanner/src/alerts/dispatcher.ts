@@ -187,6 +187,10 @@ export class AlertDispatcher {
       2,
       parseInt(process.env.PUSH_POLICY_MAX_MIN_EVIDENCE_SCORE || '3', 10)
     );
+    const maxCatalystExecutionPct = Math.max(
+      0.015,
+      parseFloat(process.env.PUSH_POLICY_CATALYST_MAX_EXECUTION_PCT || '0.02')
+    );
 
     const rawPolicyMinConfidence = policy?.minConfidence ?? this.haMinConfidence;
     const rawPolicyMinDeltaPct = policy?.minDeltaPct ?? 15;
@@ -216,7 +220,7 @@ export class AlertDispatcher {
     );
 
     const catalystPushable = signals.filter(signal =>
-      this.isCatalystConvergenceSignal(signal) &&
+      this.isCatalystAwareSignal(signal) &&
       signal.confidence >= Math.max(55, catalystPolicyMinConfidence - 15) &&
       Math.abs(signal.delta_pct) >= Math.max(12, policyMinDeltaPct - 5) &&
       signal.verification_status === 'approved'
@@ -257,9 +261,13 @@ export class AlertDispatcher {
       const execution = estimateExecutionCost(candidate.matched_asset_id, leverage || 3);
       candidate.reasoning += ` [execution: ${execution.note}]`;
       if (!execution.feasible) {
-        diagnostics.skippedExecution += 1;
-        console.log(`  Skip push ${candidate.id} execution gate: ${execution.note}`);
-        continue;
+        if (this.isCatalystExecutionOverrideEligible(candidate, execution.roundTripCostPct, maxCatalystExecutionPct)) {
+          candidate.reasoning += ` [execution:catalyst_override ${(execution.roundTripCostPct * 100).toFixed(1)}%<=${(maxCatalystExecutionPct * 100).toFixed(1)}%]`;
+        } else {
+          diagnostics.skippedExecution += 1;
+          console.log(`  Skip push ${candidate.id} execution gate: ${execution.note}`);
+          continue;
+        }
       }
 
       const qualityBlock = this.getPushQualityBlockReason(candidate);
@@ -393,8 +401,17 @@ export class AlertDispatcher {
     return signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
   }
 
+  private getSignalOrigin(signal: Partial<GeneratedSignal>): string {
+    return String(signal.signal_origin || 'polymarket').trim();
+  }
+
   private isCatalystConvergenceSignal(signal: Partial<GeneratedSignal>): boolean {
-    return String(signal.signal_origin || 'polymarket').trim() === 'catalyst_convergence';
+    return this.getSignalOrigin(signal) === 'catalyst_convergence';
+  }
+
+  private isCatalystAwareSignal(signal: Partial<GeneratedSignal>): boolean {
+    const origin = this.getSignalOrigin(signal);
+    return origin === 'catalyst_convergence' || origin === 'hybrid';
   }
 
   private parseDbTimestamp(value: string | null | undefined): Date | null {
@@ -700,17 +717,16 @@ export class AlertDispatcher {
       else if (signal.catalyst_score <= 45) score -= 1;
     }
 
-    if (this.isCatalystConvergenceSignal(signal)) {
-      const sourceTypes = new Set<string>();
-      const reasoningLower = (signal.reasoning || '').toLowerCase();
-      if (reasoningLower.includes('technical')) sourceTypes.add('technical');
-      if (reasoningLower.includes('finviz') || reasoningLower.includes('volume spike')) sourceTypes.add('news');
-      if (reasoningLower.includes('econ') || reasoningLower.includes('macro')) sourceTypes.add('macro');
-      if (reasoningLower.includes('insider') || reasoningLower.includes('congressional')) sourceTypes.add('insider');
-      if (reasoningLower.includes('price alert') || reasoningLower.includes('intraday')) sourceTypes.add('price');
-      if (reasoningLower.includes('poly-confirms') || reasoningLower.includes('cross-source')) sourceTypes.add('polymarket');
-
+    if (this.isCatalystAwareSignal(signal)) {
+      const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
       score += Math.min(4, sourceTypes.size);
+      if (sourceTypes.size >= 2) score += 2;
+      if (
+        sourceTypes.has('technical') &&
+        (sourceTypes.has('price') || sourceTypes.has('news') || sourceTypes.has('macro'))
+      ) {
+        score += 1;
+      }
       if (sourceTypes.has('polymarket')) score += 2;
     }
 
@@ -784,6 +800,40 @@ export class AlertDispatcher {
         ? 'no replay profile yet'
         : `${gate} (n=${samples}, exp=${expectancy.toFixed(2)}%)`
     };
+  }
+
+  private isCatalystExecutionOverrideEligible(
+    signal: GeneratedSignal,
+    roundTripCostPct: number,
+    maxCatalystExecutionPct: number
+  ): boolean {
+    if (!this.isCatalystAwareSignal(signal)) return false;
+    if (roundTripCostPct > maxCatalystExecutionPct) return false;
+    if (signal.confidence < 65) return false;
+    if (Math.abs(signal.delta_pct) < 18) return false;
+
+    const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
+    if (sourceTypes.size < 2) return false;
+    if (sourceTypes.has('polymarket')) return true;
+
+    const hasTechnicalPairing =
+      sourceTypes.has('technical') &&
+      (sourceTypes.has('price') || sourceTypes.has('news') || sourceTypes.has('macro'));
+    if (!hasTechnicalPairing) return false;
+
+    return signal.verification_status === 'approved';
+  }
+
+  private extractCatalystSourceTypes(reasoning: string): Set<string> {
+    const sourceTypes = new Set<string>();
+    const reasoningLower = (reasoning || '').toLowerCase();
+    if (reasoningLower.includes('technical')) sourceTypes.add('technical');
+    if (reasoningLower.includes('finviz') || reasoningLower.includes('volume spike')) sourceTypes.add('news');
+    if (reasoningLower.includes('econ') || reasoningLower.includes('macro')) sourceTypes.add('macro');
+    if (reasoningLower.includes('insider') || reasoningLower.includes('congressional')) sourceTypes.add('insider');
+    if (reasoningLower.includes('price alert') || reasoningLower.includes('intraday')) sourceTypes.add('price');
+    if (reasoningLower.includes('poly-confirms') || reasoningLower.includes('cross-source')) sourceTypes.add('polymarket');
+    return sourceTypes;
   }
 
   /**
