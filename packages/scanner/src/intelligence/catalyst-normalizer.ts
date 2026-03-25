@@ -1,7 +1,7 @@
 export type CatalystDirectionHint = 'bull' | 'bear' | 'mixed' | 'neutral';
 
 export interface CatalystNormalizationInput {
-  sourceType: 'polymarket' | 'news' | 'tweet' | 'macro' | 'whale';
+  sourceType: 'polymarket' | 'news' | 'tweet' | 'macro' | 'whale' | 'technical' | 'insider' | 'volume';
   title: string;
   body?: string | null;
   assetId: string;
@@ -21,6 +21,10 @@ export interface CatalystNormalizationResult {
   sourceQualityScore: number;
   normalizedSummary: string;
   isNoise: boolean;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 const EVENT_PATTERNS: Array<{
@@ -60,11 +64,62 @@ export class CatalystNormalizer {
       ? 0.92
       : input.sourceType === 'whale'
         ? 0.82
+        : input.sourceType === 'technical'
+          ? 0.78
+          : input.sourceType === 'insider'
+            ? 0.8
+            : input.sourceType === 'volume'
+              ? 0.74
         : input.sourceType === 'polymarket'
           ? 0.75
           : input.sourceType === 'news'
             ? 0.72
             : 0.68;
+
+    if (input.sourceType === 'technical') {
+      const directionHint = input.hintedDirection || this.inferDirection(lowered, input.hintedDirection);
+      return {
+        sourceFamily: 'technical_breakout',
+        eventType: 'technical_breakout',
+        directionHint,
+        horizonMinutes: 60,
+        causalStrength: clamp(0.76 + ((input.sourceWeight || 1) - 1) * 0.08, 0.25, 0.95),
+        noveltyScore: Math.max(0.2, 0.8 - Math.min(0.3, (input.recentSimilarCount || 0) * 0.08)),
+        sourceQualityScore: baseQuality,
+        normalizedSummary: this.buildSummary(input.assetName, 'technical_breakout', directionHint, classificationText),
+        isNoise: false
+      };
+    }
+
+    if (input.sourceType === 'insider') {
+      const directionHint = input.hintedDirection || this.inferDirection(lowered, input.hintedDirection);
+      return {
+        sourceFamily: 'insider_flow',
+        eventType: 'insider_trade',
+        directionHint,
+        horizonMinutes: 240,
+        causalStrength: clamp(0.82 + ((input.sourceWeight || 1) - 1) * 0.08, 0.25, 0.95),
+        noveltyScore: Math.max(0.2, 0.82 - Math.min(0.3, (input.recentSimilarCount || 0) * 0.08)),
+        sourceQualityScore: baseQuality,
+        normalizedSummary: this.buildSummary(input.assetName, 'insider_flow', directionHint, classificationText),
+        isNoise: false
+      };
+    }
+
+    if (input.sourceType === 'volume') {
+      const directionHint = input.hintedDirection || this.inferDirection(lowered, input.hintedDirection);
+      return {
+        sourceFamily: 'volume_momentum',
+        eventType: 'volume_spike',
+        directionHint,
+        horizonMinutes: 90,
+        causalStrength: clamp(0.72 + ((input.sourceWeight || 1) - 1) * 0.08, 0.25, 0.95),
+        noveltyScore: Math.max(0.18, 0.78 - Math.min(0.28, (input.recentSimilarCount || 0) * 0.08)),
+        sourceQualityScore: baseQuality,
+        normalizedSummary: this.buildSummary(input.assetName, 'volume_momentum', directionHint, classificationText),
+        isNoise: false
+      };
+    }
 
     const proxyFamily = input.sourceType === 'polymarket'
       ? this.getProxyMarketFamily(input.assetId, classificationText)

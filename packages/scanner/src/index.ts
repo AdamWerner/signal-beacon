@@ -38,6 +38,7 @@ import { SourceDiagnosticsService } from './intelligence/source-diagnostics.js';
 import { ExecutionReplayService } from './intelligence/execution-replay.js';
 import { CatalystEngine } from './intelligence/catalyst-engine.js';
 import { ScannerLock } from './utils/scanner-lock.js';
+import { FinvizScanner } from './sources/finviz-scanner.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -56,6 +57,7 @@ export class PolySignalScanner {
   private tweetProcessor: TweetIntelligenceProcessor;
   private backtestEvaluator: SignalBacktestEvaluator;
   private microstructureBacktestRunner: MicrostructureBacktestRunner;
+  private finvizScanner = new FinvizScanner(this.signalStore);
   private sourceDiagnostics = new SourceDiagnosticsService(this.catalystStore);
   private executionReplay = new ExecutionReplayService(this.catalystStore);
   private catalystEngine: CatalystEngine;
@@ -198,6 +200,7 @@ export class PolySignalScanner {
       this.fusionEngine,
       this.catalystEngine,
       this.sourceDiagnostics,
+      this.finvizScanner,
       {
         enableFusionGating: this.config.enableFusionGating,
         enableSuppressedDecisionStorage: this.config.enableSuppressedDecisionStorage,

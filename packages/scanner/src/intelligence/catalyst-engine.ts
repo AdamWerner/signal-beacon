@@ -7,6 +7,7 @@ import { SourceDiagnosticsService } from './source-diagnostics.js';
 import { NewsCorrelator } from './news-correlator.js';
 import { MacroCalendar } from './macro-calendar.js';
 import { SignalStore } from '../storage/signal-store.js';
+import { IngestedCatalyst, SourceCatalyst, SourceCatalystType } from '../sources/types.js';
 
 interface CatalystEngineDeps {
   catalystStore: CatalystStore;
@@ -28,6 +29,76 @@ export class CatalystEngine {
   private historicalBackfillCompleted = false;
 
   constructor(private deps: CatalystEngineDeps) {}
+
+  ingestExternalCatalysts(catalysts: SourceCatalyst[]): IngestedCatalyst[] {
+    if (catalysts.length === 0) return [];
+
+    const ingested: IngestedCatalyst[] = [];
+    for (const catalyst of catalysts) {
+      const sourceType = this.mapSourceType(catalyst.sourceType);
+      const sourceWeight = catalyst.sourceWeight || this.getSourceWeight(catalyst);
+      const draft = this.normalizer.normalize({
+        sourceType,
+        title: catalyst.title,
+        body: catalyst.body,
+        assetId: catalyst.assetId,
+        assetName: catalyst.assetName,
+        hintedDirection: catalyst.directionHint === 'neutral' ? 'mixed' : catalyst.directionHint,
+        sourceWeight
+      });
+      const recentSimilarCount = this.deps.catalystStore.countRecentSimilar(
+        catalyst.assetId,
+        draft.sourceFamily,
+        24
+      );
+      const normalized = this.normalizer.normalize({
+        sourceType,
+        title: catalyst.title,
+        body: catalyst.body,
+        assetId: catalyst.assetId,
+        assetName: catalyst.assetName,
+        hintedDirection: catalyst.directionHint === 'neutral' ? 'mixed' : catalyst.directionHint,
+        sourceWeight,
+        recentSimilarCount
+      });
+
+      const catalystId = this.deps.catalystStore.upsertCatalyst({
+        sourceType: catalyst.sourceType,
+        sourceKey: catalyst.sourceKey,
+        sourceFamily: normalized.sourceFamily,
+        eventType: normalized.eventType,
+        title: catalyst.title,
+        body: catalyst.body,
+        assetIds: [catalyst.assetId],
+        directionHint: normalized.directionHint,
+        horizonMinutes: normalized.horizonMinutes,
+        causalStrength: normalized.causalStrength,
+        noveltyScore: normalized.noveltyScore,
+        sourceQualityScore: normalized.sourceQualityScore,
+        normalizedSummary: normalized.normalizedSummary,
+        metadata: {
+          ticker: catalyst.ticker,
+          urgency: catalyst.urgency,
+          ...catalyst.metadata
+        },
+        catalystTime: catalyst.timestamp
+      });
+
+      ingested.push({
+        ...catalyst,
+        catalystId,
+        sourceFamily: normalized.sourceFamily,
+        eventType: normalized.eventType,
+        horizonMinutes: normalized.horizonMinutes,
+        causalStrength: normalized.causalStrength,
+        noveltyScore: normalized.noveltyScore,
+        sourceQualityScore: normalized.sourceQualityScore,
+        normalizedSummary: normalized.normalizedSummary
+      });
+    }
+
+    return ingested;
+  }
 
   enrichSignals(
     signals: GeneratedSignal[],
@@ -352,5 +423,34 @@ export class CatalystEngine {
 
   private isContradicting(direction: 'bull' | 'bear', hint: CatalystDirectionHint): boolean {
     return (direction === 'bull' && hint === 'bear') || (direction === 'bear' && hint === 'bull');
+  }
+
+  private mapSourceType(
+    sourceType: SourceCatalystType
+  ): 'news' | 'macro' | 'whale' | 'polymarket' | 'tweet' | 'technical' | 'insider' | 'volume' {
+    if (sourceType === 'finviz_news') return 'news';
+    if (sourceType === 'finviz_insider' || sourceType === 'congressional_trade' || sourceType === 'sec_insider') {
+      return 'insider';
+    }
+    if (sourceType === 'finviz_volume') return 'volume';
+    if (sourceType === 'technical_breakout') return 'technical';
+    if (sourceType === 'econ_surprise') return 'macro';
+    return 'news';
+  }
+
+  private getSourceWeight(catalyst: SourceCatalyst): number {
+    const urgencyWeight = catalyst.urgency === 'high'
+      ? 1.2
+      : catalyst.urgency === 'medium'
+        ? 1.05
+        : 0.95;
+
+    if (catalyst.sourceType === 'finviz_insider' || catalyst.sourceType === 'sec_insider') {
+      return urgencyWeight + 0.1;
+    }
+    if (catalyst.sourceType === 'technical_breakout') {
+      return urgencyWeight + 0.05;
+    }
+    return urgencyWeight;
   }
 }

@@ -15,6 +15,7 @@ import { FusionEngine } from '../streaming/fusion/engine.js';
 import { TradeDirection } from '../streaming/fusion/types.js';
 import { CatalystEngine } from '../intelligence/catalyst-engine.js';
 import { SourceDiagnosticsService } from '../intelligence/source-diagnostics.js';
+import { FinvizScanner } from '../sources/finviz-scanner.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -54,6 +55,7 @@ export class ScanCycleJob {
     private fusionEngine?: FusionEngine,
     private catalystEngine?: CatalystEngine,
     private sourceDiagnostics?: SourceDiagnosticsService,
+    private finvizScanner?: FinvizScanner,
     private fusionOptions: {
       enableFusionGating: boolean;
       enableSuppressedDecisionStorage: boolean;
@@ -92,6 +94,15 @@ export class ScanCycleJob {
       );
 
       console.log(`Found ${oddsChanges.length} significant odds changes`);
+
+      let finvizCatalystsCount = 0;
+      if (this.finvizScanner && this.catalystEngine) {
+        console.log('\n[2.5/4] Scanning FinViz catalysts...');
+        const finvizCatalysts = await this.finvizScanner.scan();
+        finvizCatalystsCount = finvizCatalysts.length;
+        this.catalystEngine.ingestExternalCatalysts(finvizCatalysts);
+        console.log(`Captured ${finvizCatalysts.length} FinViz catalysts`);
+      }
 
       console.log('\n[3/4] Detecting whale trades (top movers only)...');
       const changedMarketIds = [...new Set(oddsChanges.map(change => change.market_condition_id))];
@@ -295,6 +306,7 @@ export class ScanCycleJob {
       console.log('\n=== SCAN CYCLE COMPLETE ===');
       console.log(`Duration: ${(duration / 1000).toFixed(1)}s`);
       console.log(`Markets tracked: ${marketsTracked}`);
+      console.log(`External catalysts: ${finvizCatalystsCount}`);
       console.log(`Whales detected: ${whales.length}`);
       console.log(`Odds changes: ${oddsChanges.length}`);
       console.log(`Signals generated: ${signals.length}`);
