@@ -78,7 +78,8 @@ export const NOISE_PATTERNS: RegExp[] = [
   /\b(CL|ES|NQ|GC|SI|HG)\b.+(settle|above|below)/i,
   /price of .+ (above|below|over|under) \$/i,
   // Broad crypto target noise
-  /\b(bitcoin|ethereum|btc|eth)\b.+\b(price|reach|hit|touch|cross)\b.+\$[\d,]+/i
+  /\b(bitcoin|ethereum|btc|eth)\b.+\b(price|reach|hit|touch|cross)\b.+\$[\d,]+/i,
+  /\b(bitcoin|ethereum|btc|eth)\b.+\b(above|below|over|under)\b.+\$?[\d,]+/i
 ];
 
 export function isNoiseMarketQuestion(question: string): boolean {

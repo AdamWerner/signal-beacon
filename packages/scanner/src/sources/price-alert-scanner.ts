@@ -1,11 +1,12 @@
 import Database from 'better-sqlite3';
+import { getAssetMarket, isMarketOpen } from '../intelligence/trading-hours.js';
 import { ASSET_TO_TICKER, getAssetDisplayName, getAssetTicker } from '../utils/ticker-map.js';
 import { SourceCatalyst } from './types.js';
 
 const INTRADAY_MOVE_THRESHOLD_PCT = 1.5;
 const STRONG_MOVE_THRESHOLD_PCT = 2.5;
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const MAX_CHECKS_PER_CYCLE = 10;
+const MAX_CHECKS_PER_CYCLE = 12;
 
 interface CachedAlert {
   expiresAt: number;
@@ -32,8 +33,11 @@ export class PriceAlertScanner {
     const catalysts: SourceCatalyst[] = [];
     const allAssets = Object.keys(ASSET_TO_TICKER);
     const priority = new Set(prioritizedAssetIds);
-    const prioritized = allAssets.filter(assetId => priority.has(assetId));
-    const nonPriority = allAssets.filter(assetId => !priority.has(assetId));
+    const openAssets = allAssets.filter(assetId => isMarketOpen(getAssetMarket(assetId)));
+    const closedAssets = allAssets.filter(assetId => !isMarketOpen(getAssetMarket(assetId)));
+    const orderedAssets = [...openAssets, ...closedAssets];
+    const prioritized = orderedAssets.filter(assetId => priority.has(assetId));
+    const nonPriority = orderedAssets.filter(assetId => !priority.has(assetId));
     const rotated = [
       ...prioritized,
       ...nonPriority.slice(this.rotationOffset),

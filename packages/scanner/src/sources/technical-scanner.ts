@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import Database from 'better-sqlite3';
+import { getAssetMarket, isMarketOpen } from '../intelligence/trading-hours.js';
 import { SignalStore } from '../storage/signal-store.js';
 import { getAiBudgetMode } from '../utils/ai-budget.js';
 import { ASSET_TO_TICKER, getAssetDisplayName, getAssetTicker } from '../utils/ticker-map.js';
@@ -10,7 +11,7 @@ const require = createRequire(import.meta.url);
 const technicalIndicators = require('fast-technical-indicators') as typeof import('fast-technical-indicators');
 const { atr, bollingerbands, macd, rsi } = technicalIndicators;
 
-const ACTIVE_MARKET_YAHOO_CALLS = 6;
+const ACTIVE_MARKET_YAHOO_CALLS = 8;
 const DORMANT_MARKET_YAHOO_CALLS = 3;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const LOOKBACK_BARS = 120;
@@ -128,6 +129,7 @@ export class TechnicalScanner {
 
   private selectAssetsSmartly(prioritizedAssetIds: string[]): string[] {
     const supported = Object.keys(ASSET_TO_TICKER);
+    const openAssets = new Set(supported.filter(assetId => isMarketOpen(getAssetMarket(assetId))));
     const priority = new Set(prioritizedAssetIds);
     const recentSignals = this.signalStore
       ? this.signalStore.findFiltered({ hours: 4, limit: 100 })
@@ -140,6 +142,7 @@ export class TechnicalScanner {
 
     const scored = supported.map(assetId => {
       let score = 0;
+      if (openAssets.has(assetId)) score += 50;
       if (priority.has(assetId)) score += 100;
 
       const recentCount = recentSignals.filter(signal => signal.matched_asset_id === assetId).length;
