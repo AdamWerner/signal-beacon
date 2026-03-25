@@ -42,6 +42,7 @@ import { FinvizScanner } from './sources/finviz-scanner.js';
 import { TechnicalScanner } from './sources/technical-scanner.js';
 import { EconCalendarScanner } from './sources/econ-calendar-scanner.js';
 import { InsiderScanner } from './sources/insider-scanner.js';
+import { PriceAlertScanner } from './sources/price-alert-scanner.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -64,6 +65,7 @@ export class PolySignalScanner {
   private technicalScanner = new TechnicalScanner(this.db, this.signalStore);
   private econCalendarScanner = new EconCalendarScanner(this.db);
   private insiderScanner = new InsiderScanner(this.db);
+  private priceAlertScanner = new PriceAlertScanner(this.db);
   private sourceDiagnostics = new SourceDiagnosticsService(this.catalystStore);
   private executionReplay = new ExecutionReplayService(this.catalystStore);
   private catalystEngine: CatalystEngine;
@@ -207,6 +209,7 @@ export class PolySignalScanner {
       this.catalystEngine,
       this.sourceDiagnostics,
       this.finvizScanner,
+      this.priceAlertScanner,
       this.technicalScanner,
       this.econCalendarScanner,
       this.insiderScanner,

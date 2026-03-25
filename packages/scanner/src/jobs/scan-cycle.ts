@@ -19,6 +19,7 @@ import { FinvizScanner } from '../sources/finviz-scanner.js';
 import { TechnicalScanner } from '../sources/technical-scanner.js';
 import { EconCalendarScanner } from '../sources/econ-calendar-scanner.js';
 import { InsiderScanner } from '../sources/insider-scanner.js';
+import { PriceAlertScanner } from '../sources/price-alert-scanner.js';
 import { SourceCatalyst } from '../sources/types.js';
 
 export interface ScanCycleResult {
@@ -60,6 +61,7 @@ export class ScanCycleJob {
     private catalystEngine?: CatalystEngine,
     private sourceDiagnostics?: SourceDiagnosticsService,
     private finvizScanner?: FinvizScanner,
+    private priceAlertScanner?: PriceAlertScanner,
     private technicalScanner?: TechnicalScanner,
     private econCalendarScanner?: EconCalendarScanner,
     private insiderScanner?: InsiderScanner,
@@ -133,6 +135,7 @@ export class ScanCycleJob {
       const whalePromise = this.whaleDetector.detectForMarkets(changedMarketIds, oddsChanges);
       const wave1Promise = Promise.all([
         this.finvizScanner ? runSourceScan('finviz', () => this.finvizScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+        this.priceAlertScanner ? runSourceScan('price-alert', () => this.priceAlertScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
         this.econCalendarScanner ? runSourceScan('econ', () => this.econCalendarScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
         this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
       ]);
@@ -144,9 +147,10 @@ export class ScanCycleJob {
         macroRefreshPromise = this.macroCalendar.refreshLiveEvents();
       }
 
-      const [finvizCatalysts, econSurprises, insiderCatalysts] = await wave1Promise;
+      const [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts] = await wave1Promise;
       const wave1AssetIds = [...new Set([
         ...finvizCatalysts.map(catalyst => catalyst.assetId),
+        ...priceAlerts.map(catalyst => catalyst.assetId),
         ...econSurprises.map(catalyst => catalyst.assetId),
         ...insiderCatalysts.map(catalyst => catalyst.assetId)
       ])];
@@ -158,6 +162,7 @@ export class ScanCycleJob {
 
       const allCatalysts = [
         ...finvizCatalysts,
+        ...priceAlerts,
         ...technicalBreakouts,
         ...econSurprises,
         ...insiderCatalysts
@@ -167,7 +172,7 @@ export class ScanCycleJob {
       }
       console.log(
         `Captured ${allCatalysts.length} catalysts ` +
-        `(FinViz ${finvizCatalysts.length}, technical ${technicalBreakouts.length}, ` +
+        `(FinViz ${finvizCatalysts.length}, price-alert ${priceAlerts.length}, technical ${technicalBreakouts.length}, ` +
         `econ ${econSurprises.length}, insider ${insiderCatalysts.length})`
       );
 
