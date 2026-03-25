@@ -21,6 +21,7 @@ import { EconCalendarScanner } from '../sources/econ-calendar-scanner.js';
 import { InsiderScanner } from '../sources/insider-scanner.js';
 import { PriceAlertScanner } from '../sources/price-alert-scanner.js';
 import { SourceCatalyst } from '../sources/types.js';
+import { getAiBudgetMode } from '../utils/ai-budget.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -133,12 +134,6 @@ export class ScanCycleJob {
 
       const changedMarketIds = [...new Set(oddsChanges.map(change => change.market_condition_id))];
       const whalePromise = this.whaleDetector.detectForMarkets(changedMarketIds, oddsChanges);
-      const wave1Promise = Promise.all([
-        this.finvizScanner ? runSourceScan('finviz', () => this.finvizScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
-        this.priceAlertScanner ? runSourceScan('price-alert', () => this.priceAlertScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
-        this.econCalendarScanner ? runSourceScan('econ', () => this.econCalendarScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
-        this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
-      ]);
       let volContextPromise: Promise<{ regime: 'low' | 'normal' | 'high' | 'extreme'; vix: number }> | null = null;
       let macroRefreshPromise: Promise<void> | null = null;
       if (this.db) {
@@ -147,34 +142,47 @@ export class ScanCycleJob {
         macroRefreshPromise = this.macroCalendar.refreshLiveEvents();
       }
 
-      const [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts] = await wave1Promise;
-      const wave1AssetIds = [...new Set([
-        ...finvizCatalysts.map(catalyst => catalyst.assetId),
-        ...priceAlerts.map(catalyst => catalyst.assetId),
-        ...econSurprises.map(catalyst => catalyst.assetId),
-        ...insiderCatalysts.map(catalyst => catalyst.assetId)
-      ])];
+      const budgetMode = getAiBudgetMode();
+      let allCatalysts: SourceCatalyst[] = [];
+      if (budgetMode === 'dormant') {
+        console.log('  [dormant] Skipping external catalysts (market closed)');
+      } else {
+        const wave1Promise = Promise.all([
+          this.finvizScanner ? runSourceScan('finviz', () => this.finvizScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+          this.priceAlertScanner ? runSourceScan('price-alert', () => this.priceAlertScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+          this.econCalendarScanner ? runSourceScan('econ', () => this.econCalendarScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+          this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
+        ]);
 
-      let technicalBreakouts: SourceCatalyst[] = [];
-      if (this.technicalScanner) {
-        technicalBreakouts = await runSourceScan('technical', () => this.technicalScanner!.scan(wave1AssetIds));
-      }
+        const [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts] = await wave1Promise;
+        const wave1AssetIds = [...new Set([
+          ...finvizCatalysts.map(catalyst => catalyst.assetId),
+          ...priceAlerts.map(catalyst => catalyst.assetId),
+          ...econSurprises.map(catalyst => catalyst.assetId),
+          ...insiderCatalysts.map(catalyst => catalyst.assetId)
+        ])];
 
-      const allCatalysts = [
-        ...finvizCatalysts,
-        ...priceAlerts,
-        ...technicalBreakouts,
-        ...econSurprises,
-        ...insiderCatalysts
-      ];
-      if (this.catalystEngine && allCatalysts.length > 0) {
-        this.catalystEngine.ingestExternalCatalysts(allCatalysts);
+        let technicalBreakouts: SourceCatalyst[] = [];
+        if (this.technicalScanner) {
+          technicalBreakouts = await runSourceScan('technical', () => this.technicalScanner!.scan(wave1AssetIds));
+        }
+
+        allCatalysts = [
+          ...finvizCatalysts,
+          ...priceAlerts,
+          ...technicalBreakouts,
+          ...econSurprises,
+          ...insiderCatalysts
+        ];
+        if (this.catalystEngine && allCatalysts.length > 0) {
+          this.catalystEngine.ingestExternalCatalysts(allCatalysts);
+        }
+        console.log(
+          `Captured ${allCatalysts.length} catalysts ` +
+          `(FinViz ${finvizCatalysts.length}, price-alert ${priceAlerts.length}, technical ${technicalBreakouts.length}, ` +
+          `econ ${econSurprises.length}, insider ${insiderCatalysts.length})`
+        );
       }
-      console.log(
-        `Captured ${allCatalysts.length} catalysts ` +
-        `(FinViz ${finvizCatalysts.length}, price-alert ${priceAlerts.length}, technical ${technicalBreakouts.length}, ` +
-        `econ ${econSurprises.length}, insider ${insiderCatalysts.length})`
-      );
 
       console.log('\n[4/6] Converging parallel tasks...');
       const whales = await whalePromise;
