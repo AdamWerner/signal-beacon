@@ -389,16 +389,18 @@ export class SignalGenerator {
         return sum + metadataBoost;
       }, 0);
 
-      let confidence = sourceCount >= 3 ? 60 : 48;
+      let confidence = sourceCount >= 3 ? 65 : 52;
       confidence += Math.round((avgWeight - 1) * 20);
-      confidence += sourceCount >= 3 ? 6 : 0;
-      if (hasTechnical && hasNewsLike) confidence += 8;
-      if (hasInsider) confidence += 4;
-      if (familySet.has('macro')) confidence += 6;
-      confidence += Math.min(6, Math.round(totalBoost / 6));
-      confidence = Math.max(35, Math.min(confidence, 88));
+      confidence += sourceCount >= 4 ? 8 : (sourceCount >= 3 ? 4 : 0);
+      if (hasTechnical && hasNewsLike) confidence += 10;
+      if (hasInsider) confidence += 3;
+      if (familySet.has('macro')) confidence += 8;
+      if (familySet.has('volume')) confidence += 5;
+      if (hasTechnical && hasNewsLike && familySet.has('macro')) confidence += 6;
+      confidence += Math.min(8, Math.round(totalBoost / 5));
+      confidence = Math.max(40, Math.min(confidence, 88));
 
-      let syntheticDeltaPct = sourceCount >= 3 ? 24 : 16;
+      let syntheticDeltaPct = sourceCount >= 3 ? 28 : 18;
       if (hasTechnical && hasNewsLike) syntheticDeltaPct += 6;
       if (hasInsider) syntheticDeltaPct += 3;
       if (familySet.has('macro')) syntheticDeltaPct += 4;
