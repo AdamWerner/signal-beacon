@@ -245,6 +245,28 @@ export class ScanCycleJob {
             );
           }
 
+          if (signal.signal_origin === 'polymarket' && allCatalysts.length > 0) {
+            const signalDirection = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+            const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
+            const confirming = allCatalysts.filter(catalyst => {
+              const catalystTs = Date.parse(catalyst.timestamp);
+              return catalyst.assetId === signal.matched_asset_id &&
+                catalyst.directionHint === signalDirection &&
+                Number.isFinite(catalystTs) &&
+                catalystTs >= thirtyMinutesAgo;
+            });
+
+            if (confirming.length >= 2) {
+              signal.confidence = Math.min(signal.confidence + 10, 92);
+              signal.reasoning += ` [cross-source: ${confirming.length} external catalysts confirm]`;
+              changed = true;
+            } else if (confirming.length === 1) {
+              signal.confidence = Math.min(signal.confidence + 5, 92);
+              signal.reasoning += ' [cross-source: 1 external catalyst confirms]';
+              changed = true;
+            }
+          }
+
           const macroContext = macroCalendar.isInEventWindow(signal.matched_asset_id);
           if (macroContext.inWindow) {
             signal.reasoning +=
