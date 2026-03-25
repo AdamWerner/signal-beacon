@@ -196,7 +196,15 @@ try {
   }
 
   if (result.signalsGenerated === 0 && result.oddsChangesDetected > 0) {
-    warn('Signal generation', 'odds changes detected but no signals generated - check ontology or thresholds');
+    const recentSignals = db.prepare(`
+      SELECT COUNT(*) as cnt FROM signals
+      WHERE timestamp >= datetime('now', '-2 hours')
+    `).get();
+    if ((recentSignals?.cnt || 0) === 0) {
+      warn('Signal generation', 'odds changes detected but no signals generated - check ontology or thresholds');
+    } else {
+      ok('Signal generation', `0 new this cycle, ${recentSignals.cnt} recent signals in last 2h (filters/dedup active)`);
+    }
   }
 } catch (err) {
   if (/Scanner lock held/i.test(err?.message || '')) {
