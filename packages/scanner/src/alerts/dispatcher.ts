@@ -174,6 +174,10 @@ export class AlertDispatcher {
       this.haMinConfidence,
       parseInt(process.env.PUSH_POLICY_MAX_MIN_CONFIDENCE || '72', 10)
     );
+    const maxCatalystMinConfidence = Math.max(
+      50,
+      parseInt(process.env.PUSH_POLICY_CATALYST_MAX_CONFIDENCE || '60', 10)
+    );
     const maxPolicyMinDeltaPct = Math.max(
       15,
       parseFloat(process.env.PUSH_POLICY_MAX_MIN_DELTA_PCT || '25')
@@ -187,6 +191,7 @@ export class AlertDispatcher {
     const rawPolicyMinDeltaPct = policy?.minDeltaPct ?? 15;
     const rawPolicyMinEvidenceScore = policy?.minEvidenceScore ?? 3;
     const policyMinConfidence = Math.min(rawPolicyMinConfidence, maxPolicyMinConfidence);
+    const catalystPolicyMinConfidence = Math.min(rawPolicyMinConfidence, maxCatalystMinConfidence);
     const policyMinDeltaPct = Math.min(rawPolicyMinDeltaPct, maxPolicyMinDeltaPct);
     const policyMinEvidenceScore = Math.min(rawPolicyMinEvidenceScore, maxPolicyMinEvidenceScore);
 
@@ -211,7 +216,7 @@ export class AlertDispatcher {
 
     const catalystPushable = signals.filter(signal =>
       this.isCatalystConvergenceSignal(signal) &&
-      signal.confidence >= Math.max(55, policyMinConfidence - 15) &&
+      signal.confidence >= Math.max(55, catalystPolicyMinConfidence - 15) &&
       Math.abs(signal.delta_pct) >= Math.max(12, policyMinDeltaPct - 5) &&
       signal.verification_status === 'approved'
     );
