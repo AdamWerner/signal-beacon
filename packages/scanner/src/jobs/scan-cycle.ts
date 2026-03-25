@@ -103,15 +103,14 @@ export class ScanCycleJob {
       console.log(`Found ${oddsChanges.length} significant odds changes`);
 
       console.log('\n[3/6] Scanning external catalysts...');
-      const catalystResults = await Promise.allSettled([
+      const wave1Results = await Promise.allSettled([
         this.finvizScanner ? this.finvizScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
-        this.technicalScanner ? this.technicalScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
         this.econCalendarScanner ? this.econCalendarScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
         this.insiderScanner ? this.insiderScanner.scan() : Promise.resolve([] as SourceCatalyst[])
       ]);
 
       const getSettledCatalysts = (index: number, label: string) => {
-        const result = catalystResults[index];
+        const result = wave1Results[index];
         if (!result) return [] as SourceCatalyst[];
         if (result.status === 'fulfilled') {
           return result.value;
@@ -121,9 +120,23 @@ export class ScanCycleJob {
       };
 
       const finvizCatalysts = getSettledCatalysts(0, 'FinViz');
-      const technicalBreakouts = getSettledCatalysts(1, 'technical');
-      const econSurprises = getSettledCatalysts(2, 'econ');
-      const insiderCatalysts = getSettledCatalysts(3, 'insider');
+      const econSurprises = getSettledCatalysts(1, 'econ');
+      const insiderCatalysts = getSettledCatalysts(2, 'insider');
+      const wave1AssetIds = [...new Set([
+        ...finvizCatalysts.map(catalyst => catalyst.assetId),
+        ...econSurprises.map(catalyst => catalyst.assetId),
+        ...insiderCatalysts.map(catalyst => catalyst.assetId)
+      ])];
+
+      let technicalBreakouts: SourceCatalyst[] = [];
+      if (this.technicalScanner) {
+        try {
+          technicalBreakouts = await this.technicalScanner.scan(wave1AssetIds);
+        } catch (error) {
+          console.warn(`[scan] technical failed: ${String(error)}`);
+        }
+      }
+
       const allCatalysts = [
         ...finvizCatalysts,
         ...technicalBreakouts,

@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import Database from 'better-sqlite3';
 import { SignalStore } from '../storage/signal-store.js';
+import { getAiBudgetMode } from '../utils/ai-budget.js';
 import { ASSET_TO_TICKER, getAssetDisplayName, getAssetTicker } from '../utils/ticker-map.js';
 import { SourceCatalyst } from './types.js';
 
@@ -9,7 +10,8 @@ const require = createRequire(import.meta.url);
 const technicalIndicators = require('fast-technical-indicators') as typeof import('fast-technical-indicators');
 const { atr, bollingerbands, macd, rsi } = technicalIndicators;
 
-const MAX_YAHOO_CALLS_PER_CYCLE = 3;
+const ACTIVE_MARKET_YAHOO_CALLS = 6;
+const DORMANT_MARKET_YAHOO_CALLS = 3;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const LOOKBACK_BARS = 120;
 
@@ -91,7 +93,8 @@ export class TechnicalScanner {
 
   async scan(prioritizedAssetIds: string[] = []): Promise<SourceCatalyst[]> {
     const catalysts: SourceCatalyst[] = [];
-    const assets = this.selectAssets(prioritizedAssetIds).slice(0, MAX_YAHOO_CALLS_PER_CYCLE);
+    const maxCalls = getAiBudgetMode() === 'active' ? ACTIVE_MARKET_YAHOO_CALLS : DORMANT_MARKET_YAHOO_CALLS;
+    const assets = this.selectAssets(prioritizedAssetIds).slice(0, maxCalls);
 
     for (const assetId of assets) {
       const ticker = getAssetTicker(assetId);
@@ -124,16 +127,23 @@ export class TechnicalScanner {
       ? this.signalStore.findFiltered({ hours: 24, limit: 25 }).map(signal => signal.matched_asset_id)
       : [];
     const supported = Object.keys(ASSET_TO_TICKER);
+    const ordered = this.selectFromSorted([
+      ...supported.filter(assetId => prioritizedAssetIds.includes(assetId)),
+      ...supported.filter(assetId => recentAssetIds.includes(assetId) && !prioritizedAssetIds.includes(assetId)),
+      ...supported.filter(assetId => !prioritizedAssetIds.includes(assetId) && !recentAssetIds.includes(assetId))
+    ]);
 
-    const ordered = [...new Set([
-      ...prioritizedAssetIds,
-      ...recentAssetIds,
-      ...supported.slice(this.rotationOffset),
-      ...supported.slice(0, this.rotationOffset)
-    ])];
-
-    this.rotationOffset = (this.rotationOffset + MAX_YAHOO_CALLS_PER_CYCLE) % Math.max(1, supported.length);
     return ordered.filter(assetId => Boolean(getAssetTicker(assetId)));
+  }
+
+  private selectFromSorted(sortedAssetIds: string[]): string[] {
+    const unique = [...new Set(sortedAssetIds)];
+    const rotated = [
+      ...unique.slice(this.rotationOffset),
+      ...unique.slice(0, this.rotationOffset)
+    ];
+    this.rotationOffset = (this.rotationOffset + DORMANT_MARKET_YAHOO_CALLS) % Math.max(1, unique.length);
+    return rotated;
   }
 
   private async fetchBars(ticker: string): Promise<YahooBar[]> {
