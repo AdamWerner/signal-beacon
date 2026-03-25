@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import Database from 'better-sqlite3';
 import finviz from 'finviz-screener';
 import { SignalStore } from '../storage/signal-store.js';
 import { FINVIZ_TICKER_TO_ASSET, ASSET_TO_FINVIZ_TICKER, getAssetDisplayName } from '../utils/ticker-map.js';
@@ -107,7 +108,10 @@ export class FinvizScanner {
   private rotationOffset = 0;
   private volumeScanDisabledUntil = 0;
 
-  constructor(private signalStore?: SignalStore) {}
+  constructor(
+    private db?: Database.Database,
+    private signalStore?: SignalStore
+  ) {}
 
   async scan(prioritizedAssetIds: string[] = []): Promise<SourceCatalyst[]> {
     const catalysts: SourceCatalyst[] = [];
@@ -133,7 +137,37 @@ export class FinvizScanner {
     for (const catalyst of catalysts) {
       deduped.set(catalyst.sourceKey, catalyst);
     }
-    return Array.from(deduped.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    const results = Array.from(deduped.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    this.persistCatalysts(results);
+    return results;
+  }
+
+  private persistCatalysts(catalysts: SourceCatalyst[]): void {
+    if (!this.db || catalysts.length === 0) return;
+
+    try {
+      const stmt = this.db.prepare(`
+        INSERT OR IGNORE INTO finviz_catalysts (
+          ticker, asset_id, catalyst_type, title, direction_hint, urgency, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const catalyst of catalysts) {
+        stmt.run(
+          catalyst.ticker,
+          catalyst.assetId,
+          catalyst.sourceType,
+          catalyst.title,
+          catalyst.directionHint,
+          catalyst.urgency,
+          catalyst.timestamp
+        );
+      }
+    } catch (error) {
+      if (!/finviz_catalysts/i.test(String(error))) {
+        console.warn(`[finviz] catalyst persistence failed: ${String(error)}`);
+      }
+    }
   }
 
   private selectAssetsForNews(prioritizedAssetIds: string[]): string[] {

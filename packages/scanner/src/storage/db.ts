@@ -1226,6 +1226,9 @@ function createTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_finviz_catalysts_asset_time
     ON finviz_catalysts(asset_id, timestamp DESC);
 
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_finviz_catalysts_unique
+    ON finviz_catalysts(ticker, asset_id, catalyst_type, title, timestamp);
+
     CREATE INDEX IF NOT EXISTS idx_fusion_decisions_signal_time
     ON fusion_decisions(signal_id, timestamp DESC);
 

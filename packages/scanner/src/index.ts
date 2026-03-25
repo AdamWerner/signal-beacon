@@ -60,7 +60,7 @@ export class PolySignalScanner {
   private tweetProcessor: TweetIntelligenceProcessor;
   private backtestEvaluator: SignalBacktestEvaluator;
   private microstructureBacktestRunner: MicrostructureBacktestRunner;
-  private finvizScanner = new FinvizScanner(this.signalStore);
+  private finvizScanner = new FinvizScanner(this.db, this.signalStore);
   private technicalScanner = new TechnicalScanner(this.db, this.signalStore);
   private econCalendarScanner = new EconCalendarScanner(this.db);
   private insiderScanner = new InsiderScanner(this.db);
