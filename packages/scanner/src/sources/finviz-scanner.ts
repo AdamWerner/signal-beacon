@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import Database from 'better-sqlite3';
 import finviz from 'finviz-screener';
 import { SignalStore } from '../storage/signal-store.js';
-import { FINVIZ_TICKER_TO_ASSET, ASSET_TO_FINVIZ_TICKER, getAssetDisplayName } from '../utils/ticker-map.js';
+import { FINVIZ_TICKER_TO_ASSET, ASSET_TO_FINVIZ_TICKER, getAssetDisplayName, getAssetTicker } from '../utils/ticker-map.js';
 import { SourceCatalyst } from './types.js';
 
 const FINVIZ_BASE = 'https://finviz.com';
@@ -21,6 +21,11 @@ type CachedCatalysts = {
 };
 
 type FinvizChangeFilter = 'Up 2%' | 'Down 2%';
+
+interface YahooDailySeries {
+  closes: number[];
+  volumes: number[];
+}
 
 function hashValue(value: string): string {
   return createHash('sha1').update(value).digest('hex').slice(0, 12);
@@ -395,11 +400,92 @@ export class FinvizScanner {
     await runScan('bull', 'Up 2%');
     await runScan('bear', 'Down 2%');
 
+    if (catalysts.length === 0) {
+      const fallbackAssets = this.selectAssetsForNews([]).slice(0, 3);
+      const yahooCatalysts = await this.detectVolumeSpikesViaYahoo(fallbackAssets);
+      catalysts.push(...yahooCatalysts);
+    }
+
     this.volumeCache = {
       expiresAt: Date.now() + CACHE_TTL_MS,
       catalysts
     };
 
     return { catalysts, requestsUsed };
+  }
+
+  private async detectVolumeSpikesViaYahoo(assetIds: string[]): Promise<SourceCatalyst[]> {
+    const catalysts: SourceCatalyst[] = [];
+
+    for (const assetId of assetIds) {
+      const ticker = getAssetTicker(assetId);
+      if (!ticker) continue;
+
+      try {
+        const series = await this.fetchYahooDailySeries(ticker);
+        if (series.closes.length < 2 || series.volumes.length < 2) continue;
+
+        const todayVolume = series.volumes.at(-1) || 0;
+        const priorVolumes = series.volumes.slice(0, -1).filter(value => value > 0);
+        const avgVolume = priorVolumes.length > 0
+          ? priorVolumes.reduce((sum, value) => sum + value, 0) / priorVolumes.length
+          : 0;
+        const todayClose = series.closes.at(-1);
+        const previousClose = series.closes.at(-2);
+        if (!todayClose || !previousClose || avgVolume <= 0) continue;
+
+        const changePct = ((todayClose - previousClose) / previousClose) * 100;
+        if (todayVolume <= avgVolume * 2 || Math.abs(changePct) < 2) continue;
+
+        catalysts.push({
+          sourceType: 'finviz_volume',
+          sourceKey: `yahoo-vol:${assetId}:${new Date().toISOString().slice(0, 13)}`,
+          ticker,
+          assetId,
+          assetName: getAssetDisplayName(assetId),
+          title: `${ticker} volume spike ${(todayVolume / avgVolume).toFixed(1)}x avg, price ${changePct > 0 ? '+' : ''}${changePct.toFixed(1)}%`,
+          body: '',
+          directionHint: changePct > 0 ? 'bull' : 'bear',
+          urgency: Math.abs(changePct) >= 3 ? 'high' : 'medium',
+          timestamp: new Date().toISOString(),
+          sourceWeight: 1.1,
+          metadata: {
+            relativeVolume: Number((todayVolume / avgVolume).toFixed(2)),
+            changePct: Number(changePct.toFixed(2)),
+            fallback: 'yahoo_daily'
+          }
+        });
+      } catch {
+        // Fallback should stay silent per asset.
+      }
+    }
+
+    return catalysts;
+  }
+
+  private async fetchYahooDailySeries(ticker: string): Promise<YahooDailySeries> {
+    const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}`);
+    url.searchParams.set('interval', '1d');
+    url.searchParams.set('range', '5d');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; PolySignal/1.0)',
+        'Accept': 'application/json'
+      },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!response.ok) {
+      throw new Error(`Yahoo ${response.status}`);
+    }
+
+    const data = await response.json() as any;
+    const result = data?.chart?.result?.[0];
+    const volumes = (result?.indicators?.quote?.[0]?.volume || [])
+      .filter((value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+    const closes = (result?.indicators?.quote?.[0]?.close || [])
+      .filter((value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
+
+    return { closes, volumes };
   }
 }
