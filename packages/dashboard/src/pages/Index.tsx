@@ -318,14 +318,22 @@ const CONF_OPTIONS = [
   { label: "65%+", value: 65 },
 ];
 
+const ORIGIN_OPTIONS = [
+  { label: "All Origins", value: "all" as const },
+  { label: "Polymarket", value: "polymarket" as const },
+  { label: "Catalyst", value: "catalyst_convergence" as const },
+];
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 const SignalFeed = () => {
   const [hours, setHours] = useState<number | undefined>(24);
   const [minConfidence, setMinConfidence] = useState(0);
+  const [originFilter, setOriginFilter] = useState<"all" | "polymarket" | "catalyst_convergence">("all");
   const [swedishTradeFilter, setSwedishTradeFilter] = useState<"all" | "direct" | "proxy">("all");
-  const { data: signals, isLoading } = useSignals({ hours, minConfidence: minConfidence || undefined, limit: 200 });
-  const { data: topSignals, isLoading: topLoading, includeUnverified, setIncludeUnverified } = useTopSignals();
+  const signalOrigin = originFilter === "all" ? undefined : originFilter;
+  const { data: signals, isLoading } = useSignals({ hours, minConfidence: minConfidence || undefined, limit: 200, origin: signalOrigin });
+  const { data: topSignals, isLoading: topLoading, includeUnverified, setIncludeUnverified } = useTopSignals(signalOrigin);
   const { data: swedishSignals, isLoading: sweLoading } = useSwedishSignals();
   const { data: briefings, isLoading: briefingsLoading } = useBriefings(10);
   const { data: streamingHealth, isLoading: streamingLoading } = useStreamingHealth();
@@ -616,6 +624,20 @@ const SignalFeed = () => {
               variant={minConfidence === opt.value ? "default" : "outline"}
               className="h-6 text-xs px-2 font-mono"
               onClick={() => setMinConfidence(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1">
+          {ORIGIN_OPTIONS.map(opt => (
+            <Button
+              key={opt.value}
+              size="sm"
+              variant={originFilter === opt.value ? "default" : "outline"}
+              className="h-6 text-xs px-2 font-mono"
+              onClick={() => setOriginFilter(opt.value)}
             >
               {opt.label}
             </Button>

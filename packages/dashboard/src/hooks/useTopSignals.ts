@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Signal } from '@/types';
 
-export const useTopSignals = () => {
+export const useTopSignals = (origin?: 'polymarket' | 'catalyst_convergence') => {
   const [data, setData] = useState<Signal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [includeUnverified, setIncludeUnverified] = useState(false);
@@ -9,7 +9,11 @@ export const useTopSignals = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/signals/top?include_unverified=${includeUnverified ? 'true' : 'false'}`);
+        const params = new URLSearchParams({
+          include_unverified: includeUnverified ? 'true' : 'false'
+        });
+        if (origin) params.set('origin', origin);
+        const res = await fetch(`/api/signals/top?${params.toString()}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         setData(json);
@@ -23,7 +27,7 @@ export const useTopSignals = () => {
     fetchData();
     const interval = setInterval(fetchData, 60000); // refresh every 60s (cached 15min server-side)
     return () => clearInterval(interval);
-  }, [includeUnverified]);
+  }, [includeUnverified, origin]);
 
   return { data, isLoading, includeUnverified, setIncludeUnverified };
 };

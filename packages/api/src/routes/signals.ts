@@ -232,12 +232,16 @@ router.get('/', (req, res) => {
     const status = req.query.status as any;
     const hours = req.query.hours ? parseInt(req.query.hours as string) : undefined;
     const minConfidence = req.query.min_confidence ? parseInt(req.query.min_confidence as string) : undefined;
+    const origin = ['polymarket', 'catalyst_convergence', 'hybrid'].includes(String(req.query.origin || ''))
+      ? String(req.query.origin)
+      : undefined;
 
     const signals = (hours !== undefined || minConfidence !== undefined)
       ? services.signalStore.findFiltered({ hours, minConfidence, status, limit })
       : services.signalStore.findAll(limit, status);
 
     const parsed = signals
+      .filter(signal => !origin || signal.signal_origin === origin)
       .filter(signal =>
         !isNoiseMarketQuestion(String(signal.market_title || '')) &&
         isDashboardEligibleSignal(signal)
@@ -254,8 +258,12 @@ router.get('/', (req, res) => {
 router.get('/top', async (req, res) => {
   try {
     const includeUnverified = req.query.include_unverified === 'true';
+    const origin = ['polymarket', 'catalyst_convergence', 'hybrid'].includes(String(req.query.origin || ''))
+      ? String(req.query.origin)
+      : undefined;
     const allSignals = services.signalStore.findFiltered({ hours: 72, limit: 1000 });
     const signals = allSignals.filter(s =>
+      (!origin || s.signal_origin === origin) &&
       s.status !== 'dismissed' &&
       !isNoiseMarketQuestion(String(s.market_title || ''))
     );
