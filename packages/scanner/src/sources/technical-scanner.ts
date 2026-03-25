@@ -123,27 +123,42 @@ export class TechnicalScanner {
   }
 
   private selectAssets(prioritizedAssetIds: string[]): string[] {
-    const recentAssetIds = this.signalStore
-      ? this.signalStore.findFiltered({ hours: 24, limit: 25 }).map(signal => signal.matched_asset_id)
-      : [];
-    const supported = Object.keys(ASSET_TO_TICKER);
-    const ordered = this.selectFromSorted([
-      ...supported.filter(assetId => prioritizedAssetIds.includes(assetId)),
-      ...supported.filter(assetId => recentAssetIds.includes(assetId) && !prioritizedAssetIds.includes(assetId)),
-      ...supported.filter(assetId => !prioritizedAssetIds.includes(assetId) && !recentAssetIds.includes(assetId))
-    ]);
-
-    return ordered.filter(assetId => Boolean(getAssetTicker(assetId)));
+    return this.selectAssetsSmartly(prioritizedAssetIds).filter(assetId => Boolean(getAssetTicker(assetId)));
   }
 
-  private selectFromSorted(sortedAssetIds: string[]): string[] {
-    const unique = [...new Set(sortedAssetIds)];
+  private selectAssetsSmartly(prioritizedAssetIds: string[]): string[] {
+    const supported = Object.keys(ASSET_TO_TICKER);
+    const priority = new Set(prioritizedAssetIds);
+    const recentSignals = this.signalStore
+      ? this.signalStore.findFiltered({ hours: 4, limit: 100 })
+      : [];
     const rotated = [
-      ...unique.slice(this.rotationOffset),
-      ...unique.slice(0, this.rotationOffset)
+      ...supported.slice(this.rotationOffset),
+      ...supported.slice(0, this.rotationOffset)
     ];
-    this.rotationOffset = (this.rotationOffset + DORMANT_MARKET_YAHOO_CALLS) % Math.max(1, unique.length);
-    return rotated;
+    const rotationOrder = new Map(rotated.map((assetId, index) => [assetId, index]));
+
+    const scored = supported.map(assetId => {
+      let score = 0;
+      if (priority.has(assetId)) score += 100;
+
+      const recentCount = recentSignals.filter(signal => signal.matched_asset_id === assetId).length;
+      score += recentCount * 10;
+
+      const cached = this.cache.get(assetId);
+      if (cached && cached.expiresAt > Date.now()) score -= 50;
+
+      return {
+        assetId,
+        score,
+        rotationRank: rotationOrder.get(assetId) ?? Number.MAX_SAFE_INTEGER
+      };
+    });
+
+    this.rotationOffset = (this.rotationOffset + DORMANT_MARKET_YAHOO_CALLS) % Math.max(1, supported.length);
+    return scored
+      .sort((a, b) => (b.score - a.score) || (a.rotationRank - b.rotationRank))
+      .map(entry => entry.assetId);
   }
 
   private async fetchBars(ticker: string): Promise<YahooBar[]> {
