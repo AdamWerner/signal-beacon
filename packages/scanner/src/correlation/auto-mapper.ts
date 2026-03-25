@@ -28,6 +28,52 @@ export class AutoMapper {
   ) {}
 
   /**
+   * Build a mapping directly from an ontology asset.
+   * Used by non-Polymarket signal origins that already resolved the asset.
+   */
+  getMappingForAsset(assetId: string): CorrelationMapping | null {
+    const asset = this.ontology.getAsset(assetId);
+    if (!asset) {
+      return null;
+    }
+
+    const instruments = this.getBestInstrumentsForTerms(
+      asset.avanza_search.underlying_terms || []
+    );
+
+    const bullInstruments: MappedInstrument[] = instruments.bull.length > 0
+      ? instruments.bull.map(inst => ({
+          name: inst.name,
+          avanza_id: inst.avanza_id,
+          leverage: inst.leverage,
+          avanza_url: inst.instrument_url,
+          issuer: inst.issuer
+        }))
+      : [this.ontologyFallback(asset.name, 'bull', asset.avanza_search.underlying_terms[0])];
+
+    const bearInstruments: MappedInstrument[] = instruments.bear.length > 0
+      ? instruments.bear.map(inst => ({
+          name: inst.name,
+          avanza_id: inst.avanza_id,
+          leverage: inst.leverage,
+          avanza_url: inst.instrument_url,
+          issuer: inst.issuer
+        }))
+      : [this.ontologyFallback(asset.name, 'bear', asset.avanza_search.underlying_terms[0])];
+
+    return {
+      assetId: asset.id,
+      assetName: asset.name,
+      polarity: asset.correlation_logic.default_polarity,
+      explanation: asset.correlation_logic.explanation,
+      instruments: {
+        bull: bullInstruments,
+        bear: bearInstruments
+      }
+    };
+  }
+
+  /**
    * Map a tracked market to trading instruments
    */
   mapMarketToInstruments(market: TrackedMarket): CorrelationMapping[] {
@@ -56,42 +102,10 @@ export class AutoMapper {
         continue;
       }
 
-      const correlationLogic = asset.correlation_logic;
-
-      const instruments = this.getBestInstrumentsForTerms(
-        asset.avanza_search.underlying_terms || []
-      );
-
-      const bullInstruments: MappedInstrument[] = instruments.bull.length > 0
-        ? instruments.bull.map(inst => ({
-            name: inst.name,
-            avanza_id: inst.avanza_id,
-            leverage: inst.leverage,
-            avanza_url: inst.instrument_url,
-            issuer: inst.issuer
-          }))
-        : [this.ontologyFallback(asset.name, 'bull', asset.avanza_search.underlying_terms[0])];
-
-      const bearInstruments: MappedInstrument[] = instruments.bear.length > 0
-        ? instruments.bear.map(inst => ({
-            name: inst.name,
-            avanza_id: inst.avanza_id,
-            leverage: inst.leverage,
-            avanza_url: inst.instrument_url,
-            issuer: inst.issuer
-          }))
-        : [this.ontologyFallback(asset.name, 'bear', asset.avanza_search.underlying_terms[0])];
-
-      mappings.push({
-        assetId: asset.id,
-        assetName: asset.name,
-        polarity: correlationLogic.default_polarity,
-        explanation: correlationLogic.explanation,
-        instruments: {
-          bull: bullInstruments,
-          bear: bearInstruments
-        }
-      });
+      const mapping = this.getMappingForAsset(assetId);
+      if (mapping) {
+        mappings.push(mapping);
+      }
     }
 
     return mappings;

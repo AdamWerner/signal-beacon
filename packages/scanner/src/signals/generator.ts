@@ -10,11 +10,13 @@ import { GeneratedSignal } from './types.js';
 import { BatchVerificationCandidate, TradeVerificationGate } from '../verification/trade-gate.js';
 import { VerificationContext } from '../verification/types.js';
 import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
+import { SourceCatalyst } from '../sources/types.js';
 
 const DEDUP_WINDOW_HOURS = 4;
 const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
 const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 40;
 const PROXY_CLUSTER_WINDOW_HOURS = 12;
+const CATALYST_SIGNAL_WINDOW_MINUTES = 30;
 
 export class SignalGenerator {
   constructor(
@@ -327,6 +329,177 @@ export class SignalGenerator {
   }
 
   /**
+   * Generate signals from catalyst convergence (non-Polymarket origins).
+   * A signal is emitted only when 2+ independent source families align on the
+   * same asset and direction inside a tight time window.
+   */
+  async generateCatalystSignals(catalysts: SourceCatalyst[]): Promise<GeneratedSignal[]> {
+    const recentSignals = this.signalStore.findFiltered({ hours: 48, limit: 500 });
+    const windowStartMs = Date.now() - (CATALYST_SIGNAL_WINDOW_MINUTES * 60 * 1000);
+    const eligible = catalysts
+      .filter(catalyst => catalyst.directionHint !== 'neutral')
+      .filter(catalyst => {
+        const timestampMs = Date.parse(catalyst.timestamp);
+        return Number.isFinite(timestampMs) && timestampMs >= windowStartMs;
+      });
+
+    if (eligible.length === 0) {
+      return [];
+    }
+
+    const grouped = new Map<string, SourceCatalyst[]>();
+    for (const catalyst of eligible) {
+      const key = `${catalyst.assetId}:${catalyst.directionHint}`;
+      const bucket = grouped.get(key) || [];
+      bucket.push(catalyst);
+      grouped.set(key, bucket);
+    }
+
+    const signals: GeneratedSignal[] = [];
+    const batchCandidates: BatchVerificationCandidate[] = [];
+
+    for (const [groupKey, bucket] of grouped.entries()) {
+      const [assetId, direction] = groupKey.split(':') as [string, 'bull' | 'bear'];
+      const mapping = this.autoMapper.getMappingForAsset(assetId);
+      if (!mapping) continue;
+
+      const byFamily = new Map<string, SourceCatalyst>();
+      for (const catalyst of bucket.sort((a, b) => b.timestamp.localeCompare(a.timestamp))) {
+        const family = this.getCatalystFamilyKey(catalyst.sourceType);
+        if (!byFamily.has(family)) {
+          byFamily.set(family, catalyst);
+        }
+      }
+
+      const alignedCatalysts = Array.from(byFamily.values());
+      if (alignedCatalysts.length < 2) {
+        continue;
+      }
+
+      const familySet = new Set(Array.from(byFamily.keys()));
+      const hasTechnical = familySet.has('technical');
+      const hasNewsLike = familySet.has('news') || familySet.has('macro') || familySet.has('volume');
+      const hasInsider = familySet.has('insider');
+      const sourceCount = alignedCatalysts.length;
+      const avgWeight = alignedCatalysts.reduce((sum, catalyst) => sum + (catalyst.sourceWeight || 1), 0) / sourceCount;
+      const totalBoost = alignedCatalysts.reduce((sum, catalyst) => {
+        const metadataBoost = typeof catalyst.metadata?.totalBoost === 'number'
+          ? catalyst.metadata.totalBoost
+          : 0;
+        return sum + metadataBoost;
+      }, 0);
+
+      let confidence = sourceCount >= 3 ? 60 : 48;
+      confidence += Math.round((avgWeight - 1) * 20);
+      confidence += sourceCount >= 3 ? 6 : 0;
+      if (hasTechnical && hasNewsLike) confidence += 8;
+      if (hasInsider) confidence += 4;
+      if (familySet.has('macro')) confidence += 6;
+      confidence += Math.min(6, Math.round(totalBoost / 6));
+      confidence = Math.max(35, Math.min(confidence, 88));
+
+      let syntheticDeltaPct = sourceCount >= 3 ? 24 : 16;
+      if (hasTechnical && hasNewsLike) syntheticDeltaPct += 6;
+      if (hasInsider) syntheticDeltaPct += 3;
+      if (familySet.has('macro')) syntheticDeltaPct += 4;
+      syntheticDeltaPct = Math.max(12, Math.min(syntheticDeltaPct, 36));
+
+      const syntheticMarket = this.buildCatalystMarket(mapping.assetId, mapping.assetName, direction, alignedCatalysts);
+      this.marketStore.insert(syntheticMarket);
+
+      const signal = this.createCatalystSignal(
+        syntheticMarket,
+        mapping,
+        direction,
+        alignedCatalysts,
+        confidence,
+        syntheticDeltaPct
+      );
+
+      const existing = this.signalStore.findRecentByDeduplicationKey(signal.deduplication_key, DEDUP_WINDOW_HOURS);
+      if (existing) {
+        const existingCatalystScore = Number(existing.catalyst_score || 0);
+        if (
+          signal.confidence <= existing.confidence + 4 &&
+          sourceCount <= Math.max(2, Math.round(existingCatalystScore))
+        ) {
+          continue;
+        }
+      }
+
+      const verificationContext: VerificationContext = {
+        marketTitle: signal.market_title,
+        marketDescription: syntheticMarket.description,
+        marketCategory: syntheticMarket.category,
+        matchedAssetId: signal.matched_asset_id,
+        matchedAssetName: signal.matched_asset_name,
+        polarity: signal.polarity,
+        suggestedAction: signal.suggested_action,
+        oddsBefore: signal.odds_before,
+        oddsNow: signal.odds_now,
+        deltaPct: signal.delta_pct,
+        timeframeMinutes: signal.time_window_minutes,
+        whaleDetected: signal.whale_detected,
+        whaleAmountUsd: signal.whale_amount_usd,
+        ontologyKeywords: alignedCatalysts.map(catalyst => catalyst.sourceType),
+        reinforcingSignals: this.getReinforcingSignals(recentSignals, signal),
+        conflictingSignals: this.getConflictingSignals(recentSignals, signal)
+      };
+
+      const verification = this.verificationGate.guardOnly(verificationContext);
+      const guardFromRecord = (verification.record as any)?.guard;
+      signal.verification_status = verification.status;
+      signal.verification_score = verification.score;
+      signal.verification_reason = verification.reason;
+      signal.verification_flags = verification.flags;
+      signal.verification_source = verification.source;
+      signal.verification_record = JSON.stringify(verification.record);
+      signal.confidence = Math.max(0, Math.min(signal.confidence + verification.confidenceAdjustment, 92));
+      signal.reasoning +=
+        ` [catalysts:${sourceCount}] [families:${Array.from(familySet).join('+')}]` +
+        ` [score: base:${confidence}, verify:${verification.confidenceAdjustment >= 0 ? '+' : ''}${verification.confidenceAdjustment}]`;
+
+      if (signal.confidence < 42) {
+        continue;
+      }
+
+      this.signalStore.insert(signal);
+      signals.push(signal);
+
+      if (
+        guardFromRecord &&
+        (guardFromRecord.status === 'approved' || guardFromRecord.status === 'needs_review')
+      ) {
+        batchCandidates.push({
+          signalId: signal.id,
+          confidence: signal.confidence,
+          context: verificationContext,
+          guard: guardFromRecord
+        });
+      }
+
+      recentSignals.unshift({
+        ...signal,
+        timestamp: new Date().toISOString(),
+        suggested_instruments: JSON.stringify(signal.suggested_instruments),
+        ai_analysis: null,
+        status: 'new'
+      } as any);
+
+      console.log(
+        `  [catalyst] ${signal.suggested_action} ${mapping.assetName} ` +
+        `(${sourceCount} sources, confidence ${signal.confidence}%)`
+      );
+    }
+
+    if (batchCandidates.length > 0) {
+      await this.applyBatchVerification(batchCandidates, signals);
+    }
+
+    return signals;
+  }
+
+  /**
    * Create signals for a single mapping.
    * Context-dependent mappings emit one judgment-required signal.
    */
@@ -416,6 +589,60 @@ export class SignalGenerator {
       verification_flags: [],
       verification_source: 'none',
       verification_record: null
+    };
+  }
+
+  private createCatalystSignal(
+    market: {
+      condition_id: string;
+      slug: string;
+      title: string;
+      description: string | null;
+      category: string | null;
+    },
+    mapping: CorrelationMapping,
+    direction: 'bull' | 'bear',
+    catalysts: SourceCatalyst[],
+    confidence: number,
+    syntheticDeltaPct: number
+  ): GeneratedSignal {
+    const instruments = this.autoMapper.getSuggestedInstruments(mapping, direction);
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
+    const id = `sig_${timestamp}_${Math.random().toString(36).substring(2, 8)}`;
+    const deduplicationKey = `catalyst_${mapping.assetId}_${direction}`;
+    const primaryCatalyst = catalysts[0];
+    const catalystTitles = catalysts.map(catalyst => catalyst.title).slice(0, 3).join(' | ');
+
+    return {
+      id,
+      market_condition_id: market.condition_id,
+      market_slug: market.slug,
+      market_title: market.title,
+      odds_before: 0,
+      odds_now: 0,
+      delta_pct: syntheticDeltaPct,
+      time_window_minutes: CATALYST_SIGNAL_WINDOW_MINUTES,
+      whale_detected: false,
+      whale_amount_usd: null,
+      matched_asset_id: mapping.assetId,
+      matched_asset_name: mapping.assetName,
+      polarity: 'direct',
+      suggested_action: `Consider ${direction.toUpperCase()} position`,
+      suggested_instruments: instruments,
+      reasoning:
+        `Catalyst convergence: ${catalysts.length} aligned sources point ${direction.toUpperCase()} ` +
+        `${mapping.assetName}. Lead catalyst: ${primaryCatalyst?.title || market.title}. ` +
+        `Evidence: ${catalystTitles}.`,
+      confidence,
+      requires_judgment: false,
+      deduplication_key: deduplicationKey,
+      verification_status: 'pending',
+      verification_score: 0,
+      verification_reason: 'Pending verification',
+      verification_flags: [],
+      verification_source: 'none',
+      verification_record: null,
+      catalyst_score: catalysts.length
     };
   }
 
@@ -726,5 +953,58 @@ export class SignalGenerator {
     }
 
     return { penalty: 0, recentCount, oppositeDirection };
+  }
+
+  private buildCatalystMarket(
+    assetId: string,
+    assetName: string,
+    direction: 'bull' | 'bear',
+    catalysts: SourceCatalyst[]
+  ) {
+    const latestTimestamp = catalysts
+      .map(catalyst => Date.parse(catalyst.timestamp))
+      .filter(value => Number.isFinite(value))
+      .sort((a, b) => b - a)[0] || Date.now();
+    const familySummary = [...new Set(catalysts.map(catalyst => this.getCatalystFamilyKey(catalyst.sourceType)))].join('-');
+    const slugBase = `${assetId}-${direction}-${familySummary}-${new Date(latestTimestamp).toISOString().slice(0, 16)}`;
+    const conditionId = `catalyst_${assetId}_${direction}_${this.hashText(slugBase)}`;
+    const leadTitle = catalysts[0]?.title || `${assetName} catalyst convergence`;
+    const description = catalysts
+      .slice(0, 4)
+      .map(catalyst => `[${this.getCatalystFamilyKey(catalyst.sourceType)}] ${catalyst.title}`)
+      .join(' | ');
+
+    return {
+      condition_id: conditionId,
+      gamma_id: null,
+      slug: `catalyst-${assetId}-${direction}-${this.hashText(leadTitle)}`,
+      event_slug: null,
+      title: `${assetName}: ${leadTitle}`,
+      description,
+      category: 'external_catalyst',
+      matched_asset_ids: [assetId],
+      relevance_score: 1,
+      volume: null,
+      liquidity: null
+    };
+  }
+
+  private getCatalystFamilyKey(sourceType: SourceCatalyst['sourceType']): string {
+    if (sourceType === 'technical_breakout') return 'technical';
+    if (sourceType === 'econ_surprise') return 'macro';
+    if (sourceType === 'finviz_news') return 'news';
+    if (sourceType === 'finviz_volume') return 'volume';
+    if (sourceType === 'finviz_insider' || sourceType === 'congressional_trade' || sourceType === 'sec_insider') {
+      return 'insider';
+    }
+    return sourceType;
+  }
+
+  private hashText(value: string): string {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+    }
+    return Math.abs(hash).toString(36);
   }
 }
