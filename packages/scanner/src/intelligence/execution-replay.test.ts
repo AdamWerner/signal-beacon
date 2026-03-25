@@ -5,6 +5,7 @@ import { GeneratedSignal } from '../signals/types.js';
 function buildSignal(): GeneratedSignal {
   return {
     id: 'sig_test',
+    signal_origin: 'polymarket',
     market_condition_id: 'cond_1',
     market_slug: 'market',
     market_title: 'Will oil surge after OPEC cuts output?',

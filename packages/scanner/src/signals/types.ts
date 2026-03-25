@@ -1,5 +1,6 @@
 export interface GeneratedSignal {
   id: string;
+  signal_origin: 'polymarket' | 'catalyst_convergence' | 'hybrid';
   market_condition_id: string;
   market_slug: string;
   market_title: string;

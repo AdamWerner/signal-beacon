@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 
 export interface Signal {
   id: string;
+  signal_origin: 'polymarket' | 'catalyst_convergence' | 'hybrid';
   timestamp: string;
   market_condition_id: string;
   market_slug: string;
@@ -43,6 +44,7 @@ export interface Signal {
 
 export interface InsertSignal {
   id: string;
+  signal_origin: 'polymarket' | 'catalyst_convergence' | 'hybrid';
   market_condition_id: string;
   market_slug: string;
   market_title: string;
@@ -80,18 +82,19 @@ export class SignalStore {
   insert(signal: InsertSignal): void {
     const stmt = this.db.prepare(`
       INSERT INTO signals (
-        id, market_condition_id, market_slug, market_title,
+        id, signal_origin, market_condition_id, market_slug, market_title,
         odds_before, odds_now, delta_pct, time_window_minutes,
         whale_detected, whale_amount_usd, matched_asset_id, matched_asset_name,
         polarity, suggested_action, suggested_instruments, reasoning, confidence,
         requires_judgment, deduplication_key,
         verification_status, verification_score, verification_reason,
         verification_flags, verification_source, verification_record, verification_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `);
 
     stmt.run(
       signal.id,
+      signal.signal_origin,
       signal.market_condition_id,
       signal.market_slug,
       signal.market_title,

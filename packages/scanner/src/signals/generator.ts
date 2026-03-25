@@ -565,6 +565,7 @@ export class SignalGenerator {
 
     return {
       id,
+      signal_origin: 'polymarket',
       market_condition_id: market.condition_id,
       market_slug: market.slug,
       market_title: market.title,
@@ -615,6 +616,7 @@ export class SignalGenerator {
 
     return {
       id,
+      signal_origin: 'catalyst_convergence',
       market_condition_id: market.condition_id,
       market_slug: market.slug,
       market_title: market.title,

@@ -31,6 +31,7 @@ function runMigrations(db: Database.Database): void {
 
       CREATE TABLE signals (
         id TEXT PRIMARY KEY,
+        signal_origin TEXT DEFAULT 'polymarket',
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
         market_condition_id TEXT NOT NULL,
         market_slug TEXT NOT NULL,
@@ -64,13 +65,13 @@ function runMigrations(db: Database.Database): void {
       );
 
       INSERT INTO signals (
-        id, timestamp, market_condition_id, market_slug, market_title,
+        id, signal_origin, timestamp, market_condition_id, market_slug, market_title,
         odds_before, odds_now, delta_pct, time_window_minutes,
         whale_detected, whale_amount_usd, matched_asset_id, matched_asset_name,
         polarity, suggested_action, suggested_instruments, reasoning, confidence, status
       )
       SELECT
-        id, timestamp, market_condition_id, market_slug, market_title,
+        id, 'polymarket', timestamp, market_condition_id, market_slug, market_title,
         odds_before, odds_now, delta_pct, time_window_minutes,
         whale_detected, whale_amount_usd, matched_asset_id, matched_asset_name,
         polarity, suggested_action, suggested_instruments, reasoning, confidence, status
@@ -104,6 +105,7 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE signals ADD COLUMN execution_replay_expectancy_pct REAL`,
     `ALTER TABLE signals ADD COLUMN execution_replay_samples INTEGER DEFAULT 0`,
     `ALTER TABLE signals ADD COLUMN execution_replay_win_rate REAL`,
+    `ALTER TABLE signals ADD COLUMN signal_origin TEXT DEFAULT 'polymarket'`,
     `ALTER TABLE whale_events ADD COLUMN trade_id TEXT`,
     `ALTER TABLE tracked_markets ADD COLUMN gamma_id TEXT`,
     `ALTER TABLE tracked_markets ADD COLUMN event_slug TEXT`,
@@ -732,6 +734,7 @@ function createTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY,
+      signal_origin TEXT DEFAULT 'polymarket',
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       market_condition_id TEXT NOT NULL,
       market_slug TEXT NOT NULL,

@@ -5,6 +5,7 @@ import { Signal } from '../storage/signal-store.js';
 function buildSignal(overrides: Partial<Signal>): Signal {
   return {
     id: 'sig_default',
+    signal_origin: 'polymarket',
     timestamp: '2026-03-05T10:00:00.000Z',
     market_condition_id: 'm1',
     market_slug: 'market-1',
