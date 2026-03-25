@@ -72,7 +72,13 @@ export const NOISE_PATTERNS: RegExp[] = [
   /\bpress conference\b.*\b(say|times)\b/i,
   // Micro-timebox crypto markets (5-15 min windows, pure noise)
   /\b(bitcoin|ethereum|solana|btc|eth|sol|bnb|doge|xrp)\b.+up or down/i,
-  /up or down\s*-\s*\w+\s+\d+.*\d{1,2}:\d{2}\s*(am|pm)/i
+  /up or down\s*-\s*\w+\s+\d+.*\d{1,2}:\d{2}\s*(am|pm)/i,
+  // Commodity / index price bracket markets are price bets, not causal catalysts
+  /will .+ (settle|close|end|finish) (above|below|at) \$/i,
+  /\b(CL|ES|NQ|GC|SI|HG)\b.+(settle|above|below)/i,
+  /price of .+ (above|below|over|under) \$/i,
+  // Broad crypto target noise
+  /\b(bitcoin|ethereum|btc|eth)\b.+\b(price|reach|hit|touch|cross)\b.+\$[\d,]+/i
 ];
 
 export function isNoiseMarketQuestion(question: string): boolean {

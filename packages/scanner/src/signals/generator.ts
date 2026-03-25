@@ -864,7 +864,7 @@ export class SignalGenerator {
     const normalized = String(title || '').toLowerCase();
     if (assetId === 'crypto-coinbase') {
       if (/\bup or down\b/.test(normalized) && /\b(et|eastern)\b/.test(normalized)) {
-        return { clusterKey: 'crypto_proxy_intraday', penalty: 24, maxPerCycle: 1 };
+        return { clusterKey: 'crypto_proxy_intraday', penalty: 28, maxPerCycle: 1 };
       }
 
       if (/\baverage monthly\b.+\b(gas price|gwei)\b/.test(normalized)) {
@@ -876,7 +876,7 @@ export class SignalGenerator {
         /\b(bitcoin|ethereum|solana|btc|eth)\b.*\b(above|below|between|reach|hit|over|under|dip to)\b/.test(normalized) ||
         /\$\d[\d,]*\s*-\s*\$\d[\d,]*/.test(normalized)
       ) {
-        return { clusterKey: 'crypto_proxy_price', penalty: 20, maxPerCycle: 1 };
+        return { clusterKey: 'crypto_proxy_price', penalty: 26, maxPerCycle: 1 };
       }
       return null;
     }
@@ -888,7 +888,7 @@ export class SignalGenerator {
           /\b(above|below|between|reach|hit|over|under|dip to)\b/.test(normalized) && /\$\d/.test(normalized) ||
           /\$\d[\d,]*\s*-\s*\$\d[\d,]*/.test(normalized))
       ) {
-        return { clusterKey: 'commodity_proxy_price', penalty: 18, maxPerCycle: 1 };
+        return { clusterKey: 'commodity_proxy_price', penalty: 24, maxPerCycle: 1 };
       }
       return null;
     }
@@ -900,7 +900,7 @@ export class SignalGenerator {
           /\b(above|below|between|reach|hit|over|under)\b/.test(normalized) && /\$\d/.test(normalized) ||
           /\$\d[\d,]*\s*-\s*\$\d[\d,]*/.test(normalized))
       ) {
-        return { clusterKey: 'equity_proxy_price', penalty: 18, maxPerCycle: 1 };
+        return { clusterKey: 'equity_proxy_price', penalty: 22, maxPerCycle: 1 };
       }
       return null;
     }
@@ -911,7 +911,7 @@ export class SignalGenerator {
         (/\bclose above|close below\b/.test(normalized) ||
           /\b(above|below|between|reach|hit|over|under)\b/.test(normalized) && /\d/.test(normalized))
       ) {
-        return { clusterKey: 'index_proxy_price', penalty: 16, maxPerCycle: 1 };
+        return { clusterKey: 'index_proxy_price', penalty: 20, maxPerCycle: 1 };
       }
     }
 
