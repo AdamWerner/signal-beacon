@@ -16,6 +16,10 @@ import { TradeDirection } from '../streaming/fusion/types.js';
 import { CatalystEngine } from '../intelligence/catalyst-engine.js';
 import { SourceDiagnosticsService } from '../intelligence/source-diagnostics.js';
 import { FinvizScanner } from '../sources/finviz-scanner.js';
+import { TechnicalScanner } from '../sources/technical-scanner.js';
+import { EconCalendarScanner } from '../sources/econ-calendar-scanner.js';
+import { InsiderScanner } from '../sources/insider-scanner.js';
+import { SourceCatalyst } from '../sources/types.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -56,6 +60,9 @@ export class ScanCycleJob {
     private catalystEngine?: CatalystEngine,
     private sourceDiagnostics?: SourceDiagnosticsService,
     private finvizScanner?: FinvizScanner,
+    private technicalScanner?: TechnicalScanner,
+    private econCalendarScanner?: EconCalendarScanner,
+    private insiderScanner?: InsiderScanner,
     private fusionOptions: {
       enableFusionGating: boolean;
       enableSuppressedDecisionStorage: boolean;
@@ -82,10 +89,10 @@ export class ScanCycleJob {
     console.log(new Date().toISOString());
 
     try {
-      console.log('\n[1/4] Tracking odds...');
+      console.log('\n[1/6] Tracking odds...');
       const marketsTracked = await this.oddsTracker.trackAllMarkets();
 
-      console.log('\n[2/4] Detecting odds changes (multi-timeframe)...');
+      console.log('\n[2/6] Detecting odds changes (multi-timeframe)...');
       const oddsChanges = this.oddsTracker.detectMultiTimeframeChanges(
         this.config.polyOddsChangeThreshold
       );
@@ -95,23 +102,54 @@ export class ScanCycleJob {
 
       console.log(`Found ${oddsChanges.length} significant odds changes`);
 
-      let finvizCatalystsCount = 0;
-      if (this.finvizScanner && this.catalystEngine) {
-        console.log('\n[2.5/4] Scanning FinViz catalysts...');
-        const finvizCatalysts = await this.finvizScanner.scan();
-        finvizCatalystsCount = finvizCatalysts.length;
-        this.catalystEngine.ingestExternalCatalysts(finvizCatalysts);
-        console.log(`Captured ${finvizCatalysts.length} FinViz catalysts`);
-      }
+      console.log('\n[3/6] Scanning external catalysts...');
+      const catalystResults = await Promise.allSettled([
+        this.finvizScanner ? this.finvizScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
+        this.technicalScanner ? this.technicalScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
+        this.econCalendarScanner ? this.econCalendarScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
+        this.insiderScanner ? this.insiderScanner.scan() : Promise.resolve([] as SourceCatalyst[])
+      ]);
 
-      console.log('\n[3/4] Detecting whale trades (top movers only)...');
+      const getSettledCatalysts = (index: number, label: string) => {
+        const result = catalystResults[index];
+        if (!result) return [] as SourceCatalyst[];
+        if (result.status === 'fulfilled') {
+          return result.value;
+        }
+        console.warn(`[scan] ${label} failed: ${String(result.reason)}`);
+        return [] as SourceCatalyst[];
+      };
+
+      const finvizCatalysts = getSettledCatalysts(0, 'FinViz');
+      const technicalBreakouts = getSettledCatalysts(1, 'technical');
+      const econSurprises = getSettledCatalysts(2, 'econ');
+      const insiderCatalysts = getSettledCatalysts(3, 'insider');
+      const allCatalysts = [
+        ...finvizCatalysts,
+        ...technicalBreakouts,
+        ...econSurprises,
+        ...insiderCatalysts
+      ];
+      if (this.catalystEngine && allCatalysts.length > 0) {
+        this.catalystEngine.ingestExternalCatalysts(allCatalysts);
+      }
+      console.log(
+        `Captured ${allCatalysts.length} catalysts ` +
+        `(FinViz ${finvizCatalysts.length}, technical ${technicalBreakouts.length}, ` +
+        `econ ${econSurprises.length}, insider ${insiderCatalysts.length})`
+      );
+
+      console.log('\n[4/6] Detecting whale trades (top movers only)...');
       const changedMarketIds = [...new Set(oddsChanges.map(change => change.market_condition_id))];
       const whales = await this.whaleDetector.detectForMarkets(changedMarketIds, oddsChanges);
 
-      console.log('\n[4/4] Generating signals...');
-      const signals = await this.signalGenerator.generateSignals(oddsChanges);
+      console.log('\n[5/6] Generating signals (Polymarket + catalysts)...');
+      const polySignals = await this.signalGenerator.generateSignals(oddsChanges);
+      const catalystSignals = await this.signalGenerator.generateCatalystSignals(allCatalysts);
+      const signals = [...polySignals, ...catalystSignals];
 
       if (this.db && signals.length > 0) {
+        console.log('\n[6/6] Intelligence enrichment...');
         if (!this.intelligence) this.intelligence = new IntelligenceEngine(this.db);
         if (!this.newsCorrelator) this.newsCorrelator = new NewsCorrelator(this.db);
         if (!this.macroCalendar) this.macroCalendar = new MacroCalendar();
@@ -306,10 +344,10 @@ export class ScanCycleJob {
       console.log('\n=== SCAN CYCLE COMPLETE ===');
       console.log(`Duration: ${(duration / 1000).toFixed(1)}s`);
       console.log(`Markets tracked: ${marketsTracked}`);
-      console.log(`External catalysts: ${finvizCatalystsCount}`);
+      console.log(`External catalysts: ${allCatalysts.length}`);
       console.log(`Whales detected: ${whales.length}`);
       console.log(`Odds changes: ${oddsChanges.length}`);
-      console.log(`Signals generated: ${signals.length}`);
+      console.log(`Signals generated: ${signals.length} (poly ${polySignals.length}, catalyst ${catalystSignals.length})`);
       console.log(`HA pushed: ${haPushed} | Brewed: ${brewed}`);
 
       return {
