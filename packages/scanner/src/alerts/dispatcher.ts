@@ -690,6 +690,20 @@ export class AlertDispatcher {
       else if (signal.catalyst_score <= 45) score -= 1;
     }
 
+    if (this.isCatalystConvergenceSignal(signal)) {
+      const sourceTypes = new Set<string>();
+      const reasoningLower = (signal.reasoning || '').toLowerCase();
+      if (reasoningLower.includes('technical')) sourceTypes.add('technical');
+      if (reasoningLower.includes('finviz') || reasoningLower.includes('volume spike')) sourceTypes.add('news');
+      if (reasoningLower.includes('econ') || reasoningLower.includes('macro')) sourceTypes.add('macro');
+      if (reasoningLower.includes('insider') || reasoningLower.includes('congressional')) sourceTypes.add('insider');
+      if (reasoningLower.includes('price alert') || reasoningLower.includes('intraday')) sourceTypes.add('price');
+      if (reasoningLower.includes('poly-confirms') || reasoningLower.includes('cross-source')) sourceTypes.add('polymarket');
+
+      score += Math.min(4, sourceTypes.size);
+      if (sourceTypes.has('polymarket')) score += 2;
+    }
+
     const sourcePerf = signal.primary_source_family
       ? this.signalStore.getSourceFamilyPerformance(signal.primary_source_family)
       : null;
