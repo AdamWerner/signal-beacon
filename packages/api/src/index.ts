@@ -17,6 +17,9 @@ import backtestRouter from './routes/backtest.js';
 import streamingRouter from './routes/streaming.js';
 import fusionRouter from './routes/fusion.js';
 import catalystsRouter from './routes/catalysts.js';
+import technicalRouter from './routes/technical.js';
+import econRouter from './routes/econ.js';
+import insiderRouter from './routes/insider.js';
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3100', 10);
@@ -38,6 +41,9 @@ app.use('/api/backtest', backtestRouter);
 app.use('/api/streaming', streamingRouter);
 app.use('/api/fusion', fusionRouter);
 app.use('/api/catalysts', catalystsRouter);
+app.use('/api/technical', technicalRouter);
+app.use('/api/econ', econRouter);
+app.use('/api/insider', insiderRouter);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -57,7 +63,10 @@ app.get('/', (_req, res) => {
       '/api/backtest',
       '/api/streaming',
       '/api/fusion',
-      '/api/catalysts'
+      '/api/catalysts',
+      '/api/technical/latest',
+      '/api/econ/surprises',
+      '/api/insider/recent'
     ]
   });
 });

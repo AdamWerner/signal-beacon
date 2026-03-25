@@ -20,6 +20,21 @@ router.get('/recent', (req, res) => {
   }
 });
 
+router.get('/by-asset/:id', (req, res) => {
+  try {
+    const hours = Math.max(1, Math.min(24 * 30, parseInt(String(req.query.hours || '168'), 10)));
+    const limit = Math.max(1, Math.min(200, parseInt(String(req.query.limit || '50'), 10)));
+    const rows = services.catalystStore.getRecentCatalysts(hours, req.params.id, limit).map((row: any) => ({
+      ...row,
+      asset_ids: safeJson(row.asset_ids),
+      metadata: safeJson(row.metadata_json)
+    }));
+    res.json(rows);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to fetch asset catalysts', message: error?.message });
+  }
+});
+
 router.get('/diagnostics', (req, res) => {
   try {
     const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || '20'), 10)));
