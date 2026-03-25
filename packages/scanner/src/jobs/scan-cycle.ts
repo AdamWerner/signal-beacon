@@ -103,25 +103,37 @@ export class ScanCycleJob {
       console.log(`Found ${oddsChanges.length} significant odds changes`);
 
       console.log('\n[3/6] Scanning external catalysts...');
-      const wave1Results = await Promise.allSettled([
-        this.finvizScanner ? this.finvizScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
-        this.econCalendarScanner ? this.econCalendarScanner.scan() : Promise.resolve([] as SourceCatalyst[]),
-        this.insiderScanner ? this.insiderScanner.scan() : Promise.resolve([] as SourceCatalyst[])
-      ]);
-
-      const getSettledCatalysts = (index: number, label: string) => {
-        const result = wave1Results[index];
-        if (!result) return [] as SourceCatalyst[];
-        if (result.status === 'fulfilled') {
-          return result.value;
+      const runSourceScan = async (name: string, fn: () => Promise<SourceCatalyst[]>) => {
+        if (this.sourceDiagnostics?.shouldBackoff(name)) {
+          console.warn(`[scan] ${name} backoff active; skipping for 30m cooldown`);
+          return [] as SourceCatalyst[];
         }
-        console.warn(`[scan] ${label} failed: ${String(result.reason)}`);
-        return [] as SourceCatalyst[];
+
+        const startedAt = Date.now();
+        try {
+          const result = await fn();
+          this.sourceDiagnostics?.recordSourceScan(name, {
+            success: true,
+            latencyMs: Date.now() - startedAt,
+            catalystCount: result.length
+          });
+          return result;
+        } catch (error) {
+          this.sourceDiagnostics?.recordSourceScan(name, {
+            success: false,
+            latencyMs: Date.now() - startedAt,
+            catalystCount: 0
+          });
+          console.warn(`[scan] ${name} failed: ${String(error)}`);
+          return [] as SourceCatalyst[];
+        }
       };
 
-      const finvizCatalysts = getSettledCatalysts(0, 'FinViz');
-      const econSurprises = getSettledCatalysts(1, 'econ');
-      const insiderCatalysts = getSettledCatalysts(2, 'insider');
+      const [finvizCatalysts, econSurprises, insiderCatalysts] = await Promise.all([
+        this.finvizScanner ? runSourceScan('finviz', () => this.finvizScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+        this.econCalendarScanner ? runSourceScan('econ', () => this.econCalendarScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+        this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
+      ]);
       const wave1AssetIds = [...new Set([
         ...finvizCatalysts.map(catalyst => catalyst.assetId),
         ...econSurprises.map(catalyst => catalyst.assetId),
@@ -130,11 +142,7 @@ export class ScanCycleJob {
 
       let technicalBreakouts: SourceCatalyst[] = [];
       if (this.technicalScanner) {
-        try {
-          technicalBreakouts = await this.technicalScanner.scan(wave1AssetIds);
-        } catch (error) {
-          console.warn(`[scan] technical failed: ${String(error)}`);
-        }
+        technicalBreakouts = await runSourceScan('technical', () => this.technicalScanner!.scan(wave1AssetIds));
       }
 
       const allCatalysts = [

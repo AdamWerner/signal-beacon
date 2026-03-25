@@ -26,6 +26,7 @@ router.get('/', (req, res) => {
       timestamp: new Date().toISOString(),
       claude_cli_calls_today: getClaudeUsage().today,
       ai_budget_mode: getAiBudgetMode(),
+      source_health: (services.sourceDiagnostics as any)?.getSourceHealth?.() ?? [],
       last_scan_at: lastScanAt,
       avanza: services.avanzaAvailable ? 'connected' : 'not connected',
       scanner: {
