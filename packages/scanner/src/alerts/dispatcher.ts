@@ -514,6 +514,10 @@ export class AlertDispatcher {
   }
 
   private evaluatePushPerformanceGate(signal: GeneratedSignal): { allowed: boolean; reason: string } {
+    if (this.isCatalystConvergenceSignal(signal)) {
+      return { allowed: true, reason: 'catalyst-convergence - no historical catalyst block' };
+    }
+
     if (!this.signalStore) {
       return { allowed: true, reason: 'signal store unavailable' };
     }
