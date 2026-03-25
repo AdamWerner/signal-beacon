@@ -35,7 +35,7 @@ export function useCatalysts() {
     const fetchData = async () => {
       try {
         const [recentRes, diagnosticsRes] = await Promise.all([
-          fetch('/api/catalysts/recent?hours=24&limit=8'),
+          fetch('/api/catalysts/recent?hours=24&limit=12'),
           fetch('/api/catalysts/diagnostics?limit=6')
         ]);
 

@@ -33,6 +33,48 @@ function useSwedishSignals() {
   return { data, isLoading };
 }
 
+function getCatalystSourceLabel(sourceType: string) {
+  switch (sourceType) {
+    case "finviz_news":
+      return "FinViz news";
+    case "finviz_insider":
+      return "FinViz insider";
+    case "finviz_volume":
+      return "FinViz volume";
+    case "technical_breakout":
+      return "Technical";
+    case "econ_surprise":
+      return "Macro";
+    case "congressional_trade":
+      return "Congress";
+    case "sec_insider":
+      return "SEC";
+    default:
+      return sourceType.replace(/_/g, " ");
+  }
+}
+
+function getCatalystSourceClass(sourceType: string) {
+  switch (sourceType) {
+    case "technical_breakout":
+      return "border-bull/40 bg-bull/10 text-bull";
+    case "econ_surprise":
+      return "border-whale/40 bg-whale/10 text-whale";
+    case "finviz_insider":
+    case "congressional_trade":
+    case "sec_insider":
+      return "border-primary/40 bg-primary/10 text-primary";
+    default:
+      return "border-muted/40 bg-background/70 text-muted-foreground";
+  }
+}
+
+function getDirectionClass(direction: string | null | undefined) {
+  if (direction === "bull") return "border-bull/40 bg-bull/10 text-bull";
+  if (direction === "bear") return "border-bear/40 bg-bear/10 text-bear";
+  return "border-muted/40 bg-background/70 text-muted-foreground";
+}
+
 // ─── AI Top Trades expandable item ───────────────────────────────────────────
 
 function TopTradeItem({ signal, rank }: { signal: Signal & { also_affects?: string[] }; rank: number }) {
@@ -291,6 +333,16 @@ const SignalFeed = () => {
   const { recent: recentCatalysts, diagnostics: catalystDiagnostics, isLoading: catalystLoading } = useCatalysts();
 
   const grouped = useMemo(() => groupContextPairs(signals), [signals]);
+  const catalystConvergence = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of recentCatalysts) {
+      const assetId = row.asset_ids?.[0];
+      if (!assetId || !row.direction_hint || row.direction_hint === "neutral") continue;
+      const key = `${assetId}:${row.direction_hint}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [recentCatalysts]);
   const filteredSwedishSignals = useMemo(() => {
     if (swedishTradeFilter === "direct") {
       return swedishSignals.filter(signal => !signal.proxy);
@@ -474,11 +526,11 @@ const SignalFeed = () => {
         )}
       </div>
 
-      {/* Catalyst bus */}
+      {/* Catalyst feed */}
       <div className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
         <div className="flex items-center gap-2">
           <Zap className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Catalyst Bus</h2>
+          <h2 className="text-sm font-semibold">Catalyst Feed</h2>
           <span className="text-xs font-mono text-muted-foreground ml-auto">
             {catalystLoading ? "..." : `${recentCatalysts.length} recent / ${catalystDiagnostics.length} tracked`}
           </span>
@@ -491,12 +543,23 @@ const SignalFeed = () => {
               <p className="text-[11px] font-mono text-muted-foreground mb-1">Recent catalysts</p>
               <div className="space-y-1">
                 {recentCatalysts.slice(0, 5).map((row) => (
-                  <div key={row.id} className="text-[11px] font-mono">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate">{row.source_family}</span>
-                      <span>{(row.causal_strength * 100).toFixed(0)}</span>
+                  <div key={row.id} className="rounded border border-border/50 bg-card/40 p-2 text-[11px] font-mono space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] uppercase ${getCatalystSourceClass(row.source_type)}`}>
+                        {getCatalystSourceLabel(row.source_type)}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] uppercase ${getDirectionClass(row.direction_hint)}`}>
+                        {row.direction_hint || "neutral"}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded border border-muted/40 bg-background/70 text-[10px] text-muted-foreground">
+                        {Math.max(1, catalystConvergence.get(`${row.asset_ids?.[0]}:${row.direction_hint}`) || 0)}x aligned
+                      </span>
+                      <span className="ml-auto text-muted-foreground">
+                        {(row.causal_strength * 100).toFixed(0)}
+                      </span>
                     </div>
-                    <div className="text-muted-foreground truncate">{row.normalized_summary || row.title}</div>
+                    <div className="text-foreground truncate">{row.title}</div>
+                    <div className="text-muted-foreground truncate">{row.normalized_summary || row.source_family}</div>
                   </div>
                 ))}
                 {recentCatalysts.length === 0 && (
