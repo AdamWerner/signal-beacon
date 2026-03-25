@@ -16,6 +16,12 @@ export function buildHumanReason(signal: GeneratedSignal, recentSignals?: any[])
   const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'UP' : 'DOWN';
   parts.push(`${marketShort} -> ${signal.matched_asset_name} likely ${direction}`);
 
+  if (signal.signal_origin === 'catalyst_convergence') {
+    parts[0] = `[CATALYST] ${parts[0]}`;
+  } else if (signal.signal_origin === 'hybrid') {
+    parts[0] = `[HYBRID] ${parts[0]}`;
+  }
+
   if (signal.verification_reason && !BOILERPLATE_REASONS.has(signal.verification_reason)) {
     parts.push(signal.verification_reason);
   }

@@ -15,7 +15,9 @@ export class HomeAssistantAlert {
   async send(signal: GeneratedSignal): Promise<boolean> {
     const action = signal.suggested_action.toLowerCase();
     const isBull = action.includes('bull');
-    const emoji = isBull ? '??' : '??';
+    const emoji = signal.signal_origin === 'catalyst_convergence'
+      ? '⚡'
+      : (isBull ? '📈' : '📉');
     const direction = isBull ? 'BULL' : 'BEAR';
 
     const ticker = this.getTicker(signal.matched_asset_id, signal.matched_asset_name, 6);
