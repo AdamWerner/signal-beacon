@@ -1,9 +1,13 @@
 import { createHash } from 'crypto';
+import { createRequire } from 'module';
 import Database from 'better-sqlite3';
-import { atr, bollingerbands, macd, rsi } from 'fast-technical-indicators';
 import { SignalStore } from '../storage/signal-store.js';
 import { ASSET_TO_TICKER, getAssetDisplayName, getAssetTicker } from '../utils/ticker-map.js';
 import { SourceCatalyst } from './types.js';
+
+const require = createRequire(import.meta.url);
+const technicalIndicators = require('fast-technical-indicators') as typeof import('fast-technical-indicators');
+const { atr, bollingerbands, macd, rsi } = technicalIndicators;
 
 const MAX_YAHOO_CALLS_PER_CYCLE = 3;
 const CACHE_TTL_MS = 5 * 60 * 1000;

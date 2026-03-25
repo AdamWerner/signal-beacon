@@ -105,6 +105,7 @@ export class FinvizScanner {
   private volumeCache: CachedCatalysts | null = null;
   private insiderCache: CachedCatalysts | null = null;
   private rotationOffset = 0;
+  private volumeScanDisabledUntil = 0;
 
   constructor(private signalStore?: SignalStore) {}
 
@@ -307,6 +308,10 @@ export class FinvizScanner {
   }
 
   private async getVolumeCatalysts(): Promise<{ catalysts: SourceCatalyst[]; requestsUsed: number }> {
+    if (this.volumeScanDisabledUntil > Date.now()) {
+      return { catalysts: [], requestsUsed: 0 };
+    }
+
     if (this.volumeCache && this.volumeCache.expiresAt > Date.now()) {
       return { catalysts: this.volumeCache.catalysts, requestsUsed: 0 };
     }
@@ -343,7 +348,13 @@ export class FinvizScanner {
         }
       } catch (error) {
         requestsUsed += 1;
-        console.warn(`[finviz] volume scan failed (${changeFilter}): ${String(error)}`);
+        const message = String(error);
+        if (/403/i.test(message)) {
+          this.volumeScanDisabledUntil = Date.now() + CACHE_TTL_MS;
+          console.warn(`[finviz] volume scan blocked by FinViz (${changeFilter}); cooling down for 15m`);
+        } else {
+          console.warn(`[finviz] volume scan failed (${changeFilter}): ${message}`);
+        }
       }
     };
 
