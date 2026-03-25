@@ -1,4 +1,5 @@
 import { GeneratedSignal } from '../signals/types.js';
+import { getAssetTicker } from '../utils/ticker-map.js';
 
 export type FuturesSignalAlignment = 'confirms' | 'contradicts' | 'flat';
 
@@ -37,7 +38,7 @@ export class FuturesConfirmationService {
   private cache = new Map<string, CachedReturn>();
 
   async confirm(signal: GeneratedSignal): Promise<FuturesConfirmationResult | null> {
-    const symbol = FUTURES_MAP[signal.matched_asset_id];
+    const symbol = FUTURES_MAP[signal.matched_asset_id] || getAssetTicker(signal.matched_asset_id);
     if (!symbol) {
       return null;
     }
@@ -127,4 +128,3 @@ export class FuturesConfirmationService {
     }
   }
 }
-

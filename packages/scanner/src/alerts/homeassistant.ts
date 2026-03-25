@@ -1,36 +1,6 @@
-﻿import { GeneratedSignal } from '../signals/types.js';
+import { GeneratedSignal } from '../signals/types.js';
 import { buildHumanReason } from '../signals/reason-builder.js';
-
-const TICKER_MAP: Record<string, string> = {
-  'Lockheed Martin': 'LMT',
-  'S&P 500': 'SP500',
-  'Tesla': 'TSLA',
-  'Equinor': 'EQNR',
-  'Shell': 'SHEL',
-  'ConocoPhillips': 'COP',
-  'Exxon Mobil': 'XOM',
-  'ZIM Integrated Shipping Services': 'ZIM',
-  'Ericsson B': 'ERIC',
-  'Saab B': 'SAAB',
-  'Boliden': 'BOL',
-  'SSAB': 'SSAB',
-  'Coinbase Global': 'COIN',
-  'CrowdStrike Holdings': 'CRWD',
-  'Evolution Gaming': 'EVO',
-  'H&M': 'HM',
-  'Sprott Physical Uranium Trust': 'SRUUF',
-  'NVIDIA': 'NVDA',
-  'Palantir Technologies': 'PLTR',
-  'BAE Systems': 'BAESY',
-  'Rheinmetall': 'RNMBY',
-  'Vestas': 'VWDRY',
-  'Novo Nordisk B': 'NVO',
-  'Freeport-McMoRan': 'FCX',
-  'Volvo Group': 'VOLVO',
-  'Spotify Technology': 'SPOT',
-  'NASDAQ 100': 'NDX',
-  'OMX 30': 'OMX30'
-};
+import { getShortTicker } from '../utils/ticker-map.js';
 
 export class HomeAssistantAlert {
   constructor(
@@ -45,10 +15,10 @@ export class HomeAssistantAlert {
   async send(signal: GeneratedSignal): Promise<boolean> {
     const action = signal.suggested_action.toLowerCase();
     const isBull = action.includes('bull');
-    const emoji = isBull ? '📈' : '📉';
+    const emoji = isBull ? '??' : '??';
     const direction = isBull ? 'BULL' : 'BEAR';
 
-    const ticker = this.getTicker(signal.matched_asset_name, 6);
+    const ticker = this.getTicker(signal.matched_asset_id, signal.matched_asset_name, 6);
     const title = `PS: ${emoji} ${direction} ${ticker} ${signal.confidence}%`;
     const message = buildHumanReason(signal);
 
@@ -66,18 +36,18 @@ export class HomeAssistantAlert {
       return false;
     }
 
-    const flag = market === 'swedish' ? '🇸🇪' : '🇺🇸';
+    const flag = market === 'swedish' ? '????' : '????';
     const topSignal = signals[0];
     const topDirection = topSignal.suggested_action.toLowerCase().includes('bull') ? 'BULL' : 'BEAR';
-    const topTicker = this.getTicker(topSignal.matched_asset_name, 6);
+    const topTicker = this.getTicker(topSignal.matched_asset_id, topSignal.matched_asset_name, 6);
 
     const title = signals.length === 1
       ? `PS: ${flag} ${topDirection} ${topTicker} ${topSignal.confidence}%`
       : `PS: ${flag} ${signals.length} signals - ${topDirection} ${topTicker} leads`;
 
     const summaryParts = signals.slice(0, 3).map(signal => {
-      const directionEmoji = signal.suggested_action.toLowerCase().includes('bull') ? '📈' : '📉';
-      return `${directionEmoji} ${this.getTicker(signal.matched_asset_name, 5)} ${signal.confidence}%`;
+      const directionEmoji = signal.suggested_action.toLowerCase().includes('bull') ? '??' : '??';
+      return `${directionEmoji} ${this.getTicker(signal.matched_asset_id, signal.matched_asset_name, 5)} ${signal.confidence}%`;
     });
 
     const message = summaryParts.join(' | ');
@@ -142,7 +112,7 @@ export class HomeAssistantAlert {
     }
   }
 
-  private getTicker(assetName: string, fallbackSlice: number): string {
-    return TICKER_MAP[assetName] ?? assetName.substring(0, fallbackSlice).toUpperCase();
+  private getTicker(assetId: string, assetName: string, fallbackSlice: number): string {
+    return getShortTicker(assetId, assetName.substring(0, fallbackSlice).toUpperCase());
   }
 }
