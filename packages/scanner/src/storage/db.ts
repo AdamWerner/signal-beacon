@@ -965,6 +965,59 @@ function createTables(db: Database.Database): void {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS technical_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      asset_id TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      price REAL,
+      rsi14 REAL,
+      macd_histogram REAL,
+      bb_width REAL,
+      bb_position REAL,
+      volume_ratio REAL,
+      breakout_type TEXT,
+      breakout_direction TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS econ_surprises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_name TEXT NOT NULL,
+      event_time DATETIME NOT NULL,
+      currency TEXT,
+      impact TEXT,
+      expected REAL,
+      actual REAL,
+      surprise_pct REAL,
+      affected_assets TEXT,
+      direction_hint TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS insider_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      asset_id TEXT,
+      trader_name TEXT,
+      trader_role TEXT,
+      transaction_type TEXT,
+      amount_usd REAL,
+      transaction_date DATETIME,
+      source TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS finviz_catalysts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      asset_id TEXT,
+      catalyst_type TEXT,
+      title TEXT,
+      direction_hint TEXT,
+      urgency TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS feature_snapshots_1s (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp DATETIME NOT NULL,
@@ -1157,6 +1210,18 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_feature_snapshots_1m_symbol_time
     ON feature_snapshots_1m(symbol, timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_tech_snap_asset_ts
+    ON technical_snapshots(asset_id, timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_econ_surprises_time
+    ON econ_surprises(event_time DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_insider_asset
+    ON insider_trades(asset_id, transaction_date DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_finviz_catalysts_asset_time
+    ON finviz_catalysts(asset_id, timestamp DESC);
 
     CREATE INDEX IF NOT EXISTS idx_fusion_decisions_signal_time
     ON fusion_decisions(signal_id, timestamp DESC);
