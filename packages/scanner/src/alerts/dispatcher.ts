@@ -736,6 +736,13 @@ export class AlertDispatcher {
   }
 
   private evaluateExecutionReplayGate(signal: GeneratedSignal): { allowed: boolean; reason: string } {
+    if (this.isCatalystConvergenceSignal(signal)) {
+      return {
+        allowed: true,
+        reason: 'catalyst-convergence bypasses Polymarket replay history'
+      };
+    }
+
     const gate = signal.execution_replay_gate || 'unknown';
     const samples = signal.execution_replay_samples || 0;
     const expectancy = signal.execution_replay_expectancy_pct || 0;
