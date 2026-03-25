@@ -209,7 +209,21 @@ export class AlertDispatcher {
       signal.verification_status === 'approved'
     );
 
-    if (pushable.length === 0) {
+    const catalystPushable = signals.filter(signal =>
+      this.isCatalystConvergenceSignal(signal) &&
+      signal.confidence >= Math.max(55, policyMinConfidence - 15) &&
+      Math.abs(signal.delta_pct) >= Math.max(12, policyMinDeltaPct - 5) &&
+      signal.verification_status === 'approved'
+    );
+
+    const allPushable = [...pushable];
+    for (const catalystSignal of catalystPushable) {
+      if (!allPushable.find(signal => signal.id === catalystSignal.id)) {
+        allPushable.push(catalystSignal);
+      }
+    }
+
+    if (allPushable.length === 0) {
       for (const signal of signals) {
         diagnostics.skippedThresholds += 1;
         console.log(
@@ -222,7 +236,7 @@ export class AlertDispatcher {
     }
 
     const byAsset = new Map<string, GeneratedSignal>();
-    for (const signal of pushable) {
+    for (const signal of allPushable) {
       const existing = byAsset.get(signal.matched_asset_id);
       if (!existing || signal.confidence > existing.confidence) {
         byAsset.set(signal.matched_asset_id, signal);
@@ -371,6 +385,10 @@ export class AlertDispatcher {
 
   private getSignalDirection(signal: { suggested_action: string }): 'bull' | 'bear' {
     return signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+  }
+
+  private isCatalystConvergenceSignal(signal: Partial<GeneratedSignal>): boolean {
+    return String(signal.signal_origin || 'polymarket').trim() === 'catalyst_convergence';
   }
 
   private parseDbTimestamp(value: string | null | undefined): Date | null {
