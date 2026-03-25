@@ -7,6 +7,7 @@ import { CatalystStore } from '../storage/catalyst-store.js';
 
 interface SignalCandidate {
   id: string;
+  signal_origin: 'polymarket' | 'catalyst_convergence' | 'hybrid';
   timestamp: string;
   push_sent_at: string | null;
   market_title: string;
@@ -53,6 +54,10 @@ export interface BacktestRunResult {
   skippedTooFresh?: number;
   skippedNoPriceData?: number;
   candidateMode?: 'push_only' | 'hybrid';
+  polymarketSignals?: number;
+  catalystSignals?: number;
+  polymarketHitRate30m?: number;
+  catalystHitRate30m?: number;
   indicatorBreakdowns?: {
     futuresConfirmation: {
       withConfirmation: { count: number; hitRate30m: number; hitRate60m: number };
@@ -132,6 +137,7 @@ export class SignalBacktestEvaluator {
     if (alreadyRan) {
       const indicatorBreakdowns = this.calculateIndicatorBreakdowns(date, market);
       const sourceFamilyBreakdowns = this.calculateSourceFamilyBreakdowns(date, market);
+      const originBreakdowns = this.calculateOriginBreakdowns(date, market);
       return {
         date,
         market,
@@ -143,6 +149,10 @@ export class SignalBacktestEvaluator {
         aiNotes: alreadyRan.ai_notes || '',
         skipped: true,
         candidateMode: mode,
+        polymarketSignals: originBreakdowns.polymarketSignals,
+        catalystSignals: originBreakdowns.catalystSignals,
+        polymarketHitRate30m: originBreakdowns.polymarketHitRate30m,
+        catalystHitRate30m: originBreakdowns.catalystHitRate30m,
         indicatorBreakdowns,
         sourceFamilyBreakdowns
       };
@@ -163,6 +173,7 @@ export class SignalBacktestEvaluator {
         if (alreadyRan) {
           const indicatorBreakdowns = this.calculateIndicatorBreakdowns(date, market);
           const sourceFamilyBreakdowns = this.calculateSourceFamilyBreakdowns(date, market);
+          const originBreakdowns = this.calculateOriginBreakdowns(date, market);
           return {
             date,
             market,
@@ -174,6 +185,10 @@ export class SignalBacktestEvaluator {
             aiNotes: alreadyRan.ai_notes || '',
             skipped: true,
             candidateMode: mode,
+            polymarketSignals: originBreakdowns.polymarketSignals,
+            catalystSignals: originBreakdowns.catalystSignals,
+            polymarketHitRate30m: originBreakdowns.polymarketHitRate30m,
+            catalystHitRate30m: originBreakdowns.catalystHitRate30m,
             indicatorBreakdowns,
             sourceFamilyBreakdowns
           };
@@ -285,6 +300,7 @@ export class SignalBacktestEvaluator {
     this.catalystStore.refreshExecutionReplayProfiles();
     const indicatorBreakdowns = this.calculateIndicatorBreakdowns(date, market);
     const sourceFamilyBreakdowns = this.calculateSourceFamilyBreakdowns(date, market);
+    const originBreakdowns = this.calculateOriginBreakdowns(date, market);
 
     return {
       date,
@@ -302,6 +318,10 @@ export class SignalBacktestEvaluator {
       skippedTooFresh,
       skippedNoPriceData,
       candidateMode: mode,
+      polymarketSignals: originBreakdowns.polymarketSignals,
+      catalystSignals: originBreakdowns.catalystSignals,
+      polymarketHitRate30m: originBreakdowns.polymarketHitRate30m,
+      catalystHitRate30m: originBreakdowns.catalystHitRate30m,
       indicatorBreakdowns,
       sourceFamilyBreakdowns
     };
@@ -320,7 +340,7 @@ export class SignalBacktestEvaluator {
     // Prefer pushed signals first (what actually reached the phone).
     const pushedRows = this.db.prepare(`
       SELECT id, timestamp, push_sent_at, market_title, matched_asset_id, matched_asset_name,
-             suggested_action, confidence, verification_score
+             suggested_action, confidence, verification_score, signal_origin
       FROM signals
       WHERE matched_asset_id IN (${placeholders})
         AND verification_status = 'approved'
@@ -343,7 +363,7 @@ export class SignalBacktestEvaluator {
     const remaining = 120 - pushedRows.length;
     const fillerRows = this.db.prepare(`
       SELECT id, timestamp, push_sent_at, market_title, matched_asset_id, matched_asset_name,
-             suggested_action, confidence, verification_score
+             suggested_action, confidence, verification_score, signal_origin
       FROM signals
       WHERE matched_asset_id IN (${placeholders})
         AND verification_status = 'approved'
@@ -554,6 +574,43 @@ export class SignalBacktestEvaluator {
       avgMove30m: number;
       expectancyPct: number;
     }>;
+  }
+
+  private calculateOriginBreakdowns(date: string, market: 'swedish' | 'us') {
+    const rows = this.db.prepare(`
+      SELECT
+        COALESCE(s.signal_origin, 'polymarket') as signal_origin,
+        COUNT(*) as count,
+        AVG(COALESCE(so.direction_correct_30m, 0)) as hitRate30m
+      FROM signal_outcomes so
+      JOIN signals s ON s.id = so.signal_id
+      WHERE so.market = ?
+        AND date(so.entry_time) = ?
+      GROUP BY COALESCE(s.signal_origin, 'polymarket')
+    `).all(market, date) as Array<{
+      signal_origin: 'polymarket' | 'catalyst_convergence' | 'hybrid';
+      count: number;
+      hitRate30m: number;
+    }>;
+
+    const lookup = new Map(rows.map(row => [row.signal_origin, row]));
+    const poly = lookup.get('polymarket');
+    const catalystCount = (lookup.get('catalyst_convergence')?.count || 0) + (lookup.get('hybrid')?.count || 0);
+    const catalystHitSamples = [
+      lookup.get('catalyst_convergence'),
+      lookup.get('hybrid')
+    ].filter((row): row is NonNullable<typeof row> => Boolean(row));
+    const catalystHitRate30m = catalystHitSamples.length === 0
+      ? 0
+      : catalystHitSamples.reduce((sum, row) => sum + ((row.hitRate30m || 0) * row.count), 0) /
+        Math.max(1, catalystHitSamples.reduce((sum, row) => sum + row.count, 0));
+
+    return {
+      polymarketSignals: poly?.count || 0,
+      catalystSignals: catalystCount,
+      polymarketHitRate30m: poly?.hitRate30m || 0,
+      catalystHitRate30m
+    };
   }
 
   private storeRunSummary(
