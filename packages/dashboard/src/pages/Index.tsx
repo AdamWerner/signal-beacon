@@ -5,6 +5,7 @@ import { useStreamingHealth } from "@/hooks/useStreamingHealth";
 import { useFusionDecisions } from "@/hooks/useFusionDecisions";
 import { useCatalysts } from "@/hooks/useCatalysts";
 import { useBriefings } from "@/hooks/useBriefings";
+import { usePushDiagnostics } from "@/hooks/usePushDiagnostics";
 import { SignalCard } from "@/components/SignalCard";
 import { Signal } from "@/types";
 import { Zap, Trophy, SlidersHorizontal, Flag, ExternalLink, ChevronDown, ChevronUp, Activity } from "lucide-react";
@@ -339,6 +340,7 @@ const SignalFeed = () => {
   const { data: streamingHealth, isLoading: streamingLoading } = useStreamingHealth();
   const { decisions: fusionDecisions, suppressed: fusionSuppressed, isLoading: fusionLoading } = useFusionDecisions();
   const { recent: recentCatalysts, diagnostics: catalystDiagnostics, isLoading: catalystLoading } = useCatalysts();
+  const { data: pushDiagnostics, isLoading: pushDiagnosticsLoading } = usePushDiagnostics();
 
   const grouped = useMemo(() => groupContextPairs(signals), [signals]);
   const catalystConvergence = useMemo(() => {
@@ -360,6 +362,18 @@ const SignalFeed = () => {
     }
     return swedishSignals;
   }, [swedishSignals, swedishTradeFilter]);
+  const topBlockedSignals = useMemo(
+    () => pushDiagnostics.signals.slice(0, 5),
+    [pushDiagnostics]
+  );
+  const topBlockEntries = useMemo(
+    () =>
+      Object.entries(pushDiagnostics.summary.top_blocks || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6),
+    [pushDiagnostics]
+  );
+  const topBlockMax = topBlockEntries[0]?.[1] || 1;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -668,6 +682,81 @@ const SignalFeed = () => {
           })}
         </div>
       )}
+
+      <details className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
+        <summary className="cursor-pointer list-none flex items-center gap-2">
+          <Zap className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Blocked Signals</h2>
+          <span className="text-xs font-mono text-muted-foreground ml-auto">
+            {pushDiagnosticsLoading ? "..." : `${pushDiagnostics.summary.total} last 24h`}
+          </span>
+        </summary>
+
+        <div className="mt-3 space-y-3">
+          {pushDiagnosticsLoading ? (
+            <p className="text-xs text-muted-foreground font-mono">Loading blocked-signal diagnostics...</p>
+          ) : (
+            <>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2">
+                  <p className="text-[11px] font-mono text-muted-foreground">Origin split</p>
+                  <div className="flex flex-wrap gap-2 text-[11px] font-mono">
+                    <Badge variant="outline">Poly {pushDiagnostics.summary.by_origin.polymarket}</Badge>
+                    <Badge variant="outline">Catalyst {pushDiagnostics.summary.by_origin.catalyst}</Badge>
+                    <Badge variant="outline">Hybrid {pushDiagnostics.summary.by_origin.hybrid}</Badge>
+                  </div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2">
+                  <p className="text-[11px] font-mono text-muted-foreground">Blocking distribution</p>
+                  <div className="space-y-2">
+                    {topBlockEntries.length === 0 ? (
+                      <p className="text-[11px] font-mono text-muted-foreground">No blocked signals in range.</p>
+                    ) : topBlockEntries.map(([reason, count]) => (
+                      <div key={reason} className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] font-mono">
+                          <span className="truncate pr-2">{reason}</span>
+                          <span>{count}</span>
+                        </div>
+                        <div className="h-1.5 rounded bg-border/60 overflow-hidden">
+                          <div
+                            className="h-full bg-whale/70"
+                            style={{ width: `${Math.max(8, (count / topBlockMax) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2">
+                <p className="text-[11px] font-mono text-muted-foreground">Top blocked candidates</p>
+                <div className="space-y-2">
+                  {topBlockedSignals.length === 0 ? (
+                    <p className="text-[11px] font-mono text-muted-foreground">No blocked signals to show.</p>
+                  ) : topBlockedSignals.map(signal => (
+                    <div key={signal.id} className="rounded border border-border/50 bg-card/40 p-2 text-[11px] font-mono space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-foreground">{signal.matched_asset_name}</span>
+                        <Badge variant="outline" className="text-[10px] uppercase">{signal.signal_origin || "polymarket"}</Badge>
+                        <span className="text-muted-foreground ml-auto">{signal.confidence}% / {Math.abs(signal.delta_pct).toFixed(1)}%</span>
+                      </div>
+                      <div className="text-muted-foreground line-clamp-2">{signal.market_title}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {signal.likely_blocks.map(block => (
+                          <span key={`${signal.id}-${block}`} className="px-1.5 py-0.5 rounded border border-bear/30 bg-bear/10 text-bear text-[10px]">
+                            {block}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </details>
     </div>
   );
 };

@@ -56,6 +56,26 @@ export interface Briefing {
   url: string;
 }
 
+export interface PushDiagnosticSignal extends Signal {
+  likely_blocks: string[];
+  source_families: string;
+}
+
+export interface PushDiagnosticsSummary {
+  total: number;
+  by_origin: {
+    polymarket: number;
+    catalyst: number;
+    hybrid: number;
+  };
+  top_blocks: Record<string, number>;
+}
+
+export interface PushDiagnostics {
+  summary: PushDiagnosticsSummary;
+  signals: PushDiagnosticSignal[];
+}
+
 export interface MarketWatch {
   id: string;
   market: string;
