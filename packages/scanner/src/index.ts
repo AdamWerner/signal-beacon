@@ -487,6 +487,7 @@ export { CatalystStore } from './storage/catalyst-store.js';
 export { SourceDiagnosticsService } from './intelligence/source-diagnostics.js';
 export { ExecutionReplayService } from './intelligence/execution-replay.js';
 export { CatalystEngine } from './intelligence/catalyst-engine.js';
+export { estimateExecutionCost } from './intelligence/execution-feasibility.js';
 
 export const scanner = new PolySignalScanner();
 

@@ -17,6 +17,11 @@ function isWeekend(): boolean {
  * DORMANT: Nights, weekends, between sessions. ZERO AI calls.
  */
 export function getAiBudgetMode(): AiBudgetMode {
+  const override = String(process.env.AI_BUDGET_MODE_OVERRIDE || '').trim().toLowerCase();
+  if (override === 'active' || override === 'briefing_batch' || override === 'dormant') {
+    return override as AiBudgetMode;
+  }
+
   if (isWeekend()) return 'dormant';
 
   // Pre-market windows: batch mode (08:45-09:00 CET for Swedish, 15:15-15:30 CET for US)

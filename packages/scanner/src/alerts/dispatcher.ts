@@ -161,7 +161,8 @@ export class AlertDispatcher {
     if (!homeAssistant) return 0;
     if (signals.length === 0) return 0;
 
-    if (!isMarketOpen(market)) {
+    const forceMarketOpen = process.env.FORCE_MARKET_OPEN === 'true';
+    if (!forceMarketOpen && !isMarketOpen(market)) {
       for (const signal of signals) {
         console.log(`  Brewing signal ${signal.id} (${signal.matched_asset_name} ${signal.confidence}%) - ${market} market closed`);
       }

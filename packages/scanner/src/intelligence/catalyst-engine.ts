@@ -110,30 +110,13 @@ export class CatalystEngine {
 
     for (const signal of signals) {
       const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
-      const primaryDraft = this.normalizer.normalize({
-        sourceType: 'polymarket',
-        title: signal.market_title,
-        body: signal.reasoning,
-        assetId: signal.matched_asset_id,
-        assetName: signal.matched_asset_name,
-        hintedDirection: direction,
-        sourceWeight: signal.whale_detected ? 1.2 : 1.0
-      });
+      const primaryDraft = this.normalizePrimarySignal(signal, direction);
       const recentSimilarCount = this.deps.catalystStore.countRecentSimilar(
         signal.matched_asset_id,
         primaryDraft.sourceFamily,
         24
       );
-      const primary = this.normalizer.normalize({
-        sourceType: 'polymarket',
-        title: signal.market_title,
-        body: signal.reasoning,
-        assetId: signal.matched_asset_id,
-        assetName: signal.matched_asset_name,
-        hintedDirection: direction,
-        sourceWeight: signal.whale_detected ? 1.2 : 1.0,
-        recentSimilarCount
-      });
+      const primary = this.normalizePrimarySignal(signal, direction, recentSimilarCount);
 
       const primaryCatalystId = this.deps.catalystStore.upsertCatalyst({
         sourceType: 'polymarket',
@@ -423,6 +406,49 @@ export class CatalystEngine {
 
   private isContradicting(direction: 'bull' | 'bear', hint: CatalystDirectionHint): boolean {
     return (direction === 'bull' && hint === 'bear') || (direction === 'bear' && hint === 'bull');
+  }
+
+  private normalizePrimarySignal(
+    signal: GeneratedSignal,
+    direction: 'bull' | 'bear',
+    recentSimilarCount = 0
+  ) {
+    if (signal.signal_origin === 'catalyst_convergence') {
+      const familyHints = this.extractCatalystFamilies(signal.reasoning || '');
+      const noveltyPenalty = Math.min(0.3, recentSimilarCount * 0.08);
+      const familySummary = familyHints.length > 0 ? familyHints.join('+') : 'multi_source';
+      return {
+        sourceFamily: 'catalyst_convergence',
+        eventType: 'multi_source_convergence',
+        directionHint: direction,
+        horizonMinutes: 90,
+        causalStrength: 0.86,
+        noveltyScore: Math.max(0.2, 0.88 - noveltyPenalty),
+        sourceQualityScore: 0.86,
+        normalizedSummary: `catalyst convergence ${direction.toUpperCase()} for ${signal.matched_asset_name}: ${familySummary}`,
+        isNoise: false
+      };
+    }
+
+    return this.normalizer.normalize({
+      sourceType: 'polymarket',
+      title: signal.market_title,
+      body: signal.reasoning,
+      assetId: signal.matched_asset_id,
+      assetName: signal.matched_asset_name,
+      hintedDirection: direction,
+      sourceWeight: signal.whale_detected ? 1.2 : 1.0,
+      recentSimilarCount
+    });
+  }
+
+  private extractCatalystFamilies(reasoning: string): string[] {
+    const match = reasoning.match(/\[families:([^\]]+)\]/i);
+    if (!match?.[1]) return [];
+    return match[1]
+      .split('+')
+      .map(part => part.trim())
+      .filter(Boolean);
   }
 
   private mapSourceType(

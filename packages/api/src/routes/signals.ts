@@ -6,7 +6,8 @@ import {
   IntelligenceEngine,
   isNoiseMarketQuestion,
   SWEDISH_MARKET_ASSETS,
-  isDashboardEligibleSignal
+  isDashboardEligibleSignal,
+  estimateExecutionCost
 } from '@polysignal/scanner';
 
 const router = Router();
@@ -357,11 +358,14 @@ router.get('/push-diagnostics', (req, res) => {
       .slice(0, 50);
 
     const annotated = rows.map((row: any) => {
+      const parsedRow = parseSignal(row);
       const blocks: string[] = [];
-      const confidence = Number(row.confidence || 0);
-      const deltaPct = Math.abs(Number(row.delta_pct || 0));
-      const reasoning = String(row.reasoning || '');
-      const signalOrigin = String(row.signal_origin || 'polymarket');
+      const confidence = Number(parsedRow.confidence || 0);
+      const deltaPct = Math.abs(Number(parsedRow.delta_pct || 0));
+      const reasoning = String(parsedRow.reasoning || '');
+      const signalOrigin = String(parsedRow.signal_origin || 'polymarket');
+      const leverage = Number(parsedRow.suggested_instruments?.[0]?.leverage || 3);
+      const execution = estimateExecutionCost(parsedRow.matched_asset_id, leverage);
 
       if (signalOrigin === 'catalyst_convergence') {
         if (confidence < 55) blocks.push(`confidence ${confidence}% < 55 catalyst floor`);
@@ -373,13 +377,16 @@ router.get('/push-diagnostics', (req, res) => {
 
       if (row.execution_replay_gate === 'block') blocks.push('execution replay blocked');
       if (row.execution_replay_gate === 'watch') blocks.push('execution replay watch');
+      if (!execution.feasible) {
+        blocks.push(`execution ${(execution.roundTripCostPct * 100).toFixed(1)}% round-trip too high`);
+      }
       if (reasoning.includes('[fusion:suppress')) blocks.push('fusion suppressed');
       if (reasoning.includes('[proxy_penalty:')) blocks.push('proxy market penalty');
       if (reasoning.includes('[micro_timebox:')) blocks.push('micro-timebox penalty');
       if (String(row.primary_source_family || '') === 'crypto_proxy_market') blocks.push('crypto proxy family');
 
       return {
-        ...parseSignal(row),
+        ...parsedRow,
         likely_blocks: blocks.length > 0
           ? blocks
           : ['passed thresholds but not selected, market closed, or blocked by late gate'],
