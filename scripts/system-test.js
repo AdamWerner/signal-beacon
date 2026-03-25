@@ -199,7 +199,11 @@ try {
     warn('Signal generation', 'odds changes detected but no signals generated - check ontology or thresholds');
   }
 } catch (err) {
-  fail('Scan cycle', err.message);
+  if (/Scanner lock held/i.test(err?.message || '')) {
+    warn('Scan cycle', `skipped: ${err.message}`);
+  } else {
+    fail('Scan cycle', err.message);
+  }
 }
 
 console.log('\n[10/10] Backtest (yesterday)...');

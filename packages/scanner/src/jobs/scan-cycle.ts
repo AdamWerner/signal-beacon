@@ -102,7 +102,7 @@ export class ScanCycleJob {
 
       console.log(`Found ${oddsChanges.length} significant odds changes`);
 
-      console.log('\n[3/6] Scanning external catalysts...');
+      console.log('\n[3/6] Launching parallel scans (external catalysts + whales + market context)...');
       const runSourceScan = async (name: string, fn: () => Promise<SourceCatalyst[]>) => {
         if (this.sourceDiagnostics?.shouldBackoff(name)) {
           console.warn(`[scan] ${name} backoff active; skipping for 30m cooldown`);
@@ -129,11 +129,22 @@ export class ScanCycleJob {
         }
       };
 
-      const [finvizCatalysts, econSurprises, insiderCatalysts] = await Promise.all([
+      const changedMarketIds = [...new Set(oddsChanges.map(change => change.market_condition_id))];
+      const whalePromise = this.whaleDetector.detectForMarkets(changedMarketIds, oddsChanges);
+      const wave1Promise = Promise.all([
         this.finvizScanner ? runSourceScan('finviz', () => this.finvizScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
         this.econCalendarScanner ? runSourceScan('econ', () => this.econCalendarScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
         this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
       ]);
+      let volContextPromise: Promise<{ regime: 'low' | 'normal' | 'high' | 'extreme'; vix: number }> | null = null;
+      let macroRefreshPromise: Promise<void> | null = null;
+      if (this.db) {
+        volContextPromise = this.volatilityRegimeDetector.getRegime();
+        if (!this.macroCalendar) this.macroCalendar = new MacroCalendar();
+        macroRefreshPromise = this.macroCalendar.refreshLiveEvents();
+      }
+
+      const [finvizCatalysts, econSurprises, insiderCatalysts] = await wave1Promise;
       const wave1AssetIds = [...new Set([
         ...finvizCatalysts.map(catalyst => catalyst.assetId),
         ...econSurprises.map(catalyst => catalyst.assetId),
@@ -160,9 +171,8 @@ export class ScanCycleJob {
         `econ ${econSurprises.length}, insider ${insiderCatalysts.length})`
       );
 
-      console.log('\n[4/6] Detecting whale trades (top movers only)...');
-      const changedMarketIds = [...new Set(oddsChanges.map(change => change.market_condition_id))];
-      const whales = await this.whaleDetector.detectForMarkets(changedMarketIds, oddsChanges);
+      console.log('\n[4/6] Converging parallel tasks...');
+      const whales = await whalePromise;
 
       console.log('\n[5/6] Generating signals (Polymarket + catalysts)...');
       const polySignals = await this.signalGenerator.generateSignals(oddsChanges);
@@ -173,15 +183,20 @@ export class ScanCycleJob {
         console.log('\n[6/6] Intelligence enrichment...');
         if (!this.intelligence) this.intelligence = new IntelligenceEngine(this.db);
         if (!this.newsCorrelator) this.newsCorrelator = new NewsCorrelator(this.db);
-        if (!this.macroCalendar) this.macroCalendar = new MacroCalendar();
         this.catalystEngine?.backfillHistoricalSignals(45);
         this.sourceDiagnostics?.refreshIfStale();
         const intelligence = this.intelligence;
         const newsCorrelator = this.newsCorrelator;
-        const macroCalendar = this.macroCalendar;
-        const volContext = await this.volatilityRegimeDetector.getRegime();
+        const macroCalendar = this.macroCalendar!;
+        const volContext = volContextPromise
+          ? await volContextPromise
+          : await this.volatilityRegimeDetector.getRegime();
         const volAdjustment = this.volatilityRegimeDetector.getConfidenceAdjustment(volContext.regime);
-        await macroCalendar.refreshLiveEvents();
+        if (macroRefreshPromise) {
+          await macroRefreshPromise;
+        } else {
+          await macroCalendar.refreshLiveEvents();
+        }
         intelligence.processNewSignals(signals);
 
         const pendingUpdates: Array<{ confidence: number; reasoning: string; id: string }> = [];

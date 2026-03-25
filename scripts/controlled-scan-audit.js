@@ -29,17 +29,7 @@ const services = scanner.getServices();
 const db = services.db;
 const beforeRow = db.prepare(`SELECT IFNULL(MAX(rowid), 0) as maxRowId FROM signals`).get();
 
-try {
-  const result = await scanner.runScanCycle();
-  const rows = db.prepare(`
-    SELECT rowid, id, timestamp, matched_asset_id, matched_asset_name, market_title,
-           confidence, verification_status, primary_source_family,
-           execution_replay_gate, reasoning
-    FROM signals
-    WHERE rowid > ?
-    ORDER BY confidence DESC, timestamp DESC
-  `).all(beforeRow.maxRowId || 0);
-
+function buildSummary(rows, cycle = null, observedOnly = false) {
   const byAsset = summarizeCounts(
     rows,
     row => `${row.matched_asset_name} (${row.matched_asset_id})`,
@@ -69,16 +59,9 @@ try {
   const replayBlocked = rows.filter(row => row.execution_replay_gate === 'block').length;
   const approved = rows.filter(row => row.verification_status === 'approved').length;
 
-  const summary = {
-    cycle: {
-      marketsTracked: result.marketsTracked,
-      oddsChangesDetected: result.oddsChangesDetected,
-      whalesDetected: result.whalesDetected,
-      signalsGenerated: result.signalsGenerated,
-      haPushed: result.haPushed,
-      brewed: result.brewed,
-      durationSeconds: Number((result.duration / 1000).toFixed(1))
-    },
+  return {
+    cycle,
+    observedOnly,
     aggregation: {
       rowsCaptured: rows.length,
       approved,
@@ -89,11 +72,50 @@ try {
       byCluster
     }
   };
+}
+
+try {
+  const result = await scanner.runScanCycle();
+  const rows = db.prepare(`
+    SELECT rowid, id, timestamp, matched_asset_id, matched_asset_name, market_title,
+           confidence, verification_status, primary_source_family,
+           execution_replay_gate, reasoning
+    FROM signals
+    WHERE rowid > ?
+    ORDER BY confidence DESC, timestamp DESC
+  `).all(beforeRow.maxRowId || 0);
+
+  const summary = buildSummary(rows, {
+    marketsTracked: result.marketsTracked,
+    oddsChangesDetected: result.oddsChangesDetected,
+    whalesDetected: result.whalesDetected,
+    signalsGenerated: result.signalsGenerated,
+    haPushed: result.haPushed,
+    brewed: result.brewed,
+    durationSeconds: Number((result.duration / 1000).toFixed(1))
+  });
 
   console.log(JSON.stringify(summary, null, 2));
   scanner.shutdown?.();
   process.exit(0);
 } catch (error) {
+  if (/Scanner lock held/i.test(String(error?.message || ''))) {
+    const rows = db.prepare(`
+      SELECT rowid, id, timestamp, matched_asset_id, matched_asset_name, market_title,
+             confidence, verification_status, primary_source_family,
+             execution_replay_gate, reasoning
+      FROM signals
+      WHERE timestamp >= datetime('now', '-20 minutes')
+      ORDER BY rowid DESC
+      LIMIT 250
+    `).all();
+    const summary = buildSummary(rows, null, true);
+    summary.lockNotice = String(error.message);
+    console.log(JSON.stringify(summary, null, 2));
+    scanner.shutdown?.();
+    process.exit(0);
+  }
+
   console.error('Controlled scan audit failed:', error);
   scanner.shutdown?.();
   process.exit(1);
