@@ -78,4 +78,30 @@ describe('EntityRelevanceGuard', () => {
     expect(result.reason).toContain('Evolution Gaming');
     expect(result.flags).toContain('sportsbook_operator_regulation');
   });
+
+  it('downgrades negated macro questions for manual review', () => {
+    const result = guard.evaluate(buildContext({
+      marketTitle: 'Will the Fed not cut rates in June?',
+      marketCategory: 'macro',
+      matchedAssetId: 'sp500',
+      matchedAssetName: 'S&P 500',
+      ontologyKeywords: ['fed']
+    }));
+
+    expect(result.status).toBe('needs_review');
+    expect(result.flags).toContain('negated_market_language');
+  });
+
+  it('rejects keyword-only matches with weak market context', () => {
+    const result = guard.evaluate(buildContext({
+      marketTitle: 'Will Spotify Wrapped break records this year?',
+      marketCategory: 'entertainment',
+      matchedAssetId: 'tech-spotify',
+      matchedAssetName: 'Spotify Technology',
+      ontologyKeywords: ['spotify']
+    }));
+
+    expect(result.status).toBe('rejected');
+    expect(result.flags).toContain('keyword_only_match');
+  });
 });

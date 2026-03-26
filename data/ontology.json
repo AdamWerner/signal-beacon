@@ -6,12 +6,29 @@
       "name": "Rheinmetall",
       "category": "defense",
       "polymarket_patterns": {
-        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "eu defense"],
-        "categories": ["geopolitics", "defense", "europe"],
-        "exclude_keywords": []
+        "keywords": [
+          "nato spending",
+          "european defense",
+          "rearmament",
+          "ukraine weapons",
+          "defense budget europe",
+          "eu defense"
+        ],
+        "categories": [
+          "geopolitics",
+          "defense",
+          "europe"
+        ],
+        "exclude_keywords": [
+          "self-defense",
+          "defense attorney",
+          "legal defense"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["RHEINMETALL"],
+        "underlying_terms": [
+          "RHEINMETALL"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -24,12 +41,45 @@
       "name": "Saab B",
       "category": "defense",
       "polymarket_patterns": {
-        "keywords": ["nato spending", "nato expansion", "european defense", "rearmament", "europe rearmament", "ukraine weapons", "defense budget europe", "defense spending", "sweden nato", "eu defense", "gripen", "fighter jet", "fighter jet export", "military aircraft", "fighter aircraft", "air defense", "missile defense", "saab gripen", "swedish defense", "jas gripen", "airborne radar"],
-        "categories": ["geopolitics", "defense", "europe"],
-        "exclude_keywords": []
+        "keywords": [
+          "nato spending",
+          "nato expansion",
+          "european defense",
+          "rearmament",
+          "europe rearmament",
+          "ukraine weapons",
+          "defense budget europe",
+          "defense spending",
+          "sweden nato",
+          "eu defense",
+          "gripen",
+          "fighter jet",
+          "fighter jet export",
+          "military aircraft",
+          "fighter aircraft",
+          "air defense",
+          "missile defense",
+          "saab gripen",
+          "swedish defense",
+          "jas gripen",
+          "airborne radar"
+        ],
+        "categories": [
+          "geopolitics",
+          "defense",
+          "europe"
+        ],
+        "exclude_keywords": [
+          "self-defense",
+          "defense attorney",
+          "legal defense"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["SAAB B", "SAAB"],
+        "underlying_terms": [
+          "SAAB B",
+          "SAAB"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -42,12 +92,29 @@
       "name": "BAE Systems",
       "category": "defense",
       "polymarket_patterns": {
-        "keywords": ["nato spending", "european defense", "rearmament", "ukraine weapons", "defense budget europe", "uk defense"],
-        "categories": ["geopolitics", "defense"],
-        "exclude_keywords": []
+        "keywords": [
+          "nato spending",
+          "european defense",
+          "rearmament",
+          "ukraine weapons",
+          "defense budget europe",
+          "uk defense"
+        ],
+        "categories": [
+          "geopolitics",
+          "defense"
+        ],
+        "exclude_keywords": [
+          "self-defense",
+          "defense attorney",
+          "legal defense"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["BAE SYSTEMS", "BAE"],
+        "underlying_terms": [
+          "BAE SYSTEMS",
+          "BAE"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -60,12 +127,38 @@
       "name": "Lockheed Martin",
       "category": "defense",
       "polymarket_patterns": {
-        "keywords": ["f-35", "us defense budget", "pentagon", "taiwan", "nato spending", "us military", "defense contractor", "defense contract", "missile defense", "arms deal", "fighter jet", "military spending", "hypersonic", "space force"],
-        "categories": ["geopolitics", "defense", "us politics"],
-        "exclude_keywords": []
+        "keywords": [
+          "f-35",
+          "us defense budget",
+          "pentagon",
+          "taiwan",
+          "nato spending",
+          "us military",
+          "defense contractor",
+          "defense contract",
+          "missile defense",
+          "arms deal",
+          "fighter jet",
+          "military spending",
+          "hypersonic",
+          "space force"
+        ],
+        "categories": [
+          "geopolitics",
+          "defense",
+          "us politics"
+        ],
+        "exclude_keywords": [
+          "self-defense",
+          "defense attorney",
+          "legal defense"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["LOCKHEED MARTIN", "LOCKHEED"],
+        "underlying_terms": [
+          "LOCKHEED MARTIN",
+          "LOCKHEED"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -78,12 +171,33 @@
       "name": "Equinor",
       "category": "energy",
       "polymarket_patterns": {
-        "keywords": ["opec", "oil production", "crude oil", "oil price", "oil supply", "brent crude", "oil embargo", "energy crisis"],
-        "categories": ["economics", "energy"],
-        "exclude_keywords": ["olive oil", "oil painting", "oil spill"]
+        "keywords": [
+          "opec",
+          "oil production",
+          "crude oil",
+          "oil price",
+          "oil supply",
+          "brent crude",
+          "oil embargo",
+          "energy crisis"
+        ],
+        "categories": [
+          "economics",
+          "energy"
+        ],
+        "exclude_keywords": [
+          "olive oil",
+          "oil painting",
+          "oil spill",
+          "cooking oil",
+          "palm oil",
+          "snake oil"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["EQUINOR"],
+        "underlying_terms": [
+          "EQUINOR"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -96,12 +210,31 @@
       "name": "ConocoPhillips",
       "category": "energy",
       "polymarket_patterns": {
-        "keywords": ["opec", "oil production", "crude oil", "oil price", "oil supply", "brent crude", "wti"],
-        "categories": ["economics", "energy"],
-        "exclude_keywords": ["olive oil", "oil painting"]
+        "keywords": [
+          "opec",
+          "oil production",
+          "crude oil",
+          "oil price",
+          "oil supply",
+          "brent crude",
+          "wti"
+        ],
+        "categories": [
+          "economics",
+          "energy"
+        ],
+        "exclude_keywords": [
+          "olive oil",
+          "oil painting",
+          "cooking oil",
+          "palm oil",
+          "snake oil"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["CONOCOPHILLIPS"],
+        "underlying_terms": [
+          "CONOCOPHILLIPS"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -114,12 +247,31 @@
       "name": "Shell",
       "category": "energy",
       "polymarket_patterns": {
-        "keywords": ["opec", "oil production", "crude oil", "oil price", "lng", "natural gas price", "energy crisis"],
-        "categories": ["economics", "energy"],
-        "exclude_keywords": ["olive oil", "oil painting"]
+        "keywords": [
+          "opec",
+          "oil production",
+          "crude oil",
+          "oil price",
+          "lng",
+          "natural gas price",
+          "energy crisis"
+        ],
+        "categories": [
+          "economics",
+          "energy"
+        ],
+        "exclude_keywords": [
+          "olive oil",
+          "oil painting",
+          "cooking oil",
+          "palm oil",
+          "snake oil"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["SHELL"],
+        "underlying_terms": [
+          "SHELL"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -132,12 +284,31 @@
       "name": "Exxon Mobil",
       "category": "energy",
       "polymarket_patterns": {
-        "keywords": ["opec", "oil production", "crude oil", "oil price", "gulf oil", "oil supply cut"],
-        "categories": ["economics", "energy"],
-        "exclude_keywords": ["olive oil", "oil painting"]
+        "keywords": [
+          "opec",
+          "oil production",
+          "crude oil",
+          "oil price",
+          "gulf oil",
+          "oil supply cut"
+        ],
+        "categories": [
+          "economics",
+          "energy"
+        ],
+        "exclude_keywords": [
+          "olive oil",
+          "oil painting",
+          "cooking oil",
+          "palm oil",
+          "snake oil"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["EXXON MOBIL", "EXXON"],
+        "underlying_terms": [
+          "EXXON MOBIL",
+          "EXXON"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -150,12 +321,34 @@
       "name": "NVIDIA",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["ai spending", "ai infrastructure", "gpu demand", "data center", "ai investment", "compute", "cuda", "inference chip", "ai chip"],
-        "categories": ["technology", "trade"],
-        "exclude_keywords": ["gpu ban", "export control", "chip restriction", "export ban", "gpu mining", "chip embargo"]
+        "keywords": [
+          "ai spending",
+          "ai infrastructure",
+          "gpu demand",
+          "data center",
+          "ai investment",
+          "ai compute",
+          "cuda",
+          "inference chip",
+          "ai chip"
+        ],
+        "categories": [
+          "technology",
+          "trade"
+        ],
+        "exclude_keywords": [
+          "gpu ban",
+          "export control",
+          "chip restriction",
+          "export ban",
+          "gpu mining",
+          "chip embargo"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["NVIDIA"],
+        "underlying_terms": [
+          "NVIDIA"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -168,12 +361,27 @@
       "name": "Palantir Technologies",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["government ai", "pentagon ai", "defense tech", "military ai", "data analytics government", "ai contract", "dod ai"],
-        "categories": ["technology", "defense", "us politics"],
+        "keywords": [
+          "government ai",
+          "pentagon ai",
+          "defense tech",
+          "military ai",
+          "data analytics government",
+          "ai contract",
+          "dod ai"
+        ],
+        "categories": [
+          "technology",
+          "defense",
+          "us politics"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["PALANTIR TECHNOLOGIES", "PALANTIR"],
+        "underlying_terms": [
+          "PALANTIR TECHNOLOGIES",
+          "PALANTIR"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -186,12 +394,26 @@
       "name": "CrowdStrike Holdings",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["cybersecurity regulation", "data breach", "cyber attack", "ransomware", "cybersecurity mandate", "state-sponsored hacking"],
-        "categories": ["technology", "regulation", "security"],
+        "keywords": [
+          "cybersecurity regulation",
+          "data breach",
+          "cyber attack",
+          "ransomware",
+          "cybersecurity mandate",
+          "state-sponsored hacking"
+        ],
+        "categories": [
+          "technology",
+          "regulation",
+          "security"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["CROWDSTRIKE HOLDINGS", "CROWDSTRIKE"],
+        "underlying_terms": [
+          "CROWDSTRIKE HOLDINGS",
+          "CROWDSTRIKE"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -204,12 +426,38 @@
       "name": "Tesla",
       "category": "ev",
       "polymarket_patterns": {
-        "keywords": ["ev subsidy", "ev tariff", "electric vehicle policy", "ira ev credit", "ev mandate", "autonomous vehicle", "self-driving", "ev market share", "lithium", "electric vehicle sales", "tesla"],
-        "categories": ["technology", "politics", "automotive"],
-        "exclude_keywords": ["tesla coil", "elon musk", "doge", "twitter x.com", "spacex stock", "x.com"]
+        "keywords": [
+          "ev subsidy",
+          "ev tariff",
+          "electric vehicle policy",
+          "ira ev credit",
+          "ev mandate",
+          "autonomous vehicle",
+          "self-driving",
+          "ev market share",
+          "lithium",
+          "electric vehicle sales",
+          "tesla"
+        ],
+        "categories": [
+          "technology",
+          "politics",
+          "automotive"
+        ],
+        "exclude_keywords": [
+          "tesla coil",
+          "elon musk",
+          "doge",
+          "twitter x.com",
+          "spacex stock",
+          "x.com",
+          "nikola tesla"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["TESLA"],
+        "underlying_terms": [
+          "TESLA"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -222,12 +470,39 @@
       "name": "Boliden",
       "category": "mining",
       "polymarket_patterns": {
-        "keywords": ["copper price", "copper supply", "zinc price", "zinc supply", "lead price", "nickel supply", "base metals", "critical minerals", "ev battery", "copper demand", "mining regulation", "metal prices", "copper mine", "metal smelter", "base metal prices"],
-        "categories": ["commodities", "mining", "environment"],
-        "exclude_keywords": []
+        "keywords": [
+          "copper price",
+          "copper supply",
+          "zinc price",
+          "zinc supply",
+          "lead price",
+          "nickel supply",
+          "base metals",
+          "critical minerals",
+          "ev battery",
+          "copper demand",
+          "mining regulation",
+          "metal prices",
+          "copper mine",
+          "metal smelter",
+          "base metal prices"
+        ],
+        "categories": [
+          "commodities",
+          "mining",
+          "environment"
+        ],
+        "exclude_keywords": [
+          "crypto mining",
+          "bitcoin mining",
+          "gpu mining",
+          "mining bitcoin"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["BOLIDEN"],
+        "underlying_terms": [
+          "BOLIDEN"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -240,12 +515,30 @@
       "name": "Freeport-McMoRan",
       "category": "mining",
       "polymarket_patterns": {
-        "keywords": ["copper price", "critical minerals", "ev battery", "copper demand", "chile mining", "indonesia mining"],
-        "categories": ["commodities", "mining"],
-        "exclude_keywords": []
+        "keywords": [
+          "copper price",
+          "critical minerals",
+          "ev battery",
+          "copper demand",
+          "chile mining",
+          "indonesia mining"
+        ],
+        "categories": [
+          "commodities",
+          "mining"
+        ],
+        "exclude_keywords": [
+          "crypto mining",
+          "bitcoin mining",
+          "gpu mining",
+          "mining bitcoin"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["FREEPORT-MCMORAN", "FREEPORT"],
+        "underlying_terms": [
+          "FREEPORT-MCMORAN",
+          "FREEPORT"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -258,12 +551,37 @@
       "name": "SSAB",
       "category": "steel",
       "polymarket_patterns": {
-        "keywords": ["eu steel tariff", "steel tariff", "europe steel", "cbam", "carbon border tax", "green steel", "infrastructure spending", "steel demand", "carbon tax", "fossil-free steel", "green steel transition", "hybrit", "decarbonize steel", "steel import", "steel import tariff", "iron ore"],
-        "categories": ["economics", "environment", "europe"],
+        "keywords": [
+          "eu steel tariff",
+          "steel tariff",
+          "europe steel",
+          "cbam",
+          "carbon border tax",
+          "green steel",
+          "infrastructure spending",
+          "steel demand",
+          "carbon tax",
+          "fossil-free steel",
+          "green steel transition",
+          "hybrit",
+          "decarbonize steel",
+          "steel import",
+          "steel import tariff",
+          "iron ore"
+        ],
+        "categories": [
+          "economics",
+          "environment",
+          "europe"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["SSAB A", "SSAB B", "SSAB"],
+        "underlying_terms": [
+          "SSAB A",
+          "SSAB B",
+          "SSAB"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -276,12 +594,34 @@
       "name": "Novo Nordisk B",
       "category": "pharma",
       "polymarket_patterns": {
-        "keywords": ["ozempic", "wegovy", "glp-1", "obesity drug", "weight loss drug", "diabetes drug", "obesity treatment", "diabetes medication", "semaglutide", "tirzepatide"],
-        "categories": ["healthcare", "regulation"],
-        "exclude_keywords": ["medicare drug pricing", "drug price negotiation", "price cap", "ira drug"]
+        "keywords": [
+          "ozempic",
+          "wegovy",
+          "glp-1",
+          "obesity drug",
+          "weight loss drug",
+          "diabetes drug",
+          "obesity treatment",
+          "diabetes medication",
+          "semaglutide",
+          "tirzepatide"
+        ],
+        "categories": [
+          "healthcare",
+          "regulation"
+        ],
+        "exclude_keywords": [
+          "medicare drug pricing",
+          "drug price negotiation",
+          "price cap",
+          "ira drug"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["NOVO NORDISK B", "NOVO NORDISK"],
+        "underlying_terms": [
+          "NOVO NORDISK B",
+          "NOVO NORDISK"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -294,12 +634,27 @@
       "name": "ZIM Integrated Shipping Services",
       "category": "shipping",
       "polymarket_patterns": {
-        "keywords": ["red sea", "houthi", "suez canal", "shipping rates", "freight rates", "container shipping", "panama canal"],
-        "categories": ["geopolitics", "trade", "shipping"],
+        "keywords": [
+          "red sea",
+          "houthi",
+          "suez canal",
+          "shipping rates",
+          "freight rates",
+          "container shipping",
+          "panama canal"
+        ],
+        "categories": [
+          "geopolitics",
+          "trade",
+          "shipping"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["ZIM INTEGRATED SHIPPING SERVICES", "ZIM"],
+        "underlying_terms": [
+          "ZIM INTEGRATED SHIPPING SERVICES",
+          "ZIM"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -312,12 +667,37 @@
       "name": "Ericsson B",
       "category": "telecom",
       "polymarket_patterns": {
-        "keywords": ["huawei ban", "5g rollout", "5g auction", "spectrum auction", "open ran", "6g", "5g infrastructure", "telecom security", "china telecom ban", "telecom infrastructure", "telecom equipment", "5g expansion", "network equipment", "mobile network", "wireless infrastructure", "telecom merger", "broadband"],
-        "categories": ["technology", "regulation", "trade"],
+        "keywords": [
+          "huawei ban",
+          "5g rollout",
+          "5g auction",
+          "spectrum auction",
+          "open ran",
+          "6g",
+          "5g infrastructure",
+          "telecom security",
+          "china telecom ban",
+          "telecom infrastructure",
+          "telecom equipment",
+          "5g expansion",
+          "network equipment",
+          "mobile network",
+          "wireless infrastructure",
+          "telecom merger",
+          "broadband"
+        ],
+        "categories": [
+          "technology",
+          "regulation",
+          "trade"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["ERICSSON B", "ERICSSON"],
+        "underlying_terms": [
+          "ERICSSON B",
+          "ERICSSON"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -330,12 +710,34 @@
       "name": "Vestas Wind Systems",
       "category": "renewables",
       "polymarket_patterns": {
-        "keywords": ["wind energy", "renewable mandate", "green deal", "offshore wind", "renewable energy subsidy", "clean energy", "wind turbine", "eu energy", "wind power", "renewable energy target"],
-        "categories": ["energy", "environment", "regulation"],
-        "exclude_keywords": ["ira repeal", "subsidy cut", "renewable rollback"]
+        "keywords": [
+          "wind energy",
+          "renewable mandate",
+          "green deal",
+          "offshore wind",
+          "renewable energy subsidy",
+          "clean energy",
+          "wind turbine",
+          "eu energy",
+          "wind power",
+          "renewable energy target"
+        ],
+        "categories": [
+          "energy",
+          "environment",
+          "regulation"
+        ],
+        "exclude_keywords": [
+          "ira repeal",
+          "subsidy cut",
+          "renewable rollback"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["VESTAS WIND SYSTEMS", "VESTAS"],
+        "underlying_terms": [
+          "VESTAS WIND SYSTEMS",
+          "VESTAS"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -348,12 +750,34 @@
       "name": "Sprott Physical Uranium Trust",
       "category": "nuclear",
       "polymarket_patterns": {
-        "keywords": ["nuclear energy", "nuclear power", "uranium", "small modular reactor", "smr", "nuclear plant", "nuclear revival"],
-        "categories": ["energy", "environment"],
-        "exclude_keywords": ["nuclear weapon", "nuclear bomb", "nuclear war"]
+        "keywords": [
+          "nuclear energy",
+          "nuclear power",
+          "uranium",
+          "small modular reactor",
+          "smr",
+          "nuclear plant",
+          "nuclear revival"
+        ],
+        "categories": [
+          "energy",
+          "environment"
+        ],
+        "exclude_keywords": [
+          "nuclear weapon",
+          "nuclear bomb",
+          "nuclear war",
+          "nuclear family",
+          "nuclear option",
+          "nobel prize",
+          "nuclear fusion"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["SPROTT PHYSICAL URANIUM TRUST", "SPROTT"],
+        "underlying_terms": [
+          "SPROTT PHYSICAL URANIUM TRUST",
+          "SPROTT"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -366,12 +790,35 @@
       "name": "Coinbase Global",
       "category": "crypto",
       "polymarket_patterns": {
-        "keywords": ["sec crypto", "bitcoin etf", "crypto regulation", "stablecoin", "crypto legislation", "defi regulation", "ethereum", "bitcoin", "cryptocurrency", "crypto exchange"],
-        "categories": ["crypto", "regulation", "finance"],
-        "exclude_keywords": ["crypto ban", "ban cryptocurrency", "prohibit crypto", "binance"]
+        "keywords": [
+          "sec crypto",
+          "bitcoin etf",
+          "crypto regulation",
+          "stablecoin",
+          "crypto legislation",
+          "defi regulation",
+          "ethereum",
+          "bitcoin",
+          "cryptocurrency",
+          "crypto exchange"
+        ],
+        "categories": [
+          "crypto",
+          "regulation",
+          "finance"
+        ],
+        "exclude_keywords": [
+          "crypto ban",
+          "ban cryptocurrency",
+          "prohibit crypto",
+          "binance"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["COINBASE GLOBAL", "COINBASE"],
+        "underlying_terms": [
+          "COINBASE GLOBAL",
+          "COINBASE"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -384,12 +831,39 @@
       "name": "Evolution Gaming",
       "category": "gaming",
       "polymarket_patterns": {
-        "keywords": ["igaming", "igaming legalization", "live casino", "online casino", "live dealer", "online casino regulation", "casino licensing"],
-        "categories": ["regulation", "gaming"],
-        "exclude_keywords": ["gambling ban", "prohibit gambling", "ban online gambling", "sports betting", "sportsbook", "osb", "event-contract", "licensed in ohio", "ohio casino control commission"]
+        "keywords": [
+          "igaming",
+          "igaming legalization",
+          "live casino",
+          "online casino",
+          "live dealer",
+          "online casino regulation",
+          "casino licensing"
+        ],
+        "categories": [
+          "regulation",
+          "gaming"
+        ],
+        "exclude_keywords": [
+          "gambling ban",
+          "prohibit gambling",
+          "ban online gambling",
+          "sports betting",
+          "sportsbook",
+          "osb",
+          "event-contract",
+          "licensed in ohio",
+          "ohio casino control commission",
+          "darwin",
+          "biological evolution",
+          "natural selection"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["EVOLUTION GAMING", "EVOLUTION"],
+        "underlying_terms": [
+          "EVOLUTION GAMING",
+          "EVOLUTION"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -402,12 +876,33 @@
       "name": "Hennes and Mauritz B",
       "category": "retail",
       "polymarket_patterns": {
-        "keywords": ["eu fast fashion", "textile regulation", "fashion sustainability", "clothing import tariff", "apparel tariff", "consumer spending europe", "retail sales europe", "fast fashion ban", "retail tariff", "cotton price", "supply chain fashion", "clothing demand", "ecommerce regulation"],
-        "categories": ["regulation", "environment", "trade"],
+        "keywords": [
+          "eu fast fashion",
+          "textile regulation",
+          "fashion sustainability",
+          "clothing import tariff",
+          "apparel tariff",
+          "consumer spending europe",
+          "retail sales europe",
+          "fast fashion ban",
+          "retail tariff",
+          "cotton price",
+          "supply chain fashion",
+          "clothing demand",
+          "ecommerce regulation"
+        ],
+        "categories": [
+          "regulation",
+          "environment",
+          "trade"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["HM", "HENNES AND MAURITZ B"],
+        "underlying_terms": [
+          "HM",
+          "HENNES AND MAURITZ B"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -420,12 +915,38 @@
       "name": "Volvo Group",
       "category": "transport",
       "polymarket_patterns": {
-        "keywords": ["ev truck", "autonomous trucking", "freight", "freight recession", "heavy vehicle", "commercial vehicle", "commercial vehicle demand", "truck orders", "truck sales europe", "truck electrification", "volvo trucks", "self-driving truck", "freight automation", "eu truck emission", "truck tariff", "zero emission truck"],
-        "categories": ["technology", "transport"],
-        "exclude_keywords": ["volvo cars"]
+        "keywords": [
+          "ev truck",
+          "autonomous trucking",
+          "freight",
+          "freight recession",
+          "heavy vehicle",
+          "commercial vehicle",
+          "commercial vehicle demand",
+          "truck orders",
+          "truck sales europe",
+          "truck electrification",
+          "volvo trucks",
+          "self-driving truck",
+          "freight automation",
+          "eu truck emission",
+          "truck tariff",
+          "zero emission truck"
+        ],
+        "categories": [
+          "technology",
+          "transport"
+        ],
+        "exclude_keywords": [
+          "volvo cars"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["VOLVO B", "VOLVO", "AB VOLVO"],
+        "underlying_terms": [
+          "VOLVO B",
+          "VOLVO",
+          "AB VOLVO"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -438,12 +959,34 @@
       "name": "Spotify Technology",
       "category": "technology",
       "polymarket_patterns": {
-        "keywords": ["spotify", "streaming royalty", "music royalty", "music licensing", "digital music license", "royalty rate"],
-        "categories": ["technology", "regulation", "media"],
-        "exclude_keywords": ["release a new song", "release a new album", "#1 hit", "album before gta vi"]
+        "keywords": [
+          "spotify",
+          "streaming royalty",
+          "music royalty",
+          "music licensing",
+          "digital music license",
+          "royalty rate"
+        ],
+        "categories": [
+          "technology",
+          "regulation",
+          "media"
+        ],
+        "exclude_keywords": [
+          "release a new song",
+          "release a new album",
+          "#1 hit",
+          "album before gta vi",
+          "top spotify artist",
+          "monthly spotify listeners",
+          "spotify wrapped"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["SPOTIFY TECHNOLOGY", "SPOTIFY"],
+        "underlying_terms": [
+          "SPOTIFY TECHNOLOGY",
+          "SPOTIFY"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -456,12 +999,30 @@
       "name": "S&P 500",
       "category": "index",
       "polymarket_patterns": {
-        "keywords": ["federal reserve", "fed rate", "interest rate", "fomc", "us recession", "s&p 500 level", "stock market crash"],
-        "categories": ["economics", "finance"],
-        "exclude_keywords": ["fed cup", "federation"]
+        "keywords": [
+          "federal reserve",
+          "fed rate",
+          "interest rate",
+          "fomc",
+          "us recession",
+          "s&p 500 level",
+          "stock market crash"
+        ],
+        "categories": [
+          "economics",
+          "finance"
+        ],
+        "exclude_keywords": [
+          "fed cup",
+          "federation"
+        ]
       },
       "avanza_search": {
-        "underlying_terms": ["SP500", "S&P 500", "S&P500"],
+        "underlying_terms": [
+          "SP500",
+          "S&P 500",
+          "S&P500"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -474,12 +1035,24 @@
       "name": "NASDAQ 100",
       "category": "index",
       "polymarket_patterns": {
-        "keywords": ["antitrust tech", "big tech breakup", "tech sector outlook", "nasdaq level"],
-        "categories": ["technology", "regulation"],
+        "keywords": [
+          "antitrust tech",
+          "big tech breakup",
+          "tech sector outlook",
+          "nasdaq level"
+        ],
+        "categories": [
+          "technology",
+          "regulation"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["NASDAQ", "NDX", "NASDAQ 100"],
+        "underlying_terms": [
+          "NASDAQ",
+          "NDX",
+          "NASDAQ 100"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {
@@ -511,11 +1084,17 @@
           "federal reserve rate hike",
           "ecb rate hike"
         ],
-        "categories": ["economics", "europe"],
+        "categories": [
+          "economics",
+          "europe"
+        ],
         "exclude_keywords": []
       },
       "avanza_search": {
-        "underlying_terms": ["OMX", "OMXS30"],
+        "underlying_terms": [
+          "OMX",
+          "OMXS30"
+        ],
         "certificate_type": "certificate"
       },
       "correlation_logic": {

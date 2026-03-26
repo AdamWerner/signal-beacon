@@ -43,4 +43,24 @@ describe('OntologyEngine OMX30 macro matching', () => {
 
     expect(matches.some(match => match.assetId === 'tech-spotify')).toBe(false);
   });
+
+  it('does not match metaphorical nuclear language to uranium', () => {
+    const matches = ontology.matchMarket(
+      'Will Congress use the nuclear option before August?',
+      null,
+      'politics'
+    );
+
+    expect(matches.some(match => match.assetId === 'nuclear-sprott')).toBe(false);
+  });
+
+  it('does not match nikola tesla references to the stock', () => {
+    const matches = ontology.matchMarket(
+      'Will a Nikola Tesla museum open before year-end?',
+      null,
+      'culture'
+    );
+
+    expect(matches.some(match => match.assetId === 'ev-tesla')).toBe(false);
+  });
 });

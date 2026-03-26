@@ -51,6 +51,29 @@ const EVOLUTION_POSITIVE_TERMS = [
   'evolution gaming'
 ];
 
+const NEGATION_TERMS = [
+  ' not ',
+  "n't ",
+  'fail to',
+  'fails to',
+  'failed to',
+  'without',
+  'prevent',
+  'prevents',
+  'prevented',
+  'avoid',
+  'avoids',
+  'avoided',
+  'block',
+  'blocks',
+  'blocked',
+  'stop',
+  'stops',
+  'stopped'
+];
+
+const WEAK_CONTEXT_CATEGORIES = ['entertainment', 'culture', 'sports'];
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -89,6 +112,7 @@ export class EntityRelevanceGuard {
     const titleLower = String(context.marketTitle || '').toLowerCase();
     const matchedKeywords = unique(context.ontologyKeywords);
     const explicitKeywordMatch = matchedKeywords.length > 0;
+    const hasNegation = NEGATION_TERMS.some(term => lower.includes(term));
 
     const extractedPersons = extractPersons(context.marketTitle);
     const extractedEntities = extractEntityHints(baseText);
@@ -104,6 +128,7 @@ export class EntityRelevanceGuard {
     const knownEntityLinked = knownPersonLinked || entityLinked || directAssetMention;
 
     const allowlistedMarketType = this.knowledge.isAllowlistedMarketType(baseText);
+    const weakContextCategory = WEAK_CONTEXT_CATEGORIES.includes(String(context.marketCategory || '').toLowerCase());
 
     if (context.matchedAssetId === 'gaming-evolution') {
       const looksLikeSportsbookRegulation = includesAny(lower, EVOLUTION_BLOCK_TERMS);
@@ -128,6 +153,7 @@ export class EntityRelevanceGuard {
     if (knownEntityLinked) score += 0.3;
     if (allowlistedMarketType) score += 0.15;
     if (hasLegalEvent && unknownPersons.length > 0) score -= 0.45;
+    if (hasNegation) score -= 0.15;
     if (!explicitKeywordMatch) score -= 0.2;
     score = clamp(score, 0, 1);
 
@@ -156,6 +182,48 @@ export class EntityRelevanceGuard {
         score: Math.round(score * 100),
         reason: 'Blocked: no explicit ontology keyword match and no known entity-asset link',
         flags: ['no_keyword_match', 'unknown_entity'],
+        matchedKeywords,
+        extractedPersons,
+        extractedEntities,
+        knownEntityLinked,
+        allowlistedMarketType
+      };
+    }
+
+    if (hasNegation && !directAssetMention) {
+      return {
+        status: 'needs_review',
+        score: Math.round(score * 100),
+        reason: 'Negated market wording requires manual review',
+        flags: ['negated_market_language'],
+        matchedKeywords,
+        extractedPersons,
+        extractedEntities,
+        knownEntityLinked,
+        allowlistedMarketType
+      };
+    }
+
+    if (explicitKeywordMatch && !knownEntityLinked && !allowlistedMarketType) {
+      return {
+        status: 'rejected',
+        score: Math.round(score * 100),
+        reason: 'Blocked keyword-only match without a known entity link or allowlisted market type',
+        flags: ['keyword_only_match', 'weak_market_context'],
+        matchedKeywords,
+        extractedPersons,
+        extractedEntities,
+        knownEntityLinked,
+        allowlistedMarketType
+      };
+    }
+
+    if (explicitKeywordMatch && weakContextCategory && !allowlistedMarketType && matchedKeywords.length <= 1) {
+      return {
+        status: 'rejected',
+        score: Math.round(score * 100),
+        reason: 'Blocked weak entertainment/culture context with no tradable thesis',
+        flags: ['weak_market_context', 'keyword_only_match'],
         matchedKeywords,
         extractedPersons,
         extractedEntities,

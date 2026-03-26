@@ -22,6 +22,15 @@ function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsTerm(text: string, term: string): boolean {
+  const pattern = escapeRegExp(normalize(term)).replace(/\s+/g, '\\s+');
+  return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i').test(text);
+}
+
 function safeReadJson<T>(path: string, fallback: T): T {
   try {
     const content = readFileSync(path, 'utf-8');
@@ -73,13 +82,13 @@ export class KnowledgeBase {
     const lower = text.toLowerCase();
     for (const [entity, assets] of this.entityToAsset.entries()) {
       if (!assets.includes(assetId)) continue;
-      if (lower.includes(entity)) return true;
+      if (containsTerm(lower, entity)) return true;
     }
     return false;
   }
 
   isAllowlistedMarketType(text: string): boolean {
     const lower = text.toLowerCase();
-    return this.allowlistedMarketKeywords.some(keyword => lower.includes(keyword));
+    return this.allowlistedMarketKeywords.some(keyword => containsTerm(lower, keyword));
   }
 }
