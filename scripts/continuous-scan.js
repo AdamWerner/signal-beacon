@@ -218,6 +218,19 @@ async function runOneCycle() {
   } catch (err) {
     logError(`scan cycle ${cycleCount}`, err);
   }
+
+  if (scanner?.runPendingPushOutcomeEvaluation) {
+    try {
+      const outcomeResult = await scanner.runPendingPushOutcomeEvaluation();
+      if (outcomeResult.created > 0 || outcomeResult.evaluated > 0) {
+        logScan(
+          `[cycle ${cycleCount}] push outcomes: created=${outcomeResult.created} evaluated=${outcomeResult.evaluated}`
+        );
+      }
+    } catch (err) {
+      logError(`push outcome evaluation (cycle ${cycleCount})`, err);
+    }
+  }
 }
 
 function getStockholmNowParts() {

@@ -43,6 +43,7 @@ import { TechnicalScanner } from './sources/technical-scanner.js';
 import { EconCalendarScanner } from './sources/econ-calendar-scanner.js';
 import { InsiderScanner } from './sources/insider-scanner.js';
 import { PriceAlertScanner } from './sources/price-alert-scanner.js';
+import { PushOutcomeTracker } from './intelligence/push-tracker.js';
 
 export class PolySignalScanner {
   private config = loadConfig();
@@ -69,6 +70,7 @@ export class PolySignalScanner {
   private sourceDiagnostics = new SourceDiagnosticsService(this.catalystStore);
   private executionReplay = new ExecutionReplayService(this.catalystStore);
   private catalystEngine: CatalystEngine;
+  private pushOutcomeTracker = new PushOutcomeTracker(this.db);
 
   private ontology = new OntologyEngine();
   private avanzaClient: ReturnType<typeof createAvanzaClient> | null = null;
@@ -416,6 +418,10 @@ export class PolySignalScanner {
     return await this.backtestEvaluator.runDailyBacktest(market, date, force, options);
   }
 
+  async runPendingPushOutcomeEvaluation(limit = 25) {
+    return await this.pushOutcomeTracker.evaluatePendingOutcomes(limit);
+  }
+
   runMicrostructureBacktest(options?: {
     days?: number;
     market?: 'swedish' | 'us';
@@ -461,6 +467,7 @@ export class PolySignalScanner {
       sourceDiagnostics: this.sourceDiagnostics,
       executionReplay: this.executionReplay,
       catalystEngine: this.catalystEngine,
+      pushOutcomeTracker: this.pushOutcomeTracker,
       db: this.db as any
     };
   }

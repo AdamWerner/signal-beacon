@@ -386,6 +386,31 @@ function runMigrations(db: Database.Database): void {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS push_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        signal_id TEXT NOT NULL UNIQUE,
+        asset_id TEXT NOT NULL,
+        ticker TEXT,
+        direction TEXT,
+        push_timestamp TEXT,
+        signal_origin TEXT,
+        confidence INTEGER,
+        source_count INTEGER DEFAULT 1,
+        price_at_push REAL,
+        price_at_10m REAL,
+        price_at_30m REAL,
+        price_at_60m REAL,
+        price_at_120m REAL,
+        hit_tp INTEGER DEFAULT 0,
+        hit_sl INTEGER DEFAULT 0,
+        tp_first INTEGER DEFAULT 0,
+        max_favorable_pct REAL,
+        max_adverse_pct REAL,
+        time_to_peak_minutes REAL,
+        evaluated_at TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
       CREATE TABLE IF NOT EXISTS volatility_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -942,6 +967,31 @@ function createTables(db: Database.Database): void {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS push_outcomes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_id TEXT NOT NULL UNIQUE,
+      asset_id TEXT NOT NULL,
+      ticker TEXT,
+      direction TEXT,
+      push_timestamp TEXT,
+      signal_origin TEXT,
+      confidence INTEGER,
+      source_count INTEGER DEFAULT 1,
+      price_at_push REAL,
+      price_at_10m REAL,
+      price_at_30m REAL,
+      price_at_60m REAL,
+      price_at_120m REAL,
+      hit_tp INTEGER DEFAULT 0,
+      hit_sl INTEGER DEFAULT 0,
+      tp_first INTEGER DEFAULT 0,
+      max_favorable_pct REAL,
+      max_adverse_pct REAL,
+      time_to_peak_minutes REAL,
+      evaluated_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS volatility_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1243,6 +1293,9 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_signal_outcomes_asset
     ON signal_outcomes(asset_id, evaluated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_push_outcomes_asset
+    ON push_outcomes(asset_id, push_timestamp DESC);
 
     CREATE INDEX IF NOT EXISTS idx_push_perf_gate
     ON asset_push_performance(gate, reliability_score DESC, samples DESC);
