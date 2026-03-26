@@ -6,9 +6,15 @@ function createGenerator(): SignalGenerator {
     {
       determineTradingDirection: () => 'bull',
       getSuggestedInstruments: () => [],
-      getMappingForAsset: () => null
+      getMappingForAsset: (assetId: string) => ({
+        assetId,
+        assetName: assetId,
+        polarity: 'direct',
+        explanation: 'test',
+        instruments: { bull: [], bear: [] }
+      })
     } as any,
-    {} as any,
+    { insert: () => {} } as any,
     {} as any,
     {
       findFiltered: () => [],
@@ -65,5 +71,41 @@ describe('SignalGenerator context-dependent direction', () => {
     );
 
     expect(direction).toBeNull();
+  });
+});
+
+describe('SignalGenerator catalyst convergence', () => {
+  it('blocks price-action-only convergence from volume plus technical', async () => {
+    const generator = createGenerator();
+    const now = new Date().toISOString();
+
+    const signals = await generator.generateCatalystSignals([
+      {
+        sourceType: 'finviz_volume',
+        sourceKey: 'vol',
+        ticker: 'XOM',
+        assetId: 'oil-exxon',
+        assetName: 'Exxon Mobil',
+        title: 'XOM up 4.6% intraday',
+        body: '',
+        directionHint: 'bull',
+        urgency: 'high',
+        timestamp: now
+      },
+      {
+        sourceType: 'technical_breakout',
+        sourceKey: 'tech',
+        ticker: 'XOM',
+        assetId: 'oil-exxon',
+        assetName: 'Exxon Mobil',
+        title: 'Exxon Mobil technical breakout',
+        body: '',
+        directionHint: 'bull',
+        urgency: 'high',
+        timestamp: now
+      }
+    ]);
+
+    expect(signals).toHaveLength(0);
   });
 });

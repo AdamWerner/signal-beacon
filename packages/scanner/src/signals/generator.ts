@@ -542,7 +542,11 @@ export class SignalGenerator {
       const hasTechnical = familySet.has('technical');
       const hasNewsLike = familySet.has('news') || familySet.has('macro') || familySet.has('volume');
       const hasInsider = familySet.has('insider');
+      const hasNonPriceCatalystFamily = Array.from(familySet).some(family => !['technical', 'volume'].includes(family));
       const sourceCount = alignedCatalysts.length;
+      if (!hasNonPriceCatalystFamily) {
+        continue;
+      }
       const avgWeight = alignedCatalysts.reduce((sum, catalyst) => sum + (catalyst.sourceWeight || 1), 0) / sourceCount;
       const totalBoost = alignedCatalysts.reduce((sum, catalyst) => {
         const metadataBoost = typeof catalyst.metadata?.totalBoost === 'number'
