@@ -230,6 +230,25 @@ function runMigrations(db: Database.Database): void {
     // schema may not exist in very old databases
   }
 
+  // One-time cleanup: deactivate circular stock-price-prediction markets.
+  // e.g. "Volvo Group: VOLV-B.ST up 4.5% intraday" — tautological, no causal thesis.
+  try {
+    db.exec(`
+      UPDATE tracked_markets
+      SET is_active = FALSE
+      WHERE is_active = TRUE
+        AND (
+          lower(title) LIKE '%intraday%'
+          OR lower(title) LIKE '%.st up %'
+          OR lower(title) LIKE '%.st down %'
+          OR lower(title) LIKE '%.st above %'
+          OR lower(title) LIKE '%.st below %'
+        );
+    `);
+  } catch {
+    // schema may not exist in very old databases
+  }
+
   try {
     db.exec(`
       UPDATE daily_backtest_runs
