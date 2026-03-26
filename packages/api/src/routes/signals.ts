@@ -351,7 +351,8 @@ router.get('/push-diagnostics', (req, res) => {
   try {
     const rows = services.signalStore.findFiltered({ hours: 24, minConfidence: 45, limit: 200 })
       .filter((row: any) =>
-        row.verification_status === 'approved'
+        row.verification_status === 'approved' &&
+        String((row as any).push_gate_outcome || '').trim().length > 0
       )
       .sort((a: any, b: any) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
       .slice(0, 100);

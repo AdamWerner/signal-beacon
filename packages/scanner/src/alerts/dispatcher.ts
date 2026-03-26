@@ -875,8 +875,6 @@ export class AlertDispatcher {
       return null; // Proceed without deep-verify — guard already approved
     }
     const isBull = signal.suggested_action.toLowerCase().includes('bull');
-    const oddsBefore = (signal.odds_before * 100).toFixed(1);
-    const oddsNow = (signal.odds_now * 100).toFixed(1);
     const deltaSign = signal.delta_pct > 0 ? '+' : '';
     const momentumTag = signal.reasoning.match(/Momentum: (\w+)/)?.[1] ?? 'unknown';
     const sectorTag = signal.reasoning.match(/\[sector: .+?\]/)?.[0] ?? 'none';
@@ -905,20 +903,28 @@ export class AlertDispatcher {
       ? 'execution estimate unavailable'
       : executionTag.replace(/^\[execution:\s*/i, '').replace(/\]$/, '');
     const origin = this.getSignalOrigin(signal);
+    const hasRealPolymarketOdds =
+      Number.isFinite(signal.odds_before) &&
+      Number.isFinite(signal.odds_now) &&
+      !(signal.odds_before === 0 && signal.odds_now === 0 && this.isCatalystConvergenceSignal(signal));
+    const oddsSummary = hasRealPolymarketOdds
+      ? `${(signal.odds_before * 100).toFixed(1)}% -> ${(signal.odds_now * 100).toFixed(1)}% (${deltaSign}${signal.delta_pct.toFixed(1)}%)`
+      : `external catalyst signal (${deltaSign}${signal.delta_pct.toFixed(1)}% synthetic strength)`;
+    const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
+    if (origin !== 'polymarket') {
+      sourceTypes.delete('polymarket');
+    }
     let originContext = '';
     if (origin === 'hybrid') {
-      const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
-      sourceTypes.delete('polymarket');
       const sourceList = Array.from(sourceTypes).join(', ');
       originContext = `
 - Signal origin: HYBRID (Polymarket + external confirmation)
 - External sources confirming: ${sourceList || 'unknown'}
 - This signal was independently confirmed by non-Polymarket data sources.
   Weight the external confirmation as ADDITIONAL evidence beyond the odds change.
-  Even if the Polymarket odds move looks "done," the external sources may indicate
+      Even if the Polymarket odds move looks "done," the external sources may indicate
   the stock has not fully priced in the event yet.`;
     } else if (origin === 'catalyst_convergence') {
-      const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
       const sourceList = Array.from(sourceTypes).join(', ');
       originContext = `
 - Signal origin: CATALYST CONVERGENCE (no Polymarket trigger - purely external)
@@ -960,11 +966,12 @@ SIGNAL CONTEXT:
 - Direction: ${isBull ? 'BULL (long)' : 'BEAR (short)'}
 - Confidence: ${signal.confidence}% [tags: ${confidenceTags || 'none'}]
 - Polymarket: "${signal.market_title}"
-- Odds: ${oddsBefore}% -> ${oddsNow}% (${deltaSign}${signal.delta_pct.toFixed(1)}%)
+- Odds / trigger strength: ${oddsSummary}
 - Momentum: ${momentumTag}
 ${signal.whale_detected ? `- Whale activity: $${(signal.whale_amount_usd || 0).toLocaleString()}` : '- No whale activity'}
 - Reinforcing signals (24h): ${reinforcingCount} other approved signals for same asset + direction
 - News corroboration: ${newsSourceCount} news sources mentioned ${signal.matched_asset_name} in last 6h
+- External source families: ${sourceTypes.size > 0 ? Array.from(sourceTypes).join(', ') : 'none'}
 - Sector pattern: ${sectorTag}
 - Futures: ${futuresSummary}
 - Volatility regime: ${volSummary}
