@@ -16,6 +16,23 @@ export const PROXY_MARKET_PATTERNS: RegExp[] = [
   /\b(bitcoin|ethereum|btc|eth)\b.+\b(above|below|over|under)\b.+\$?[\d,]+/i
 ];
 
+// Self-referential stock-price prediction markets — the market IS the asset price; circular.
+// e.g. "Volvo Group: VOLV-B.ST up 4.5% intraday" has no causal thesis.
+export const CIRCULAR_MARKET_PATTERNS: RegExp[] = [
+  // Exchange-suffixed tickers with price direction: "VOLV-B.ST up", "ERIC.ST above"
+  /\b[A-Z]{2,6}[-.]?[A-Z]?\.(ST|DE|L|CO|NYSE|NASDAQ)\b.+\b(up|down|above|below)\b/i,
+  // Hardcoded high-interest tickers + price action + numeric target
+  /\b(VOLV|SAAB|ERIC|SSAB|BOL|EVO|NVO|EQNR|SHEL|XOM|LMT|NVDA|TSLA|PLTR|CRWD|ZIM|COIN|SPOT|FCX|RHM|VWS)\b[-. ]?\w*\s+(up|down|above|below|reach|hit|touch|close)\s+\d/i,
+  // Any ticker + percentage + "intraday": "VOLV-B.ST up 4.5% intraday"
+  /\b[A-Z]{2,5}\b.{0,20}\d+(\.\d+)?%\s*(intraday|today)\b/i,
+  // "Group: TICKER up/down N%" — company title followed by ticker price prediction
+  /\bGroup:\s+[A-Z]{2,6}[-.]?\w*\s+(up|down)\s+\d+(\.\d+)?%/i,
+];
+
+export function isCircularMarket(question: string): boolean {
+  return CIRCULAR_MARKET_PATTERNS.some(p => p.test(question));
+}
+
 // Markets matching these patterns are entertainment/gambling with no stock-price signal value.
 export const NOISE_PATTERNS: RegExp[] = [
   /will .+ post \d+.+tweets/i,
@@ -91,6 +108,7 @@ export const NOISE_PATTERNS: RegExp[] = [
   // Micro-timebox crypto markets (5-15 min windows, pure noise)
   /\b(bitcoin|ethereum|solana|btc|eth|sol|bnb|doge|xrp)\b.+up or down/i,
   /up or down\s*-\s*\w+\s+\d+.*\d{1,2}:\d{2}\s*(am|pm)/i,
+  ...CIRCULAR_MARKET_PATTERNS,
   ...PROXY_MARKET_PATTERNS
 ];
 
