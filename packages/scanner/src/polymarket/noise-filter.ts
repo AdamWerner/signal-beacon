@@ -7,6 +7,7 @@ export const PROXY_MARKET_PATTERNS: RegExp[] = [
   /\bclose (above|below|over|under)\b/i,
   /\bfinish (above|below|over|under)\b/i,
   /\bend (above|below|over|under) \$/i,
+  /will .+\b(reach|hit|touch|cross)\b.+\$[\d,]+/i,
   /\$\d+[\s-]+\$\d+/i,
   /\b(crude oil|wti|brent|s&p 500|sp500|nasdaq|dow|gold|silver|bitcoin|ethereum|btc|eth)\b.+\b(hit|reach|touch|cross)\b.+\$[\d,]+/i,
   /\b(CL|ES|NQ|GC|SI|HG)\b.+\b(hit|reach|touch|cross)\b.+\$[\d,]+/i,

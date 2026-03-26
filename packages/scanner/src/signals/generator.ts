@@ -74,6 +74,9 @@ export class SignalGenerator {
         if (/\b(bitcoin|ethereum|btc|eth)\b.+\$[\d,]+\b.+(by|before|in|on)\b/i.test(titleLower)) {
           continue;
         }
+        if (/\b(reach|hit|touch|cross)\b.+\$[\d,]+/i.test(titleLower)) {
+          continue;
+        }
       }
 
       const mappings = this.autoMapper.mapMarketToInstruments(market);
