@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isNoiseMarketQuestion } from './noise-filter.js';
+import { isNoiseMarketQuestion, isProxyPriceMarket } from './noise-filter.js';
 
 describe('noise filter', () => {
   it('blocks celebrity and chart noise that used to leak into Spotify', () => {
@@ -22,5 +22,10 @@ describe('noise filter', () => {
     expect(
       isNoiseMarketQuestion('AHL: Coachella Valley Firebirds vs. San Jose Barracuda')
     ).toBe(true);
+  });
+
+  it('blocks equity dip-to-price proxy markets', () => {
+    expect(isNoiseMarketQuestion('Will Tesla dip to $353 in March?')).toBe(true);
+    expect(isProxyPriceMarket('Will Tesla dip to $353 in March?')).toBe(true);
   });
 });

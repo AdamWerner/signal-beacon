@@ -189,6 +189,9 @@ export class SignalGenerator {
         if (/\b(reach|hit|touch|cross)\b.+\$[\d,]+/i.test(titleLower)) {
           continue;
         }
+        if (/\b(dip|drop|fall|rise|rally|trade)\b.{0,16}\bto\b.+\$[\d,]+/i.test(titleLower)) {
+          continue;
+        }
         if (isCircularMarket(market.title)) {
           console.log(`  [circular] skipping self-referential market: ${market.title}`);
           continue;

@@ -8,9 +8,11 @@ export const PROXY_MARKET_PATTERNS: RegExp[] = [
   /\bfinish (above|below|over|under)\b/i,
   /\bend (above|below|over|under) \$/i,
   /will .+\b(reach|hit|touch|cross)\b.+\$[\d,]+/i,
+  /will .+\b(dip|drop|fall|rise|rally|trade)\b.{0,16}\bto\b.+\$[\d,]+/i,
   /\$\d+[\s-]+\$\d+/i,
   /\b(crude oil|wti|brent|s&p 500|sp500|nasdaq|dow|gold|silver|bitcoin|ethereum|btc|eth)\b.+\b(hit|reach|touch|cross)\b.+\$[\d,]+/i,
   /\b(CL|ES|NQ|GC|SI|HG)\b.+\b(hit|reach|touch|cross)\b.+\$[\d,]+/i,
+  /\b(tsla|tesla|nvda|nvidia|coin|coinbase|xom|exxon|shel|shell|eqnr|equinor|lmt|lockheed|pltr|palantir|crwd|crowdstrike)\b.+\b(dip|drop|fall|rise|rally|trade)\b.{0,16}\bto\b.+\$[\d,]+/i,
   // Broad crypto target noise
   /\b(bitcoin|ethereum|btc|eth)\b.+\b(price|reach|hit|touch|cross)\b.+\$[\d,]+/i,
   /\b(bitcoin|ethereum|btc|eth)\b.+\b(above|below|over|under)\b.+\$?[\d,]+/i
