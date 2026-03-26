@@ -27,6 +27,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+// Sentiment keywords for news contradiction detection (English + Swedish)
+const BEARISH_KEYWORDS_EN = /\b(loser|lost|drop|fall|decline|cut|downgrade|warning|lawsuit|miss|weak|risk|fear|crash|loss)\b/gi;
+const BULLISH_KEYWORDS_EN = /\b(winner|gain|rise|upgrade|beat|record|surge|strong|approval|contract|growth|profit)\b/gi;
+const BEARISH_KEYWORDS_SV = /\b(f\u00f6rlorare|b\u00f6rsf\u00f6rlorare|tapp|nedg\u00e5ng|s\u00e4nk|varning|f\u00f6rlust|risk|svag|press|oro|kris|ras)\b/gi;
+const BULLISH_KEYWORDS_SV = /\b(vinnare|uppg\u00e5ng|h\u00f6j|rekord|stark|genombrott|kontrakt|order|tillv\u00e4xt|vinst)\b/gi;
+
 const EVENT_PATTERNS: Array<{
   family: string;
   eventType: string;
@@ -158,10 +164,28 @@ export class CatalystNormalizer {
     const sourceFamily = matched?.family || `${input.sourceType}_generic`;
     const eventType = matched?.eventType || 'generic_catalyst';
     const directionHint = input.hintedDirection || matched?.direction || this.inferDirection(lowered, input.hintedDirection);
-    const causalStrength = Math.max(0.25, Math.min(0.95, (matched?.strength || 0.6) + ((input.sourceWeight || 1) - 1) * 0.08));
+    let causalStrength = Math.max(0.25, Math.min(0.95, (matched?.strength || 0.6) + ((input.sourceWeight || 1) - 1) * 0.08));
     const noveltyPenalty = Math.min(0.35, (input.recentSimilarCount || 0) * 0.08);
     const noveltyScore = Math.max(0.1, 0.9 - noveltyPenalty);
     const sourceQualityScore = Math.max(0.2, Math.min(0.98, baseQuality + ((input.sourceWeight || 1) - 1) * 0.05));
+
+    // Detect news sentiment contradiction: news body language opposes the hinted direction.
+    // e.g. bearish article ("börsförlorarna") counted as supporting a BULL signal → penalize.
+    let contradictionTag = '';
+    if (input.sourceType === 'news' && input.hintedDirection && input.hintedDirection !== 'mixed' && input.hintedDirection !== 'neutral') {
+      const combined = `${input.title || ''} ${input.body || ''}`;
+      const bearishHits = (combined.match(BEARISH_KEYWORDS_EN) || []).length
+                        + (combined.match(BEARISH_KEYWORDS_SV) || []).length;
+      const bullishHits = (combined.match(BULLISH_KEYWORDS_EN) || []).length
+                        + (combined.match(BULLISH_KEYWORDS_SV) || []).length;
+      if (input.hintedDirection === 'bull' && bearishHits > bullishHits + 1) {
+        causalStrength = causalStrength * 0.4;
+        contradictionTag = ' [news-contradicts-direction]';
+      } else if (input.hintedDirection === 'bear' && bullishHits > bearishHits + 1) {
+        causalStrength = causalStrength * 0.4;
+        contradictionTag = ' [news-contradicts-direction]';
+      }
+    }
 
     return {
       sourceFamily,
@@ -171,7 +195,7 @@ export class CatalystNormalizer {
       causalStrength,
       noveltyScore,
       sourceQualityScore,
-      normalizedSummary: this.buildSummary(input.assetName, sourceFamily, directionHint, classificationText),
+      normalizedSummary: this.buildSummary(input.assetName, sourceFamily, directionHint, classificationText) + contradictionTag,
       isNoise: false
     };
   }
