@@ -3,7 +3,7 @@ import { WebhookClient } from './webhook.js';
 import { HomeAssistantAlert } from './homeassistant.js';
 import { AlertConfig } from './types.js';
 import { GeneratedSignal } from '../signals/types.js';
-import { getAssetMarket, isMarketOpen } from '../intelligence/trading-hours.js';
+import { getAssetMarket, isMarketOpen, TRADING_HOURS } from '../intelligence/trading-hours.js';
 import { estimateExecutionCost } from '../intelligence/execution-feasibility.js';
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 import { shouldDoDeepVerify } from '../utils/ai-budget.js';
@@ -24,6 +24,8 @@ export class AlertDispatcher {
   private reversalMinConfidenceGain: number;
   private reversalReinforcementMinutes: number;
   private reversalMinDistinctMarkets: number;
+  private pushCountToday = 0;
+  private pushCountResetDate = '';
   private readonly highRiskVerificationFlags = new Set([
     'unknown_entity',
     'no_link',
@@ -197,9 +199,17 @@ export class AlertDispatcher {
     const rawPolicyMinDeltaPct = policy?.minDeltaPct ?? 15;
     const rawPolicyMinEvidenceScore = policy?.minEvidenceScore ?? 3;
     const policyMinConfidence = Math.min(rawPolicyMinConfidence, maxPolicyMinConfidence);
-    const catalystPolicyMinConfidence = Math.min(rawPolicyMinConfidence, maxCatalystMinConfidence);
+    let catalystPolicyMinConfidence = Math.min(rawPolicyMinConfidence, maxCatalystMinConfidence);
     const policyMinDeltaPct = Math.min(rawPolicyMinDeltaPct, maxPolicyMinDeltaPct);
     const policyMinEvidenceScore = Math.min(rawPolicyMinEvidenceScore, maxPolicyMinEvidenceScore);
+    const todayPushCount = this.getPushCountToday();
+    if (todayPushCount === 0 && this.isWithinQuietDayRelaxationWindow(market)) {
+      catalystPolicyMinConfidence = Math.max(50, catalystPolicyMinConfidence - 5);
+      console.log(
+        `  [volume] quiet-day catalyst relaxation active for ${market} ` +
+        `(conf -> ${catalystPolicyMinConfidence})`
+      );
+    }
 
     if (
       rawPolicyMinConfidence !== policyMinConfidence ||
@@ -339,6 +349,12 @@ export class AlertDispatcher {
       }
 
       const DRY_RUN = process.env.DRY_RUN === 'true';
+      if (this.getPushCountToday() >= 5) {
+        this.recordGateOutcome(candidate.id, 'volume_capped', `${this.getPushCountToday()} already pushed today`);
+        console.log(`  [volume-cap] Already pushed ${this.getPushCountToday()} today, skipping ${candidate.id}`);
+        continue;
+      }
+
       if (DRY_RUN) {
         const dryTitle = `${candidate.suggested_action} ${candidate.matched_asset_name} ${candidate.confidence}%`;
         const dryMessage = `${candidate.reasoning} | ${candidate.verification_reason}`;
@@ -360,6 +376,7 @@ export class AlertDispatcher {
       if (this.onSignalsPushed) {
         this.onSignalsPushed([candidate.id], market);
       }
+      this.pushCountToday += 1;
 
       console.log(`  Pushed top ${market} HA alert (${candidate.matched_asset_name} ${candidate.confidence}%)`);
       return 1;
@@ -416,6 +433,48 @@ export class AlertDispatcher {
 
   private getSignalDirection(signal: { suggested_action: string }): 'bull' | 'bear' {
     return signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+  }
+
+  private getPushCountToday(): number {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+    if (today !== this.pushCountResetDate) {
+      this.pushCountResetDate = today;
+      this.pushCountToday = this.countPushedSignalsForToday(today);
+    }
+    return this.pushCountToday;
+  }
+
+  private countPushedSignalsForToday(today: string): number {
+    const recent = this.signalStore?.findFiltered({ hours: 36, limit: 500 }) ?? [];
+    return recent.filter(signal => {
+      if (!signal.push_sent_at) return false;
+      const pushDate = new Date(signal.push_sent_at.replace(' ', 'T') + 'Z')
+        .toLocaleDateString('en-CA', { timeZone: 'Europe/Stockholm' });
+      return pushDate === today;
+    }).length;
+  }
+
+  private isWithinQuietDayRelaxationWindow(market: 'swedish' | 'us'): boolean {
+    const close = TRADING_HOURS[market]?.close;
+    if (!close) return false;
+
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Stockholm',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    }).formatToParts(new Date());
+    const weekday = parts.find(part => part.type === 'weekday')?.value ?? 'Mon';
+    if (weekday === 'Sat' || weekday === 'Sun') {
+      return false;
+    }
+
+    const hour = parseInt(parts.find(part => part.type === 'hour')?.value ?? '0', 10);
+    const minute = parseInt(parts.find(part => part.type === 'minute')?.value ?? '0', 10);
+    const currentMinutes = hour * 60 + minute;
+    const closeMinutes = close.hour * 60 + close.minute;
+    return currentMinutes >= closeMinutes - 120 && currentMinutes < closeMinutes;
   }
 
   private recordGateOutcome(signalId: string, gate: string, reason: string): void {
