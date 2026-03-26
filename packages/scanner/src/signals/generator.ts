@@ -9,7 +9,7 @@ import { analyzeMomentum } from './momentum.js';
 import { GeneratedSignal } from './types.js';
 import { BatchVerificationCandidate, TradeVerificationGate } from '../verification/trade-gate.js';
 import { VerificationContext } from '../verification/types.js';
-import { isNoiseMarketQuestion } from '../polymarket/noise-filter.js';
+import { isNoiseMarketQuestion, isCircularMarket } from '../polymarket/noise-filter.js';
 import { SourceCatalyst } from '../sources/types.js';
 
 const DEDUP_WINDOW_HOURS = 4;
@@ -75,6 +75,10 @@ export class SignalGenerator {
           continue;
         }
         if (/\b(reach|hit|touch|cross)\b.+\$[\d,]+/i.test(titleLower)) {
+          continue;
+        }
+        if (isCircularMarket(market.title)) {
+          console.log(`  [circular] skipping self-referential market: ${market.title}`);
           continue;
         }
       }
