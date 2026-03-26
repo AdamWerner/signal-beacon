@@ -63,6 +63,18 @@ export class SignalGenerator {
       if (isNoiseMarketQuestion(market.title)) {
         continue;
       }
+      if (market.title) {
+        const titleLower = market.title.toLowerCase();
+        if (/\b(settle|close|end)\b.+\b(above|below|at)\b.+\$[\d,]+/i.test(titleLower)) {
+          continue;
+        }
+        if (/\b(close|finish|end)\b.+\b(above|below)\b.+\d{3,}/i.test(titleLower)) {
+          continue;
+        }
+        if (/\b(bitcoin|ethereum|btc|eth)\b.+\$[\d,]+\b.+(by|before|in|on)\b/i.test(titleLower)) {
+          continue;
+        }
+      }
 
       const mappings = this.autoMapper.mapMarketToInstruments(market);
       if (mappings.length === 0) {
