@@ -330,6 +330,25 @@ export class ScanCycleJob {
             }
           }
 
+          if (signal.signal_origin === 'hybrid') {
+            const sourceTypes = new Set<string>();
+            const reasoningLower = (signal.reasoning || '').toLowerCase();
+            if (reasoningLower.includes('technical')) sourceTypes.add('technical');
+            if (reasoningLower.includes('price alert') || reasoningLower.includes('intraday')) sourceTypes.add('price');
+            if (reasoningLower.includes('finviz') || reasoningLower.includes('volume spike')) sourceTypes.add('news');
+            if (reasoningLower.includes('econ') || reasoningLower.includes('macro')) sourceTypes.add('macro');
+
+            if (sourceTypes.size >= 2) {
+              signal.confidence = Math.min(signal.confidence + 8, 92);
+              signal.reasoning += ` [hybrid-bonus:+8 (${sourceTypes.size} external sources)]`;
+              changed = true;
+            } else if (sourceTypes.size >= 1) {
+              signal.confidence = Math.min(signal.confidence + 4, 92);
+              signal.reasoning += ' [hybrid-bonus:+4 (1 external source)]';
+              changed = true;
+            }
+          }
+
           const macroContext = macroCalendar.isInEventWindow(signal.matched_asset_id);
           if (macroContext.inWindow) {
             signal.reasoning +=
