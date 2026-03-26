@@ -69,8 +69,8 @@ export class PushOutcomeTracker {
         ON po.signal_id = s.id
       WHERE s.push_sent_at IS NOT NULL
         AND po.signal_id IS NULL
-      ORDER BY s.push_sent_at ASC
-      LIMIT 50
+      ORDER BY s.push_sent_at DESC
+      LIMIT 200
     `).all() as PendingPushSignal[];
 
     if (pendingSignals.length === 0) {
@@ -127,7 +127,7 @@ export class PushOutcomeTracker {
       FROM push_outcomes po
       WHERE po.evaluated_at IS NULL
         AND po.push_timestamp <= datetime('now', '-120 minutes')
-      ORDER BY po.push_timestamp ASC
+      ORDER BY po.push_timestamp DESC
       LIMIT ?
     `).all(limit) as Array<{
       signal_id: string;

@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { getAssetTicker } from '../utils/ticker-map.js';
 
 export interface Signal {
   id: string;
@@ -385,10 +386,34 @@ export class SignalStore {
           push_channel = ?
       WHERE id = ?
     `);
+    const pendingOutcomeStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO push_outcomes (
+        signal_id,
+        asset_id,
+        ticker,
+        direction,
+        push_timestamp,
+        signal_origin,
+        confidence,
+        source_count
+      )
+      VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?)
+    `);
 
     const tx = this.db.transaction((ids: string[]) => {
       for (const id of ids) {
         stmt.run(channel, id);
+        const signal = this.findById(id);
+        if (!signal) continue;
+        pendingOutcomeStmt.run(
+          signal.id,
+          signal.matched_asset_id,
+          getAssetTicker(signal.matched_asset_id),
+          signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear',
+          signal.signal_origin || 'polymarket',
+          signal.confidence ?? 0,
+          this.estimateSourceCount(signal)
+        );
       }
     });
 
@@ -593,5 +618,18 @@ export class SignalStore {
       samples: row.samples || 0,
       reliabilityScore: row.reliability_score || 0
     };
+  }
+
+  private estimateSourceCount(signal: Signal): number {
+    const reasoning = String(signal.reasoning || '');
+    const catalystMatch = reasoning.match(/\[catalysts:(\d+)\]/i);
+    if (catalystMatch) {
+      const parsed = parseInt(catalystMatch[1], 10);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+
+    if (signal.signal_origin === 'hybrid') return 2;
+    if (signal.signal_origin === 'catalyst_convergence') return 2;
+    return 1;
   }
 }
