@@ -878,6 +878,31 @@ export class AlertDispatcher {
     const executionSummary = executionTag === 'none'
       ? 'execution estimate unavailable'
       : executionTag.replace(/^\[execution:\s*/i, '').replace(/\]$/, '');
+    const origin = this.getSignalOrigin(signal);
+    let originContext = '';
+    if (origin === 'hybrid') {
+      const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
+      sourceTypes.delete('polymarket');
+      const sourceList = Array.from(sourceTypes).join(', ');
+      originContext = `
+- Signal origin: HYBRID (Polymarket + external confirmation)
+- External sources confirming: ${sourceList || 'unknown'}
+- This signal was independently confirmed by non-Polymarket data sources.
+  Weight the external confirmation as ADDITIONAL evidence beyond the odds change.
+  Even if the Polymarket odds move looks "done," the external sources may indicate
+  the stock has not fully priced in the event yet.`;
+    } else if (origin === 'catalyst_convergence') {
+      const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
+      const sourceList = Array.from(sourceTypes).join(', ');
+      originContext = `
+- Signal origin: CATALYST CONVERGENCE (no Polymarket trigger - purely external)
+- Independent sources: ${sourceList || 'unknown'}
+- This signal originated from convergence of multiple non-Polymarket sources.
+  There is no Polymarket odds change to evaluate. Judge on the external evidence.`;
+    } else {
+      originContext = `
+- Signal origin: Polymarket (single source)`;
+    }
 
     // Query DB for live reinforcement data
     let reinforcingCount = 0;
@@ -919,6 +944,7 @@ ${signal.whale_detected ? `- Whale activity: $${(signal.whale_amount_usd || 0).t
 - Volatility regime: ${volSummary}
 - Macro proximity: ${macroSummary}
 - Execution feasibility: ${executionSummary}
+${originContext}
 
 TASK:
 1) Approve only if causal mechanism is specific and strong.
