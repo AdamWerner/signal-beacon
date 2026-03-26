@@ -62,6 +62,17 @@ describe('SignalGenerator context-dependent direction', () => {
     expect(direction).toBe('bear');
   });
 
+  it('treats rising odds on no Fed cuts as bearish for SP500', () => {
+    const generator = createGenerator() as any;
+    const direction = generator.resolveContextDependentDirection(
+      { delta_pct: 22 },
+      { title: 'Will no Fed rate cuts happen in 2026?', description: null },
+      { assetId: 'sp500' }
+    );
+
+    expect(direction).toBe('bear');
+  });
+
   it('blocks ambiguous context-dependent markets instead of defaulting to bull', () => {
     const generator = createGenerator() as any;
     const direction = generator.resolveContextDependentDirection(

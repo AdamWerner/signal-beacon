@@ -363,6 +363,11 @@ export class ScanCycleJob {
             if (reasoningLower.includes('price alert') || reasoningLower.includes('intraday')) sourceTypes.add('price');
             if (reasoningLower.includes('finviz') || reasoningLower.includes('volume spike')) sourceTypes.add('news');
             if (reasoningLower.includes('econ') || reasoningLower.includes('macro')) sourceTypes.add('macro');
+            if (sourceTypes.has('technical') && sourceTypes.has('price')) {
+              sourceTypes.delete('technical');
+              sourceTypes.delete('price');
+              sourceTypes.add('price action');
+            }
 
             if (sourceTypes.size >= 2) {
               signal.confidence = Math.min(signal.confidence + 8, 92);
@@ -646,12 +651,17 @@ export class ScanCycleJob {
           labels.add('insider');
           break;
         case 'finviz_volume':
-          labels.add('price alert');
+          labels.add('price');
           break;
         default:
           labels.add(String(catalyst.sourceType || 'catalyst'));
           break;
       }
+    }
+    if (labels.has('technical') && labels.has('price')) {
+      labels.delete('technical');
+      labels.delete('price');
+      labels.add('price action');
     }
     return Array.from(labels.values());
   }

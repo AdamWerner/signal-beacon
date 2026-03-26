@@ -63,10 +63,15 @@ const CONTEXT_EFFECT_POSITIVE_PATTERNS: Record<string, RegExp[]> = {
 };
 const CONTEXT_EFFECT_NEGATIVE_PATTERNS: Record<string, RegExp[]> = {
   sp500: [
+    /\bno\b.{0,16}\brate cut(s)?\b/i,
+    /\bwithout\b.{0,16}\brate cut(s)?\b/i,
+    /\bzero\b.{0,16}\brate cut(s)?\b/i,
     /\brate hike(s)?\b/i,
     /\bfomc hike\b/i,
     /\bfed hike\b/i,
     /\bhike rates?\b/i,
+    /\bhigher for longer\b/i,
+    /\bhawkish\b/i,
     /\brecession\b/i,
     /\bstock market crash\b/i,
     /\btrade war\b/i,
@@ -75,9 +80,14 @@ const CONTEXT_EFFECT_NEGATIVE_PATTERNS: Record<string, RegExp[]> = {
     /\bdefault\b/i
   ],
   nasdaq100: [
+    /\bno\b.{0,16}\brate cut(s)?\b/i,
+    /\bwithout\b.{0,16}\brate cut(s)?\b/i,
+    /\bzero\b.{0,16}\brate cut(s)?\b/i,
     /\brate hike(s)?\b/i,
     /\bfed hike\b/i,
     /\bhike rates?\b/i,
+    /\bhigher for longer\b/i,
+    /\bhawkish\b/i,
     /\brecession\b/i,
     /\bantitrust\b/i,
     /\bbreakup\b/i,
@@ -86,9 +96,14 @@ const CONTEXT_EFFECT_NEGATIVE_PATTERNS: Record<string, RegExp[]> = {
     /\bexport control\b/i
   ],
   omx30: [
+    /\bno\b.{0,16}\brate cut(s)?\b/i,
+    /\bwithout\b.{0,16}\brate cut(s)?\b/i,
+    /\bzero\b.{0,16}\brate cut(s)?\b/i,
     /\briksbank hike\b/i,
     /\brate hike(s)?\b/i,
     /\bhike rates?\b/i,
+    /\bhigher for longer\b/i,
+    /\bhawkish\b/i,
     /\brecession\b/i,
     /\btrade war\b/i,
     /\btariff(s)?\b/i,
@@ -728,9 +743,10 @@ export class SignalGenerator {
     description?: string | null
   ): 'bull' | 'bear' | null {
     const text = `${String(title || '')} ${String(description || '')}`.toLowerCase();
+    const positiveText = this.stripNegatedPositivePhrases(text);
     const positivePatterns = CONTEXT_EFFECT_POSITIVE_PATTERNS[assetId] || [];
     const negativePatterns = CONTEXT_EFFECT_NEGATIVE_PATTERNS[assetId] || [];
-    const positiveMatches = positivePatterns.filter(pattern => pattern.test(text)).length;
+    const positiveMatches = positivePatterns.filter(pattern => pattern.test(positiveText)).length;
     const negativeMatches = negativePatterns.filter(pattern => pattern.test(text)).length;
 
     if (positiveMatches === 0 && negativeMatches === 0) {
@@ -740,6 +756,12 @@ export class SignalGenerator {
       return null;
     }
     return positiveMatches > negativeMatches ? 'bull' : 'bear';
+  }
+
+  private stripNegatedPositivePhrases(text: string): string {
+    return text
+      .replace(/\b(no|without|zero)\b.{0,16}\brate cut(s)?\b/gi, ' ')
+      .replace(/\bfail(s|ed)? to\b.{0,16}\brate cut(s)?\b/gi, ' ');
   }
 
   private createSignal(
