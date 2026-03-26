@@ -360,6 +360,7 @@ export class IntelligenceEngine {
         `avg move=${backtestRow.avg_move_30m?.toFixed(1) ?? '?'}%. ` +
         (backtestRow.ai_notes ? backtestRow.ai_notes.slice(0, 150) : '')
       : 'No backtest data for yesterday.';
+    const yesterdayPushSummary = this.getYesterdayPushOutcomeSummary(market, assetList, yDate);
 
     const cetTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit' });
     const openInMin = market === 'swedish' ? 15 : 15; // approximate until open
@@ -379,6 +380,9 @@ ${tweetContext || 'No news context available.'}
 
 YESTERDAY'S PERFORMANCE:
 ${backtestSummary}
+
+YESTERDAY'S PUSH RESULTS:
+${yesterdayPushSummary}
 
 ACTIVE REINFORCING PATTERNS:
 ${reinforcingMemories.map(m => `- ${m.insight} (+${m.confidence_boost})`).join('\n') || 'None'}
@@ -409,6 +413,7 @@ Rules:
 - verdict must be "trade" or "skip"
 - certificate must be a real Avanza instrument name (e.g. "BULL EQUINOR X3 AVA", "BEAR NVIDIA X3 AVA")
 - Weight signals higher if whale activity detected or news_sources >= 2
+- Use yesterday's push results as context when ranking today's setups. Favor similar structures to yesterday's winners.
 - Reject signals with contradicting futures/vol tags`;
 
     let briefingText = '';
@@ -542,6 +547,60 @@ Rules:
 
   private getStockholmDateString(): string {
     return getStockholmDateStringAt(new Date());
+  }
+
+  private getYesterdayPushOutcomeSummary(
+    market: 'swedish' | 'us',
+    assetList: string[],
+    stockholmDate: string
+  ): string {
+    if (assetList.length === 0) {
+      return 'No push outcome data for yesterday.';
+    }
+
+    const placeholders = assetList.map(() => '?').join(',');
+    const rows = this.db.prepare(`
+      SELECT asset_id, ticker, direction, signal_origin, push_timestamp, evaluated_at,
+             tp_first, hit_sl, max_favorable_pct, max_adverse_pct, time_to_peak_minutes
+      FROM push_outcomes
+      WHERE asset_id IN (${placeholders})
+        AND push_timestamp >= datetime('now', '-3 days')
+      ORDER BY push_timestamp DESC
+    `).all(...assetList) as Array<Record<string, any>>;
+
+    const yesterdayRows = rows.filter(row =>
+      row.push_timestamp &&
+      getStockholmDateStringAt(new Date(String(row.push_timestamp).replace(' ', 'T') + 'Z')) === stockholmDate
+    );
+
+    if (yesterdayRows.length === 0) {
+      return 'No push outcome data for yesterday.';
+    }
+
+    const evaluated = yesterdayRows.filter(row => Boolean(row.evaluated_at));
+    if (evaluated.length === 0) {
+      return `Pushed ${yesterdayRows.length} signal(s), but none evaluated yet.`;
+    }
+
+    const wins = evaluated.filter(row => Number(row.tp_first || 0) === 1);
+    const losses = evaluated.filter(row => Number(row.hit_sl || 0) === 1 && Number(row.tp_first || 0) !== 1);
+    const avgPeak = evaluated.reduce((sum, row) => sum + Number(row.time_to_peak_minutes || 0), 0) / evaluated.length;
+    const detailLines = evaluated.slice(0, 3).map(row => {
+      const outcome = Number(row.tp_first || 0) === 1
+        ? `hit TP (+${Number(row.max_favorable_pct || 0).toFixed(1)}% best move)`
+        : Number(row.hit_sl || 0) === 1
+          ? `hit SL (${Number(row.max_adverse_pct || 0).toFixed(1)}% worst move)`
+          : `timed out (${Number(row.max_favorable_pct || 0).toFixed(1)}% / ${Number(row.max_adverse_pct || 0).toFixed(1)}%)`;
+      return `- ${row.asset_id} ${String(row.direction || '').toUpperCase()} ${outcome} in ${Number(row.time_to_peak_minutes || 0).toFixed(0)} min`;
+    });
+
+    return [
+      `- Pushed ${yesterdayRows.length} signal(s)`,
+      `- ${wins.length} hit TP first, ${losses.length} hit SL first`,
+      `- Win rate: ${((wins.length / evaluated.length) * 100).toFixed(0)}%`,
+      `- Average time to peak: ${avgPeak.toFixed(0)} minutes`,
+      ...detailLines
+    ].join('\n');
   }
 
   private safeJsonArray(value: string): string[] {
