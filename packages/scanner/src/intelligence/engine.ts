@@ -313,6 +313,7 @@ export class IntelligenceEngine {
       if (nb.sourceCount >= 2) totalNewsReinforced++;
       const reasoning: string = signal.reasoning || '';
       const reasoningTags = (reasoning.match(/\[[^\]]+\]/g) ?? []).slice(0, 6).join(' ');
+      const instrumentCandidates = this.parseSuggestedInstruments(signal.suggested_instruments).slice(0, 3);
       return {
         index: idx,
         id: signal.id,
@@ -326,6 +327,7 @@ export class IntelligenceEngine {
         delta_pct: signal.delta_pct,
         whale: signal.whale_detected ? `$${(signal.whale_amount_usd || 0).toLocaleString()}` : null,
         news_sources: nb.sourceCount >= 2 ? nb.sourceCount : 0,
+        instrument_candidates: instrumentCandidates,
         tags: reasoningTags || null
       };
     });
@@ -339,7 +341,8 @@ export class IntelligenceEngine {
       source_family: signal.primary_source_family || 'mixed',
       convergence_count: Number(signal.catalyst_score || 0),
       summary: signal.catalyst_summary || signal.market_title,
-      market: (signal.market_title as string).substring(0, 80)
+      market: (signal.market_title as string).substring(0, 80),
+      instrument_candidates: this.parseSuggestedInstruments(signal.suggested_instruments).slice(0, 3)
     }));
 
     // Fetch yesterday's backtest summary for this market.
@@ -412,7 +415,7 @@ TASK: Perform THREE steps in ONE response. Respond with ONLY valid JSON, no mark
 Rules:
 - CRITICAL: If no signal has strong conviction, set stay_flat=true and briefing_text="No clear trades today — stay flat." Do NOT force trades.
 - verdict must be "trade" or "skip"
-- certificate must be a real Avanza instrument name (e.g. "BULL EQUINOR X3 AVA", "BEAR NVIDIA X3 AVA")
+- certificate must be chosen exactly from instrument_candidates for that signal. If no real candidate is provided, set verdict="skip".
 - Weight signals higher if whale activity detected or news_sources >= 2
 - Use yesterday's push results as context when ranking today's setups. Favor similar structures to yesterday's winners.
 - Reject signals with contradicting futures/vol tags`;
@@ -602,6 +605,21 @@ Rules:
       `- Average time to peak: ${avgPeak.toFixed(0)} minutes`,
       ...detailLines
     ].join('\n');
+  }
+
+  private parseSuggestedInstruments(raw: unknown): Array<{ name: string; avanza_url?: string | null }> {
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter(item => item && typeof item.name === 'string')
+        .map(item => ({
+          name: String(item.name),
+          avanza_url: typeof item.avanza_url === 'string' ? item.avanza_url : null
+        }));
+    } catch {
+      return [];
+    }
   }
 
   private safeJsonArray(value: string): string[] {

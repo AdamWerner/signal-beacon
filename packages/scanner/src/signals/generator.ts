@@ -137,8 +137,11 @@ export class SignalGenerator {
     let lowConfidenceSkipped = 0;
     let cycleEscalationSkipped = 0;
     let proxyClusterSkipped = 0;
+    let thesisDedupSkipped = 0;
     const cycleAbsDeltaByKey = new Map<string, number>();
     const cycleClusterCounts = new Map<string, number>();
+    const cycleBestByThesis = new Map<string, GeneratedSignal>();
+    const cycleProxyClusterBySignal = new Map<string, string>();
     const minStoreConfidence = Math.max(0, parseInt(process.env.SIGNAL_MIN_CONFIDENCE_STORE || '12', 10));
     const minStoreConfidenceMicro = Math.max(
       minStoreConfidence,
@@ -383,13 +386,55 @@ export class SignalGenerator {
             continue;
           }
 
+          const thesisDirection = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+          const thesisKey = `${signal.matched_asset_id}:${thesisDirection}`;
+          const existingThesisBest = cycleBestByThesis.get(thesisKey);
+          if (existingThesisBest) {
+            if (signal.confidence <= existingThesisBest.confidence) {
+              thesisDedupSkipped += 1;
+              if (thesisDedupSkipped <= 12) {
+                console.log(
+                  `  [thesis] skipping lower-confidence duplicate thesis for ${mapping.assetName} ` +
+                  `(${signal.confidence}% <= ${existingThesisBest.confidence}%)`
+                );
+              }
+              continue;
+            }
+
+            this.signalStore.delete(existingThesisBest.id);
+            const existingIndex = signals.findIndex(existingSignal => existingSignal.id === existingThesisBest.id);
+            if (existingIndex >= 0) {
+              signals.splice(existingIndex, 1);
+            }
+            const candidateIndex = batchCandidates.findIndex(candidate => candidate.signalId === existingThesisBest.id);
+            if (candidateIndex >= 0) {
+              batchCandidates.splice(candidateIndex, 1);
+            }
+            const recentIndex = recentSignals.findIndex(existingSignal => String(existingSignal.id) === existingThesisBest.id);
+            if (recentIndex >= 0) {
+              recentSignals.splice(recentIndex, 1);
+            }
+            const existingClusterKey = cycleProxyClusterBySignal.get(existingThesisBest.id);
+            if (existingClusterKey) {
+              const nextCount = Math.max(0, (cycleClusterCounts.get(existingClusterKey) || 0) - 1);
+              if (nextCount === 0) {
+                cycleClusterCounts.delete(existingClusterKey);
+              } else {
+                cycleClusterCounts.set(existingClusterKey, nextCount);
+              }
+              cycleProxyClusterBySignal.delete(existingThesisBest.id);
+            }
+          }
+
           signals.push(signal);
           this.signalStore.insert(signal);
+          cycleBestByThesis.set(thesisKey, signal);
           cycleAbsDeltaByKey.set(signal.deduplication_key, Math.abs(signal.delta_pct));
           if (proxyContext) {
             const directionTag = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
             const clusterCycleKey = `${proxyContext.clusterKey}:${directionTag}`;
             cycleClusterCounts.set(clusterCycleKey, (cycleClusterCounts.get(clusterCycleKey) || 0) + 1);
+            cycleProxyClusterBySignal.set(signal.id, clusterCycleKey);
           }
           if (
             guardFromRecord &&
@@ -433,6 +478,9 @@ export class SignalGenerator {
     }
     if (proxyClusterSkipped > 12) {
       console.log(`  [cluster] skipped ${proxyClusterSkipped - 12} additional proxy-cluster signals (suppressed)`);
+    }
+    if (thesisDedupSkipped > 12) {
+      console.log(`  [thesis] skipped ${thesisDedupSkipped - 12} additional duplicate theses (suppressed)`);
     }
 
     if (batchCandidates.length > 0) {

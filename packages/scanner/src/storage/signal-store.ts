@@ -276,6 +276,10 @@ export class SignalStore {
     this.db.prepare('UPDATE signals SET suggested_action = ? WHERE id = ?').run(suggestedAction, id);
   }
 
+  delete(id: string): void {
+    this.db.prepare('DELETE FROM signals WHERE id = ?').run(id);
+  }
+
   getAiAnalysis(id: string): string | null {
     const row = this.db.prepare('SELECT ai_analysis FROM signals WHERE id = ?').get(id) as { ai_analysis: string | null } | undefined;
     return row?.ai_analysis ?? null;

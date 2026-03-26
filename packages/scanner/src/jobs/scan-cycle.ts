@@ -21,7 +21,7 @@ import { EconCalendarScanner } from '../sources/econ-calendar-scanner.js';
 import { InsiderScanner } from '../sources/insider-scanner.js';
 import { PriceAlertScanner } from '../sources/price-alert-scanner.js';
 import { SourceCatalyst } from '../sources/types.js';
-import { getAiBudgetMode } from '../utils/ai-budget.js';
+import { getAiBudgetMode, type AiBudgetMode } from '../utils/ai-budget.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -48,6 +48,7 @@ export class ScanCycleJob {
   private intelligence: IntelligenceEngine | null = null;
   private newsCorrelator: NewsCorrelator | null = null;
   private macroCalendar: MacroCalendar | null = null;
+  private lastBudgetMode: AiBudgetMode | null = null;
 
   constructor(
     private config: Config,
@@ -143,13 +144,20 @@ export class ScanCycleJob {
       }
 
       const budgetMode = getAiBudgetMode();
+      const runActiveCatchup = budgetMode === 'active' && (this.lastBudgetMode === 'dormant' || this.lastBudgetMode === null);
+      this.lastBudgetMode = budgetMode;
       let allCatalysts: SourceCatalyst[] = [];
       if (budgetMode === 'dormant') {
         console.log('  [dormant] Skipping external catalysts (market closed)');
       } else {
+        if (runActiveCatchup) {
+          console.log('  [catch-up] First active cycle after dormant mode: running broad external scan coverage');
+        }
         const wave1Promise = Promise.all([
           this.finvizScanner ? runSourceScan('finviz', () => this.finvizScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
-          this.priceAlertScanner ? runSourceScan('price-alert', () => this.priceAlertScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+          this.priceAlertScanner
+            ? runSourceScan('price-alert', () => this.priceAlertScanner!.scan([], { fullCoverage: runActiveCatchup }))
+            : Promise.resolve([] as SourceCatalyst[]),
           this.econCalendarScanner ? runSourceScan('econ', () => this.econCalendarScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
           this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
         ]);
@@ -164,7 +172,10 @@ export class ScanCycleJob {
 
         let technicalBreakouts: SourceCatalyst[] = [];
         if (this.technicalScanner) {
-          technicalBreakouts = await runSourceScan('technical', () => this.technicalScanner!.scan(wave1AssetIds));
+          technicalBreakouts = await runSourceScan(
+            'technical',
+            () => this.technicalScanner!.scan(wave1AssetIds, { fullCoverage: runActiveCatchup })
+          );
         }
 
         allCatalysts = [

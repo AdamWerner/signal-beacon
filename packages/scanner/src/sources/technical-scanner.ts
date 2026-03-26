@@ -93,10 +93,14 @@ export class TechnicalScanner {
     private signalStore?: SignalStore
   ) {}
 
-  async scan(prioritizedAssetIds: string[] = []): Promise<SourceCatalyst[]> {
+  async scan(
+    prioritizedAssetIds: string[] = [],
+    options: { fullCoverage?: boolean } = {}
+  ): Promise<SourceCatalyst[]> {
     const catalysts: SourceCatalyst[] = [];
     const maxCalls = getAiBudgetMode() === 'active' ? ACTIVE_MARKET_YAHOO_CALLS : DORMANT_MARKET_YAHOO_CALLS;
-    const assets = this.selectAssets(prioritizedAssetIds).slice(0, maxCalls);
+    const orderedAssets = this.selectAssets(prioritizedAssetIds);
+    const assets = options.fullCoverage ? orderedAssets : orderedAssets.slice(0, maxCalls);
 
     for (const assetId of assets) {
       const ticker = getAssetTicker(assetId);

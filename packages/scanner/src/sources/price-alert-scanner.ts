@@ -29,7 +29,10 @@ export class PriceAlertScanner {
 
   constructor(private db?: Database.Database) {}
 
-  async scan(prioritizedAssetIds: string[] = []): Promise<SourceCatalyst[]> {
+  async scan(
+    prioritizedAssetIds: string[] = [],
+    options: { fullCoverage?: boolean } = {}
+  ): Promise<SourceCatalyst[]> {
     const catalysts: SourceCatalyst[] = [];
     const allAssets = Object.keys(ASSET_TO_TICKER);
     const priority = new Set(prioritizedAssetIds);
@@ -46,7 +49,8 @@ export class PriceAlertScanner {
 
     this.rotationOffset = (this.rotationOffset + 3) % Math.max(1, nonPriority.length || 1);
 
-    for (const assetId of rotated.slice(0, MAX_CHECKS_PER_CYCLE)) {
+    const assetsToCheck = options.fullCoverage ? rotated : rotated.slice(0, MAX_CHECKS_PER_CYCLE);
+    for (const assetId of assetsToCheck) {
       const ticker = getAssetTicker(assetId);
       if (!ticker) continue;
 
