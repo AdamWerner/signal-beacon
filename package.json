@@ -21,6 +21,8 @@
     "refresh:markets": "node scripts/refresh-markets.js",
     "setup": "bash scripts/setup.sh",
     "continuous": "node scripts/continuous-scan.js",
+    "start:live": "node -e \"process.env.DRY_RUN='false'; import('./scripts/continuous-scan.js');\"",
+    "test:live-cycle": "node -e \"process.env.DRY_RUN='false'; process.env.AI_BUDGET_MODE_OVERRIDE='active'; process.env.FORCE_MARKET_OPEN='true'; import('./scripts/run-scan.js');\"",
     "self-test": "node scripts/self-test-loop.js",
     "policy:optimize": "node scripts/policy-optimizer.js",
     "self-improve": "node scripts/self-improve.js",
