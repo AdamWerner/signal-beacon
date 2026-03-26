@@ -216,6 +216,8 @@ export class ScanCycleJob {
 
         for (const signal of signals) {
           let changed = false;
+          const baseConfidenceBeforeEnrichment = signal.confidence;
+          const signalDirection = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
 
           // Multi-timeframe bonus: +5 for 2 windows, +10 for 3 windows
           const tframes = timeframeMap.get(signal.market_condition_id) ?? 1;
@@ -269,9 +271,23 @@ export class ScanCycleJob {
           // Hard ceiling — stacked boosts (intelligence + backtest) must never hit 100%
           signal.confidence = Math.min(signal.confidence, 92);
 
-          // News correlator boost (deterministic, post-ceiling so it can push up to 92)
-          const newsBoost = newsCorrelator.getBoostForAsset(signal.matched_asset_id);
-          if (newsBoost.boost > 0) {
+          const newsBoost = newsCorrelator.getBoostForSignal(signal.matched_asset_id, signalDirection);
+          const macroContext = macroCalendar.isInEventWindow(signal.matched_asset_id);
+          const macroPreDriftBoost = macroContext.inWindow && macroContext.minutesUntil > 0 && macroContext.minutesUntil <= 30
+            ? 8
+            : 0;
+
+          if (macroPreDriftBoost > 0 && newsBoost.boost > 0) {
+            const combinedBoost = Math.max(macroPreDriftBoost, newsBoost.boost);
+            signal.confidence = Math.min(signal.confidence + combinedBoost, 92);
+            signal.reasoning +=
+              ` [event-overlap:+${combinedBoost} news:${newsBoost.sourceCount}src macro:${macroContext.eventName}]`;
+            changed = true;
+            console.log(
+              `  Event overlap +${combinedBoost} for ${signal.matched_asset_name} ` +
+              `(news ${newsBoost.sourceCount} src + macro ${macroContext.eventName}) -> ${signal.confidence}%`
+            );
+          } else if (newsBoost.boost > 0) {
             signal.confidence = Math.min(signal.confidence + newsBoost.boost, 92);
             signal.reasoning += ` [news:+${newsBoost.boost} (${newsBoost.sourceCount} src)]`;
             changed = true;
@@ -282,7 +298,6 @@ export class ScanCycleJob {
           }
 
           if (signal.signal_origin === 'polymarket' && allCatalysts.length > 0) {
-            const signalDirection = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
             const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
             const confirming = allCatalysts.filter(catalyst => {
               const catalystTs = Date.parse(catalyst.timestamp);
@@ -291,19 +306,19 @@ export class ScanCycleJob {
                 Number.isFinite(catalystTs) &&
                 catalystTs >= thirtyMinutesAgo;
             });
+            const familyLabels = this.describeCatalystFamilies(confirming);
+            const familyCount = familyLabels.length;
 
-            if (confirming.length >= 2) {
+            if (familyCount >= 2) {
               signal.confidence = Math.min(signal.confidence + 10, 92);
-              const familyLabels = this.describeCatalystFamilies(confirming);
               signal.reasoning +=
-                ` [cross-source: ${confirming.length} external catalysts confirm ${familyLabels.join('+')}]`;
+                ` [cross-source: ${familyCount} external families confirm ${familyLabels.join('+')}]`;
               signal.signal_origin = 'hybrid';
               changed = true;
-            } else if (confirming.length === 1) {
+            } else if (familyCount === 1) {
               signal.confidence = Math.min(signal.confidence + 5, 92);
-              const familyLabels = this.describeCatalystFamilies(confirming);
               signal.reasoning +=
-                ` [cross-source: 1 external catalyst confirms ${familyLabels.join('+')}]`;
+                ` [cross-source: 1 external family confirms ${familyLabels.join('+')}]`;
               signal.signal_origin = 'hybrid';
               changed = true;
             }
@@ -349,17 +364,17 @@ export class ScanCycleJob {
             }
           }
 
-          const macroContext = macroCalendar.isInEventWindow(signal.matched_asset_id);
           if (macroContext.inWindow) {
             signal.reasoning +=
               ` [macro: ${macroContext.eventName}, ${macroContext.minutesUntil}min away, impact:${macroContext.impact}]`;
             changed = true;
 
-            if (macroContext.minutesUntil > 0 && macroContext.minutesUntil <= 30) {
-              signal.confidence = Math.min(signal.confidence + 8, 92);
+            if (macroPreDriftBoost > 0 && newsBoost.boost === 0) {
+              signal.confidence = Math.min(signal.confidence + macroPreDriftBoost, 92);
               console.log(
-                `  Macro pre-drift +8 for ${signal.matched_asset_name} (${macroContext.eventName}, ${macroContext.minutesUntil}min) -> ${signal.confidence}%`
+                `  Macro pre-drift +${macroPreDriftBoost} for ${signal.matched_asset_name} (${macroContext.eventName}, ${macroContext.minutesUntil}min) -> ${signal.confidence}%`
               );
+              changed = true;
             }
           }
 
@@ -390,6 +405,13 @@ export class ScanCycleJob {
           }
           signal.reasoning += ` [vol:${volContext.regime}, VIX:${volContext.vix.toFixed(1)}]`;
           changed = true;
+
+          const maxConfidenceAfterBoosts = Math.min(baseConfidenceBeforeEnrichment + 25, 92);
+          if (signal.confidence > maxConfidenceAfterBoosts) {
+            signal.confidence = maxConfidenceAfterBoosts;
+            signal.reasoning += ` [boost_cap:${maxConfidenceAfterBoosts}]`;
+            changed = true;
+          }
 
           if (changed) {
             pendingUpdates.push({

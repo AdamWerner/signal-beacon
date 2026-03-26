@@ -179,7 +179,7 @@ export class CatalystEngine {
         supportingFamilies.add('whale_flow');
       }
 
-      const newsEvidence = newsCorrelator?.getEvidenceForAsset(signal.matched_asset_id, 8, 3) ?? [];
+      const newsEvidence = newsCorrelator?.getEvidenceForAsset(signal.matched_asset_id, 8, 3, direction) ?? [];
       for (const evidence of newsEvidence) {
         const normalized = this.normalizer.normalize({
           sourceType: 'news',
@@ -187,10 +187,9 @@ export class CatalystEngine {
           body: evidence.accountHandle,
           assetId: signal.matched_asset_id,
           assetName: signal.matched_asset_name,
-          hintedDirection: direction,
           sourceWeight: evidence.weight
         });
-        if (normalized.isNoise) continue;
+        if (normalized.isNoise || normalized.directionHint === 'mixed' || normalized.directionHint === 'neutral') continue;
 
         const catalystId = this.deps.catalystStore.upsertCatalyst({
           sourceType: 'news',

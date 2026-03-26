@@ -13,7 +13,8 @@ const { atr, bollingerbands, macd, rsi } = technicalIndicators;
 
 const ACTIVE_MARKET_YAHOO_CALLS = 8;
 const DORMANT_MARKET_YAHOO_CALLS = 3;
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const POSITIVE_CACHE_TTL_MS = 2 * 60 * 1000;
+const EMPTY_CACHE_TTL_MS = 5 * 60 * 1000;
 const LOOKBACK_BARS = 120;
 
 interface YahooBar {
@@ -111,7 +112,7 @@ export class TechnicalScanner {
         const bars = await this.fetchBars(ticker);
         const result = this.buildCatalysts(assetId, ticker, bars);
         this.cache.set(assetId, {
-          expiresAt: Date.now() + CACHE_TTL_MS,
+          expiresAt: Date.now() + (result.catalysts.length > 0 ? POSITIVE_CACHE_TTL_MS : EMPTY_CACHE_TTL_MS),
           catalysts: result.catalysts
         });
         catalysts.push(...result.catalysts);

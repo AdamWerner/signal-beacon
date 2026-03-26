@@ -308,7 +308,8 @@ export class IntelligenceEngine {
     const newsCorrelator = new NewsCorrelator(this.db);
     let totalNewsReinforced = 0;
     const signalItems = topSignals.map((signal, idx) => {
-      const nb = newsCorrelator.getBoostForAsset(signal.matched_asset_id, 16);
+      const direction = signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+      const nb = newsCorrelator.getBoostForSignal(signal.matched_asset_id, direction, 16);
       if (nb.sourceCount >= 2) totalNewsReinforced++;
       const reasoning: string = signal.reasoning || '';
       const reasoningTags = (reasoning.match(/\[[^\]]+\]/g) ?? []).slice(0, 6).join(' ');
