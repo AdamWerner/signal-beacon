@@ -1,7 +1,7 @@
 ﻿import { PolymarketClient } from './client.js';
 import { OntologyEngine } from '../correlation/ontology.js';
 import { MarketStore, InsertMarket, TrackedMarket } from '../storage/market-store.js';
-import { isNoiseMarketQuestion } from './noise-filter.js';
+import { isNoiseMarketQuestion, isProxyPriceMarket } from './noise-filter.js';
 
 export { NOISE_PATTERNS } from './noise-filter.js';
 
@@ -45,7 +45,7 @@ export class MarketDiscoverer {
       }
 
       const question = market.question;
-      if (isNoiseMarketQuestion(question)) {
+      if (isNoiseMarketQuestion(question) || isProxyPriceMarket(question)) {
         const existingNoise = this.store.findByConditionId(market.conditionId);
         if (existingNoise?.is_active) {
           this.store.markAsResolved(market.conditionId);
@@ -153,7 +153,7 @@ export class MarketDiscoverer {
     let removed = 0;
 
     for (const market of markets) {
-      if (isNoiseMarketQuestion(market.title)) {
+      if (isNoiseMarketQuestion(market.title) || isProxyPriceMarket(market.title)) {
         this.store.markAsResolved(market.condition_id);
         removed += 1;
         console.log(`  [noise-cleanup] ${market.title.substring(0, 70)}`);
@@ -169,7 +169,7 @@ export class MarketDiscoverer {
     let updated = 0;
 
     for (const market of markets) {
-      if (isNoiseMarketQuestion(market.title)) {
+      if (isNoiseMarketQuestion(market.title) || isProxyPriceMarket(market.title)) {
         this.store.markAsResolved(market.condition_id);
         resolved += 1;
         continue;

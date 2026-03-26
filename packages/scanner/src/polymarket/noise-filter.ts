@@ -1,3 +1,18 @@
+export const PROXY_MARKET_PATTERNS: RegExp[] = [
+  // Commodity / index price bracket markets are price bets, not causal catalysts
+  /will .+ (settle|close|end|finish) (above|below|at) \$/i,
+  /\b(CL|ES|NQ|GC|SI|HG)\b.+(settle|above|below)/i,
+  /price of .+ (above|below|over|under) \$/i,
+  /\b(settle|settling)\b.+\b(above|below)\b/i,
+  /\bclose (above|below|over|under)\b/i,
+  /\bfinish (above|below|over|under)\b/i,
+  /\bend (above|below|over|under) \$/i,
+  /\$\d+[\s-]+\$\d+/i,
+  // Broad crypto target noise
+  /\b(bitcoin|ethereum|btc|eth)\b.+\b(price|reach|hit|touch|cross)\b.+\$[\d,]+/i,
+  /\b(bitcoin|ethereum|btc|eth)\b.+\b(above|below|over|under)\b.+\$?[\d,]+/i
+];
+
 // Markets matching these patterns are entertainment/gambling with no stock-price signal value.
 export const NOISE_PATTERNS: RegExp[] = [
   /will .+ post \d+.+tweets/i,
@@ -73,15 +88,13 @@ export const NOISE_PATTERNS: RegExp[] = [
   // Micro-timebox crypto markets (5-15 min windows, pure noise)
   /\b(bitcoin|ethereum|solana|btc|eth|sol|bnb|doge|xrp)\b.+up or down/i,
   /up or down\s*-\s*\w+\s+\d+.*\d{1,2}:\d{2}\s*(am|pm)/i,
-  // Commodity / index price bracket markets are price bets, not causal catalysts
-  /will .+ (settle|close|end|finish) (above|below|at) \$/i,
-  /\b(CL|ES|NQ|GC|SI|HG)\b.+(settle|above|below)/i,
-  /price of .+ (above|below|over|under) \$/i,
-  // Broad crypto target noise
-  /\b(bitcoin|ethereum|btc|eth)\b.+\b(price|reach|hit|touch|cross)\b.+\$[\d,]+/i,
-  /\b(bitcoin|ethereum|btc|eth)\b.+\b(above|below|over|under)\b.+\$?[\d,]+/i
+  ...PROXY_MARKET_PATTERNS
 ];
 
 export function isNoiseMarketQuestion(question: string): boolean {
   return NOISE_PATTERNS.some(pattern => pattern.test(question));
+}
+
+export function isProxyPriceMarket(question: string): boolean {
+  return PROXY_MARKET_PATTERNS.some(pattern => pattern.test(question));
 }
