@@ -532,8 +532,8 @@ export class AlertDispatcher {
   }
 
   private evaluatePushPerformanceGate(signal: GeneratedSignal): { allowed: boolean; reason: string } {
-    if (this.isCatalystConvergenceSignal(signal)) {
-      return { allowed: true, reason: 'catalyst-convergence - no historical catalyst block' };
+    if (this.isCatalystAwareSignal(signal)) {
+      return { allowed: true, reason: 'catalyst-aware signal - no Polymarket-only performance block' };
     }
 
     if (!this.signalStore) {
@@ -762,10 +762,10 @@ export class AlertDispatcher {
   }
 
   private evaluateExecutionReplayGate(signal: GeneratedSignal): { allowed: boolean; reason: string } {
-    if (this.isCatalystConvergenceSignal(signal)) {
+    if (this.isCatalystAwareSignal(signal)) {
       return {
         allowed: true,
-        reason: 'catalyst-convergence bypasses Polymarket replay history'
+        reason: 'catalyst-aware signal bypasses Polymarket replay history'
       };
     }
 
