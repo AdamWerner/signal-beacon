@@ -854,7 +854,11 @@ export class AlertDispatcher {
     const sourceTypes = new Set<string>();
     const reasoningLower = (reasoning || '').toLowerCase();
     if (reasoningLower.includes('technical')) sourceTypes.add('technical');
-    if (reasoningLower.includes('finviz') || reasoningLower.includes('volume spike')) sourceTypes.add('news');
+    if (
+      reasoningLower.includes('finviz') ||
+      reasoningLower.includes('volume spike') ||
+      reasoningLower.includes('[news:+')
+    ) sourceTypes.add('news');
     if (reasoningLower.includes('econ') || reasoningLower.includes('macro')) sourceTypes.add('macro');
     if (reasoningLower.includes('insider') || reasoningLower.includes('congressional')) sourceTypes.add('insider');
     if (reasoningLower.includes('price alert') || reasoningLower.includes('intraday')) sourceTypes.add('price');
@@ -902,6 +906,8 @@ export class AlertDispatcher {
     const executionSummary = executionTag === 'none'
       ? 'execution estimate unavailable'
       : executionTag.replace(/^\[execution:\s*/i, '').replace(/\]$/, '');
+    const newsTag = reasoningTags.find(tag => tag.toLowerCase().startsWith('[news:+')) ?? 'none';
+    const newsTagMatch = newsTag.match(/\[news:\+?([0-9.]+)\s*\((\d+)\s*src\)\]/i);
     const origin = this.getSignalOrigin(signal);
     const hasRealPolymarketOdds =
       Number.isFinite(signal.odds_before) &&
@@ -958,6 +964,11 @@ export class AlertDispatcher {
           AND LOWER(tweet_text) LIKE '%' || ? || '%'
       `).get(asset) as any)?.c ?? 0;
     } catch {}
+    const derivedNewsSources = newsTagMatch ? parseInt(newsTagMatch[2], 10) : 0;
+    const effectiveNewsSources = Math.max(newsSourceCount, derivedNewsSources);
+    const newsSummary = newsTagMatch
+      ? `${effectiveNewsSources} sources (scanner corroboration tag ${newsTag})`
+      : `${effectiveNewsSources} sources mentioned ${signal.matched_asset_name} in last 6h`;
 
     const prompt = `You are the final gatekeeper at a quantitative trading desk. A signal is about to be sent to a trader's phone for IMMEDIATE action on a leveraged X3 certificate (5-30 min holding period on Avanza, Swedish broker).
 
@@ -970,7 +981,7 @@ SIGNAL CONTEXT:
 - Momentum: ${momentumTag}
 ${signal.whale_detected ? `- Whale activity: $${(signal.whale_amount_usd || 0).toLocaleString()}` : '- No whale activity'}
 - Reinforcing signals (24h): ${reinforcingCount} other approved signals for same asset + direction
-- News corroboration: ${newsSourceCount} news sources mentioned ${signal.matched_asset_name} in last 6h
+- News corroboration: ${newsSummary}
 - External source families: ${sourceTypes.size > 0 ? Array.from(sourceTypes).join(', ') : 'none'}
 - Sector pattern: ${sectorTag}
 - Futures: ${futuresSummary}
@@ -983,7 +994,9 @@ TASK:
 1) Approve only if causal mechanism is specific and strong.
 2) Reject stale/noise setups unlikely to move within 30 minutes.
 3) Reject if futures/vol/macro context clearly contradicts the trade.
-4) Keep reason concrete and actionable for a trader.
+4) For HYBRID or CATALYST CONVERGENCE signals, treat 2+ independent external sources
+   plus scanner news corroboration and supportive futures as real evidence even when whale activity is absent.
+5) Keep reason concrete and actionable for a trader.
 
 Respond JSON ONLY, no other text:
 {"verdict":"approve","reason":"1-2 sentences a trader can act on","confidence_adjustment":-10..10}
