@@ -351,63 +351,37 @@ router.get('/push-diagnostics', (req, res) => {
   try {
     const rows = services.signalStore.findFiltered({ hours: 24, minConfidence: 45, limit: 200 })
       .filter((row: any) =>
-        row.verification_status === 'approved' &&
-        !row.push_sent_at
+        row.verification_status === 'approved'
       )
-      .sort((a: any, b: any) => Number(b.confidence || 0) - Number(a.confidence || 0))
-      .slice(0, 50);
+      .sort((a: any, b: any) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')))
+      .slice(0, 100);
 
     const annotated = rows.map((row: any) => {
       const parsedRow = parseSignal(row);
-      const blocks: string[] = [];
-      const confidence = Number(parsedRow.confidence || 0);
-      const deltaPct = Math.abs(Number(parsedRow.delta_pct || 0));
       const reasoning = String(parsedRow.reasoning || '');
-      const signalOrigin = String(parsedRow.signal_origin || 'polymarket');
-      const leverage = Number(parsedRow.suggested_instruments?.[0]?.leverage || 3);
-      const execution = estimateExecutionCost(parsedRow.matched_asset_id, leverage);
-
-      if (signalOrigin === 'catalyst_convergence') {
-        if (confidence < 55) blocks.push(`confidence ${confidence}% < 55 catalyst floor`);
-        if (deltaPct < 12) blocks.push(`delta ${deltaPct.toFixed(1)}% < 12 catalyst floor`);
-      } else {
-        if (confidence < 65) blocks.push(`confidence ${confidence}% < 65`);
-        if (deltaPct < 15) blocks.push(`delta ${deltaPct.toFixed(1)}% < 15`);
-      }
-
-      if (row.execution_replay_gate === 'block') blocks.push('execution replay blocked');
-      if (row.execution_replay_gate === 'watch') blocks.push('execution replay watch');
-      if (!execution.feasible) {
-        blocks.push(`execution ${(execution.roundTripCostPct * 100).toFixed(1)}% round-trip too high`);
-      }
-      if (reasoning.includes('[fusion:suppress')) blocks.push('fusion suppressed');
-      if (reasoning.includes('[proxy_penalty:')) blocks.push('proxy market penalty');
-      if (reasoning.includes('[micro_timebox:')) blocks.push('micro-timebox penalty');
-      if (String(row.primary_source_family || '') === 'crypto_proxy_market') blocks.push('crypto proxy family');
+      const pushGateOutcome = String((row as any).push_gate_outcome || '').trim();
+      const gateKey = pushGateOutcome ? pushGateOutcome.split(':')[0].trim() : 'no_gate_recorded';
+      const blocks = [pushGateOutcome || 'no gate outcome recorded'];
 
       return {
         ...parsedRow,
-        likely_blocks: blocks.length > 0
-          ? blocks
-          : ['passed thresholds but not selected, market closed, or blocked by late gate'],
+        push_gate_outcome: pushGateOutcome || null,
+        gate_key: gateKey,
+        likely_blocks: blocks,
         source_families: (reasoning.match(/\[[^\]]+\]/g) || []).join(' ')
       };
     });
 
     const summary = {
       total: annotated.length,
-      by_origin: {
-        polymarket: annotated.filter((row: any) => String(row.signal_origin || 'polymarket') === 'polymarket').length,
-        catalyst: annotated.filter((row: any) => String(row.signal_origin || '') === 'catalyst_convergence').length,
-        hybrid: annotated.filter((row: any) => String(row.signal_origin || '') === 'hybrid').length
-      },
-      top_blocks: {} as Record<string, number>
+      by_origin: {} as Record<string, number>,
+      gate_distribution: {} as Record<string, number>
     };
 
     for (const row of annotated) {
-      for (const block of row.likely_blocks) {
-        summary.top_blocks[block] = (summary.top_blocks[block] || 0) + 1;
-      }
+      const origin = String(row.signal_origin || 'polymarket');
+      summary.by_origin[origin] = (summary.by_origin[origin] || 0) + 1;
+      summary.gate_distribution[row.gate_key] = (summary.gate_distribution[row.gate_key] || 0) + 1;
     }
 
     res.json({ summary, signals: annotated });
