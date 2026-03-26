@@ -6,6 +6,7 @@ import { useFusionDecisions } from "@/hooks/useFusionDecisions";
 import { useCatalysts } from "@/hooks/useCatalysts";
 import { useBriefings } from "@/hooks/useBriefings";
 import { usePushDiagnostics } from "@/hooks/usePushDiagnostics";
+import { usePushOutcomes } from "@/hooks/usePushOutcomes";
 import { SignalCard } from "@/components/SignalCard";
 import { Signal } from "@/types";
 import { Zap, Trophy, SlidersHorizontal, Flag, ExternalLink, ChevronDown, ChevronUp, Activity } from "lucide-react";
@@ -337,6 +338,7 @@ const SignalFeed = () => {
   const { data: topSignals, isLoading: topLoading, includeUnverified, setIncludeUnverified } = useTopSignals(signalOrigin);
   const { data: swedishSignals, isLoading: sweLoading } = useSwedishSignals();
   const { data: briefings, isLoading: briefingsLoading } = useBriefings(10);
+  const { data: pushOutcomes, isLoading: pushOutcomesLoading } = usePushOutcomes(7);
   const { data: streamingHealth, isLoading: streamingLoading } = useStreamingHealth();
   const { decisions: fusionDecisions, suppressed: fusionSuppressed, isLoading: fusionLoading } = useFusionDecisions();
   const { recent: recentCatalysts, diagnostics: catalystDiagnostics, isLoading: catalystLoading } = useCatalysts();
@@ -487,6 +489,103 @@ const SignalFeed = () => {
                 </a>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Live performance */}
+      <div className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Live Performance</h2>
+          <span className="text-xs font-mono text-muted-foreground ml-auto">
+            {pushOutcomesLoading ? "..." : `${pushOutcomes.total} pushes / ${pushOutcomes.evaluated} evaluated`}
+          </span>
+        </div>
+        {pushOutcomesLoading ? (
+          <p className="text-xs text-muted-foreground font-mono">Loading push outcomes...</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2">
+              <p className="text-[11px] font-mono text-muted-foreground">7-day summary</p>
+              <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                <div className="rounded border border-border/50 bg-card/30 p-2">
+                  <div className="text-muted-foreground">Win rate</div>
+                  <div className="text-foreground">{pushOutcomes.winRate == null ? "n/a" : `${(pushOutcomes.winRate * 100).toFixed(0)}%`}</div>
+                </div>
+                <div className="rounded border border-border/50 bg-card/30 p-2">
+                  <div className="text-muted-foreground">Pending</div>
+                  <div className="text-foreground">{pushOutcomes.pending}</div>
+                </div>
+                <div className="rounded border border-border/50 bg-card/30 p-2">
+                  <div className="text-muted-foreground">Avg MFE</div>
+                  <div className="text-foreground">{pushOutcomes.avgMaxFavorable == null ? "n/a" : `${pushOutcomes.avgMaxFavorable.toFixed(2)}%`}</div>
+                </div>
+                <div className="rounded border border-border/50 bg-card/30 p-2">
+                  <div className="text-muted-foreground">Avg MAE</div>
+                  <div className="text-foreground">{pushOutcomes.avgMaxAdverse == null ? "n/a" : `${pushOutcomes.avgMaxAdverse.toFixed(2)}%`}</div>
+                </div>
+                <div className="rounded border border-border/50 bg-card/30 p-2 col-span-2">
+                  <div className="text-muted-foreground">Avg time to peak</div>
+                  <div className="text-foreground">{pushOutcomes.avgTimeToPeak == null ? "n/a" : `${pushOutcomes.avgTimeToPeak.toFixed(0)} min`}</div>
+                </div>
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2">
+              <p className="text-[11px] font-mono text-muted-foreground">By origin</p>
+              <div className="space-y-2">
+                {Object.entries(pushOutcomes.byOrigin).length === 0 ? (
+                  <p className="text-[11px] font-mono text-muted-foreground">No pushed signals tracked yet.</p>
+                ) : Object.entries(pushOutcomes.byOrigin).map(([origin, stats]) => (
+                  <div key={origin} className="flex items-center justify-between gap-2 text-[11px] font-mono">
+                    <span className="truncate uppercase">{origin}</span>
+                    <span>{stats.wins}/{stats.evaluated} {stats.winRate == null ? "n/a" : `${(stats.winRate * 100).toFixed(0)}%`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2 md:col-span-2">
+              <p className="text-[11px] font-mono text-muted-foreground">Last 10 pushed signals</p>
+              <div className="space-y-2">
+                {pushOutcomes.outcomes.slice(0, 10).length === 0 ? (
+                  <p className="text-[11px] font-mono text-muted-foreground">No pushed signals recorded yet.</p>
+                ) : pushOutcomes.outcomes.slice(0, 10).map(outcome => {
+                  const statusClass = !outcome.evaluated_at
+                    ? "border-whale/30 bg-whale/10 text-whale"
+                    : outcome.tp_first
+                      ? "border-bull/30 bg-bull/10 text-bull"
+                      : outcome.hit_sl
+                        ? "border-bear/30 bg-bear/10 text-bear"
+                        : "border-muted/40 bg-background/60 text-muted-foreground";
+                  const statusLabel = !outcome.evaluated_at
+                    ? "pending"
+                    : outcome.tp_first
+                      ? "win"
+                      : outcome.hit_sl
+                        ? "loss"
+                        : "timed";
+
+                  return (
+                    <div key={outcome.signal_id} className="rounded border border-border/50 bg-card/40 p-2 text-[11px] font-mono space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-foreground">{outcome.asset_id}</span>
+                        <Badge variant="outline" className="text-[10px] uppercase">{outcome.signal_origin || "polymarket"}</Badge>
+                        <span className={`px-1.5 py-0.5 rounded border text-[10px] uppercase ${statusClass}`}>{statusLabel}</span>
+                        <span className="text-muted-foreground ml-auto">{outcome.confidence ?? 0}%</span>
+                      </div>
+                      <div className="text-muted-foreground">
+                        {new Date(outcome.push_timestamp).toLocaleString()} | {outcome.direction.toUpperCase()} | {outcome.ticker || "unknown"}
+                      </div>
+                      <div className="text-muted-foreground">
+                        MFE {outcome.max_favorable_pct == null ? "n/a" : `${outcome.max_favorable_pct.toFixed(2)}%`} ·
+                        MAE {outcome.max_adverse_pct == null ? "n/a" : `${outcome.max_adverse_pct.toFixed(2)}%`} ·
+                        Peak {outcome.time_to_peak_minutes == null ? "n/a" : `${outcome.time_to_peak_minutes.toFixed(0)}m`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
       </div>

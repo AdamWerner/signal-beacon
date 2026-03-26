@@ -20,6 +20,7 @@ import catalystsRouter from './routes/catalysts.js';
 import technicalRouter from './routes/technical.js';
 import econRouter from './routes/econ.js';
 import insiderRouter from './routes/insider.js';
+import pushOutcomesRouter from './routes/push-outcomes.js';
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3100', 10);
@@ -44,6 +45,7 @@ app.use('/api/catalysts', catalystsRouter);
 app.use('/api/technical', technicalRouter);
 app.use('/api/econ', econRouter);
 app.use('/api/insider', insiderRouter);
+app.use('/api/push-outcomes', pushOutcomesRouter);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -66,7 +68,8 @@ app.get('/', (_req, res) => {
       '/api/catalysts',
       '/api/technical/latest',
       '/api/econ/surprises',
-      '/api/insider/recent'
+      '/api/insider/recent',
+      '/api/push-outcomes'
     ]
   });
 });

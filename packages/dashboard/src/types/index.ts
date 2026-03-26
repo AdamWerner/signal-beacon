@@ -76,6 +76,51 @@ export interface PushDiagnostics {
   signals: PushDiagnosticSignal[];
 }
 
+export interface PushOutcomeRecord {
+  id: number;
+  signal_id: string;
+  asset_id: string;
+  ticker: string | null;
+  direction: "bull" | "bear";
+  push_timestamp: string;
+  signal_origin: "polymarket" | "catalyst_convergence" | "hybrid" | null;
+  confidence: number | null;
+  source_count: number | null;
+  price_at_push: number | null;
+  price_at_10m: number | null;
+  price_at_30m: number | null;
+  price_at_60m: number | null;
+  price_at_120m: number | null;
+  hit_tp: number;
+  hit_sl: number;
+  tp_first: number;
+  max_favorable_pct: number | null;
+  max_adverse_pct: number | null;
+  time_to_peak_minutes: number | null;
+  evaluated_at: string | null;
+  created_at: string;
+}
+
+export interface PushOutcomesResponse {
+  total: number;
+  evaluated: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  winRate: number | null;
+  avgMaxFavorable: number | null;
+  avgMaxAdverse: number | null;
+  avgTimeToPeak: number | null;
+  byOrigin: Record<string, {
+    total: number;
+    evaluated: number;
+    wins: number;
+    losses: number;
+    winRate: number | null;
+  }>;
+  outcomes: PushOutcomeRecord[];
+}
+
 export interface MarketWatch {
   id: string;
   market: string;
