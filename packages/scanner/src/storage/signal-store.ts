@@ -39,6 +39,7 @@ export interface Signal {
   execution_replay_expectancy_pct?: number | null;
   execution_replay_samples?: number | null;
   execution_replay_win_rate?: number | null;
+  push_gate_outcome?: string | null;
   status: 'new' | 'viewed' | 'dismissed' | 'acted';
 }
 
@@ -392,6 +393,14 @@ export class SignalStore {
     });
 
     tx(signalIds);
+  }
+
+  updatePushGateOutcome(signalId: string, outcome: string): void {
+    this.db.prepare(`
+      UPDATE signals
+      SET push_gate_outcome = ?
+      WHERE id = ?
+    `).run(outcome, signalId);
   }
 
   getLatestPushedSignalForAsset(assetId: string, withinMinutes = 240): Signal | null {

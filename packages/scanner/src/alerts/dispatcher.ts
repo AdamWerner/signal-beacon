@@ -165,6 +165,7 @@ export class AlertDispatcher {
     if (!forceMarketOpen && !isMarketOpen(market)) {
       for (const signal of signals) {
         console.log(`  Brewing signal ${signal.id} (${signal.matched_asset_name} ${signal.confidence}%) - ${market} market closed`);
+        this.recordGateOutcome(signal.id, 'market_closed', `${market} market closed`);
       }
       diagnostics.brewedClosed += signals.length;
       return 0;
@@ -236,6 +237,11 @@ export class AlertDispatcher {
     if (allPushable.length === 0) {
       for (const signal of signals) {
         diagnostics.skippedThresholds += 1;
+        this.recordGateOutcome(
+          signal.id,
+          'thresholds',
+          `conf=${signal.confidence}%/${policyMinConfidence} delta=${Math.abs(signal.delta_pct).toFixed(1)}%/${policyMinDeltaPct}`
+        );
         console.log(
           `  Skip push ${signal.id} below thresholds (` +
           `conf=${signal.confidence}%/${policyMinConfidence} ` +
@@ -265,6 +271,7 @@ export class AlertDispatcher {
           candidate.reasoning += ` [execution:catalyst_override ${(execution.roundTripCostPct * 100).toFixed(1)}%<=${(maxCatalystExecutionPct * 100).toFixed(1)}%]`;
         } else {
           diagnostics.skippedExecution += 1;
+          this.recordGateOutcome(candidate.id, 'execution', execution.note);
           console.log(`  Skip push ${candidate.id} execution gate: ${execution.note}`);
           continue;
         }
@@ -273,6 +280,7 @@ export class AlertDispatcher {
       const qualityBlock = this.getPushQualityBlockReason(candidate);
       if (qualityBlock) {
         diagnostics.skippedQuality += 1;
+        this.recordGateOutcome(candidate.id, 'quality', qualityBlock);
         console.log(`  Skip push ${candidate.id} quality gate: ${qualityBlock}`);
         continue;
       }
@@ -280,6 +288,7 @@ export class AlertDispatcher {
       const replayGate = this.evaluateExecutionReplayGate(candidate);
       if (!replayGate.allowed) {
         diagnostics.skippedReplay += 1;
+        this.recordGateOutcome(candidate.id, 'replay', replayGate.reason);
         console.log(`  Skip push ${candidate.id} replay gate: ${replayGate.reason}`);
         continue;
       }
@@ -287,6 +296,7 @@ export class AlertDispatcher {
       const regimeGate = this.evaluateRegimeShiftGate(candidate);
       if (!regimeGate.allowed) {
         diagnostics.skippedWhipsaw += 1;
+        this.recordGateOutcome(candidate.id, 'whipsaw', regimeGate.reason);
         console.log(`  Skip push ${candidate.id} anti-whipsaw: ${regimeGate.reason}`);
         continue;
       }
@@ -294,6 +304,7 @@ export class AlertDispatcher {
       const performanceGate = this.evaluatePushPerformanceGate(candidate);
       if (!performanceGate.allowed) {
         diagnostics.skippedPolicy += 1;
+        this.recordGateOutcome(candidate.id, 'performance', performanceGate.reason);
         console.log(`  Skip push ${candidate.id} push-policy: ${performanceGate.reason}`);
         continue;
       }
@@ -305,6 +316,7 @@ export class AlertDispatcher {
       );
       if (!evidenceGate.allowed) {
         diagnostics.skippedEvidence += 1;
+        this.recordGateOutcome(candidate.id, 'evidence', evidenceGate.reason);
         console.log(`  Skip push ${candidate.id} evidence gate: ${evidenceGate.reason}`);
         continue;
       }
@@ -314,6 +326,7 @@ export class AlertDispatcher {
       if (deepResult) {
         if (deepResult.verdict === 'reject') {
           diagnostics.skippedDeepVerify += 1;
+          this.recordGateOutcome(candidate.id, 'deep_verify_reject', deepResult.reason);
           console.log(`  [deep-verify] BLOCKED push ${candidate.id}: ${deepResult.reason}`);
           continue;
         }
@@ -329,6 +342,7 @@ export class AlertDispatcher {
       if (DRY_RUN) {
         const dryTitle = `${candidate.suggested_action} ${candidate.matched_asset_name} ${candidate.confidence}%`;
         const dryMessage = `${candidate.reasoning} | ${candidate.verification_reason}`;
+        this.recordGateOutcome(candidate.id, 'dry_run_pushable', 'all gates passed in dry run');
         console.log(`[DRY_RUN] Would push: ${dryTitle} | ${dryMessage}`);
         return 1;
       }
@@ -336,9 +350,12 @@ export class AlertDispatcher {
       const sent = await homeAssistant.send(candidate);
 
       if (!sent) {
+        this.recordGateOutcome(candidate.id, 'push_failed', 'home assistant send failed');
         console.warn(`  HA push attempt failed for ${market} market (${candidate.matched_asset_name})`);
         continue;
       }
+
+      this.recordGateOutcome(candidate.id, 'pushed', 'all gates passed');
 
       if (this.onSignalsPushed) {
         this.onSignalsPushed([candidate.id], market);
@@ -399,6 +416,15 @@ export class AlertDispatcher {
 
   private getSignalDirection(signal: { suggested_action: string }): 'bull' | 'bear' {
     return signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear';
+  }
+
+  private recordGateOutcome(signalId: string, gate: string, reason: string): void {
+    if (!this.signalStore) return;
+    try {
+      this.signalStore.updatePushGateOutcome(signalId, `${gate}: ${reason}`);
+    } catch {
+      // Diagnostics should never break dispatch.
+    }
   }
 
   private getSignalOrigin(signal: Partial<GeneratedSignal>): string {

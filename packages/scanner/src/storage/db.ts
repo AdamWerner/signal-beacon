@@ -61,6 +61,7 @@ function runMigrations(db: Database.Database): void {
         verification_updated_at DATETIME,
         push_sent_at DATETIME,
         push_channel TEXT,
+        push_gate_outcome TEXT,
         status TEXT DEFAULT 'new' CHECK(status IN ('new', 'viewed', 'dismissed', 'acted'))
       );
 
@@ -98,6 +99,7 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE signals ADD COLUMN verification_updated_at DATETIME`,
     `ALTER TABLE signals ADD COLUMN push_sent_at DATETIME`,
     `ALTER TABLE signals ADD COLUMN push_channel TEXT`,
+    `ALTER TABLE signals ADD COLUMN push_gate_outcome TEXT`,
     `ALTER TABLE signals ADD COLUMN primary_source_family TEXT`,
     `ALTER TABLE signals ADD COLUMN catalyst_score REAL DEFAULT 0`,
     `ALTER TABLE signals ADD COLUMN catalyst_summary TEXT`,
@@ -764,6 +766,7 @@ function createTables(db: Database.Database): void {
       verification_updated_at DATETIME,
       push_sent_at DATETIME,
       push_channel TEXT,
+      push_gate_outcome TEXT,
       primary_source_family TEXT,
       catalyst_score REAL DEFAULT 0,
       catalyst_summary TEXT,
