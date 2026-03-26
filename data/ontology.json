@@ -411,8 +411,8 @@
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "inverse",
-        "explanation": "Fast fashion regulation increases compliance costs for H&M. Odds UP on restrictions = BEAR HM."
+        "default_polarity": "context_dependent",
+        "explanation": "H&M is sensitive to both positive consumer-demand markets and negative regulation/tariff markets. Direction must be inferred from the specific market wording."
       }
     },
     {
@@ -447,8 +447,8 @@
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "inverse",
-        "explanation": "Streaming royalty increase odds UP = BEAR Spotify (higher costs hurt margins)."
+        "default_polarity": "context_dependent",
+        "explanation": "Spotify-facing markets can be bullish or bearish depending on whether the market is about user growth or higher royalty/licensing costs. Direction must come from the specific market wording."
       }
     },
     {
@@ -465,8 +465,8 @@
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "inverse",
-        "explanation": "Fed rate hikes are bearish for equities broadly. Odds UP on rate hike = BEAR SP500."
+        "default_polarity": "context_dependent",
+        "explanation": "Broad equity markets react differently to rate cuts, rate hikes, growth, recession, and risk events. Direction must be inferred from the specific macro question."
       }
     },
     {
@@ -483,8 +483,8 @@
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "inverse",
-        "explanation": "Tech regulation broadly bearish for NASDAQ. Odds UP on antitrust/regulation = BEAR NASDAQ."
+        "default_polarity": "context_dependent",
+        "explanation": "NASDAQ 100 can be helped by growth/risk-on markets and hurt by rate, antitrust, or recession markets. Direction must be inferred from the specific market wording."
       }
     },
     {
@@ -519,8 +519,8 @@
         "certificate_type": "certificate"
       },
       "correlation_logic": {
-        "default_polarity": "inverse",
-        "explanation": "Negative Swedish/Nordic or clearly risk-off global macro events are generally BEAR OMX."
+        "default_polarity": "context_dependent",
+        "explanation": "OMX S30 is driven by mixed Swedish and global macro questions. Direction must be inferred from whether the market wording is risk-on or risk-off for Swedish equities."
       }
     }
   ]

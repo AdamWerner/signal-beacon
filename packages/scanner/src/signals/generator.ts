@@ -18,6 +18,100 @@ const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 40;
 const PROXY_CLUSTER_WINDOW_HOURS = 12;
 const CATALYST_SIGNAL_WINDOW_MINUTES = 60;
 const CATALYST_REEMIT_MINUTES = 10;
+const CONTEXT_EFFECT_POSITIVE_PATTERNS: Record<string, RegExp[]> = {
+  sp500: [
+    /\brate cut(s)?\b/i,
+    /\bfed cut\b/i,
+    /\bsoft landing\b/i,
+    /\bstimulus\b/i,
+    /\bconsumer spending\b/i,
+    /\bretail sales\b/i,
+    /\bgdp growth\b/i,
+    /\bjobs growth\b/i,
+    /\bdisinflation\b/i
+  ],
+  nasdaq100: [
+    /\brate cut(s)?\b/i,
+    /\bsoft landing\b/i,
+    /\btech sector outlook\b/i,
+    /\brisk-on\b/i,
+    /\bai spending\b/i,
+    /\bgrowth rebound\b/i
+  ],
+  omx30: [
+    /\briksbank cut\b/i,
+    /\brate cut(s)?\b/i,
+    /\bswedish gdp growth\b/i,
+    /\bconsumer spending\b/i,
+    /\bretail sales\b/i,
+    /\brisk-on\b/i
+  ],
+  'retail-hm': [
+    /\bconsumer spending\b/i,
+    /\bretail sales\b/i,
+    /\bclothing demand\b/i,
+    /\bapparel demand\b/i,
+    /\becommerce\b/i
+  ],
+  'tech-spotify': [
+    /\bsubscriber growth\b/i,
+    /\bpremium growth\b/i,
+    /\badvertising growth\b/i,
+    /\blicensing deal\b/i,
+    /\broyalty cut\b/i
+  ]
+};
+const CONTEXT_EFFECT_NEGATIVE_PATTERNS: Record<string, RegExp[]> = {
+  sp500: [
+    /\brate hike(s)?\b/i,
+    /\bfomc hike\b/i,
+    /\bfed hike\b/i,
+    /\bhike rates?\b/i,
+    /\brecession\b/i,
+    /\bstock market crash\b/i,
+    /\btrade war\b/i,
+    /\btariff(s)?\b/i,
+    /\binflation\b/i,
+    /\bdefault\b/i
+  ],
+  nasdaq100: [
+    /\brate hike(s)?\b/i,
+    /\bfed hike\b/i,
+    /\bhike rates?\b/i,
+    /\brecession\b/i,
+    /\bantitrust\b/i,
+    /\bbreakup\b/i,
+    /\btech crackdown\b/i,
+    /\bregulation\b/i,
+    /\bexport control\b/i
+  ],
+  omx30: [
+    /\briksbank hike\b/i,
+    /\brate hike(s)?\b/i,
+    /\bhike rates?\b/i,
+    /\brecession\b/i,
+    /\btrade war\b/i,
+    /\btariff(s)?\b/i,
+    /\bswedish inflation\b/i,
+    /\beurozone recession\b/i
+  ],
+  'retail-hm': [
+    /\bfast fashion ban\b/i,
+    /\btextile regulation\b/i,
+    /\bclothing import tariff\b/i,
+    /\bapparel tariff\b/i,
+    /\bretail tariff\b/i,
+    /\bcotton price\b/i,
+    /\bsupply chain\b/i
+  ],
+  'tech-spotify': [
+    /\bstreaming royalty\b/i,
+    /\bmusic royalty\b/i,
+    /\broyalty rate\b/i,
+    /\bmusic licensing\b/i,
+    /\bdigital music license\b/i
+  ]
+};
 
 export class SignalGenerator {
   constructor(
@@ -547,7 +641,10 @@ export class SignalGenerator {
     whaleAmountUsd: number | null
   ): GeneratedSignal[] {
     if (mapping.polarity === 'context_dependent') {
-      return [this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, 'bull')];
+      const direction = this.resolveContextDependentDirection(change, market, mapping);
+      return direction
+        ? [this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, direction)]
+        : [];
     }
 
     const oddsIncreasing = change.delta_pct > 0;
@@ -557,6 +654,40 @@ export class SignalGenerator {
     ) as 'bull' | 'bear';
 
     return [this.createSignal(change, market, mapping, whaleDetected, whaleAmountUsd, direction)];
+  }
+
+  private resolveContextDependentDirection(
+    change: OddsChange,
+    market: { title?: string | null; description?: string | null },
+    mapping: CorrelationMapping
+  ): 'bull' | 'bear' | null {
+    const effect = this.inferContextDependentEffect(mapping.assetId, market.title, market.description);
+    if (!effect) {
+      return null;
+    }
+
+    const oddsIncreasing = change.delta_pct > 0;
+    return oddsIncreasing ? effect : (effect === 'bull' ? 'bear' : 'bull');
+  }
+
+  private inferContextDependentEffect(
+    assetId: string,
+    title?: string | null,
+    description?: string | null
+  ): 'bull' | 'bear' | null {
+    const text = `${String(title || '')} ${String(description || '')}`.toLowerCase();
+    const positivePatterns = CONTEXT_EFFECT_POSITIVE_PATTERNS[assetId] || [];
+    const negativePatterns = CONTEXT_EFFECT_NEGATIVE_PATTERNS[assetId] || [];
+    const positiveMatches = positivePatterns.filter(pattern => pattern.test(text)).length;
+    const negativeMatches = negativePatterns.filter(pattern => pattern.test(text)).length;
+
+    if (positiveMatches === 0 && negativeMatches === 0) {
+      return null;
+    }
+    if (positiveMatches === negativeMatches) {
+      return null;
+    }
+    return positiveMatches > negativeMatches ? 'bull' : 'bear';
   }
 
   private createSignal(

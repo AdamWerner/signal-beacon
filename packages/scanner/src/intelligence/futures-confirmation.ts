@@ -1,5 +1,4 @@
 import { GeneratedSignal } from '../signals/types.js';
-import { getAssetTicker } from '../utils/ticker-map.js';
 
 export type FuturesSignalAlignment = 'confirms' | 'contradicts' | 'flat';
 
@@ -10,7 +9,7 @@ export interface FuturesConfirmationResult {
   adjustment: number;
 }
 
-const FUTURES_MAP: Record<string, string> = {
+const FUTURES_MAP: Record<string, string | null> = {
   sp500: 'ES=F',
   nasdaq100: 'NQ=F',
   omx30: '^OMXS30',
@@ -18,15 +17,15 @@ const FUTURES_MAP: Record<string, string> = {
   'oil-shell': 'CL=F',
   'oil-exxon': 'CL=F',
   'oil-conocophillips': 'CL=F',
-  'defense-saab': '^OMXS30',
-  'defense-rheinmetall': '^GDAXI',
-  'defense-lockheed': 'ES=F',
+  'defense-saab': null,
+  'defense-rheinmetall': null,
+  'defense-lockheed': null,
   'ai-nvidia': 'NQ=F',
   'ev-tesla': 'NQ=F',
-  'mining-boliden': '^OMXS30',
-  'steel-ssab': '^OMXS30',
-  'shipping-zim': 'CL=F',
-  'crypto-coinbase': 'BTC-USD'
+  'mining-boliden': null,
+  'steel-ssab': null,
+  'shipping-zim': null,
+  'crypto-coinbase': null
 };
 
 interface CachedReturn {
@@ -38,7 +37,9 @@ export class FuturesConfirmationService {
   private cache = new Map<string, CachedReturn>();
 
   async confirm(signal: GeneratedSignal): Promise<FuturesConfirmationResult | null> {
-    const symbol = FUTURES_MAP[signal.matched_asset_id] || getAssetTicker(signal.matched_asset_id);
+    const symbol = Object.prototype.hasOwnProperty.call(FUTURES_MAP, signal.matched_asset_id)
+      ? FUTURES_MAP[signal.matched_asset_id]
+      : null;
     if (!symbol) {
       return null;
     }
