@@ -28,7 +28,7 @@ export class StreamingSupervisor {
   private healthTimer: NodeJS.Timeout | null = null;
 
   constructor(
-    private options: StreamingSupervisorOptions,
+    options: StreamingSupervisorOptions,
     private store: StreamingStore,
     private symbolMap: StreamingSymbolMap
   ) {
@@ -158,4 +158,3 @@ export class StreamingSupervisor {
     return null;
   }
 }
-

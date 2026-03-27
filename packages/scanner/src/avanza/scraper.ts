@@ -1,5 +1,5 @@
 import { InstrumentRegistry, InstrumentRegistryStats } from './instrument-registry.js';
-import { OntologyEngine, OntologyAsset } from '../correlation/ontology.js';
+import { OntologyEngine } from '../correlation/ontology.js';
 
 export interface ScraperResult {
   assetsProcessed: number;

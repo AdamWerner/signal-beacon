@@ -1,7 +1,6 @@
 import { InstrumentStore, InsertInstrument } from '../storage/instrument-store.js';
 import { AvanzaSearchClient } from './search-client.js';
 import { parseCertificateName, generateInstrumentUrl } from './certificate-parser.js';
-import { AvanzaInstrument } from './types.js';
 
 export interface InstrumentRegistryStats {
   total_active: number;

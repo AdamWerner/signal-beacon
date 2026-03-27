@@ -1,5 +1,4 @@
 import { PolymarketClient } from './client.js';
-import { Trade } from './types.js';
 import { WhaleStore, InsertWhaleEvent } from '../storage/whale-store.js';
 import { MarketStore } from '../storage/market-store.js';
 

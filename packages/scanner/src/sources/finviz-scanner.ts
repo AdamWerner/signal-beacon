@@ -59,10 +59,6 @@ function parseMoney(value: string): number {
   return parseFloat(normalized.replace(/[MK]$/g, '')) * multiplier;
 }
 
-function parseNumeric(value: string): number {
-  return parseFloat(value.replace(/[,%\s]/g, ''));
-}
-
 function parseFinvizTimestamp(raw: string, currentDateLabel: string | null): { iso: string | null; label: string | null } {
   const value = raw.replace(/\s+/g, ' ').trim();
   const now = new Date();

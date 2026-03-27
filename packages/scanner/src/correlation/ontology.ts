@@ -55,7 +55,6 @@ export class OntologyEngine {
     const titleLower = title.toLowerCase();
     const descLower = (description || '').toLowerCase();
     const categoryLower = (category || '').toLowerCase();
-    const combinedText = `${titleLower} ${descLower}`;
 
     const matches: MatchResult[] = [];
 
