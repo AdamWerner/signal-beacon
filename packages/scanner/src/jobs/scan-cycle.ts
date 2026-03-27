@@ -147,6 +147,11 @@ export class ScanCycleJob {
       const runActiveCatchup = budgetMode === 'active' && (this.lastBudgetMode === 'dormant' || this.lastBudgetMode === null);
       this.lastBudgetMode = budgetMode;
       let allCatalysts: SourceCatalyst[] = [];
+      let finvizCatalysts: SourceCatalyst[] = [];
+      let priceAlerts: SourceCatalyst[] = [];
+      let econSurprises: SourceCatalyst[] = [];
+      let insiderCatalysts: SourceCatalyst[] = [];
+      let technicalBreakouts: SourceCatalyst[] = [];
       if (budgetMode === 'dormant') {
         console.log('  [dormant] Skipping external catalysts (market closed)');
       } else {
@@ -162,7 +167,7 @@ export class ScanCycleJob {
           this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
         ]);
 
-        const [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts] = await wave1Promise;
+        [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts] = await wave1Promise;
         const wave1AssetIds = [...new Set([
           ...finvizCatalysts.map(catalyst => catalyst.assetId),
           ...priceAlerts.map(catalyst => catalyst.assetId),
@@ -170,7 +175,6 @@ export class ScanCycleJob {
           ...insiderCatalysts.map(catalyst => catalyst.assetId)
         ])];
 
-        let technicalBreakouts: SourceCatalyst[] = [];
         if (this.technicalScanner) {
           technicalBreakouts = await runSourceScan(
             'technical',
@@ -498,6 +502,26 @@ export class ScanCycleJob {
           (fusionSummary ? ' (suppressed by fusion or threshold gates).' : '.')
         );
       }
+
+      const approvedByGuard = signals.filter(signal => signal.verification_status === 'approved').length;
+      const abovePushConfidence = signals.filter(signal => signal.confidence >= 65).length;
+      const funnelLog = [
+        '=== SIGNAL FUNNEL ===',
+        `Tracked markets: ${marketsTracked}`,
+        `Odds changes detected: ${oddsChanges.length}`,
+        `External catalysts: ${allCatalysts.length} ` +
+          `(finviz:${finvizCatalysts.length} tech:${technicalBreakouts.length} econ:${econSurprises.length} ` +
+          `insider:${insiderCatalysts.length} price:${priceAlerts.length})`,
+        `Signals generated (poly): ${polySignals.length}`,
+        `Signals generated (catalyst): ${catalystSignals.length}`,
+        `Total after dedup: ${signals.length}`,
+        `Approved by guard: ${approvedByGuard}`,
+        `Above push confidence (>=65): ${abovePushConfidence}`,
+        `Dispatched to push pipeline: ${dispatchSignals.length}`,
+        `HA pushed: ${haPushed}`,
+        `Brewed: ${brewed}`
+      ];
+      console.log(`\n${funnelLog.join('\n  ')}`);
 
       const duration = Date.now() - startTime;
 
