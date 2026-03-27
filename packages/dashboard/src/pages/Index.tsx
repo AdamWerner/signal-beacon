@@ -8,7 +8,7 @@ import { useBriefings } from "@/hooks/useBriefings";
 import { usePushDiagnostics } from "@/hooks/usePushDiagnostics";
 import { usePushOutcomes } from "@/hooks/usePushOutcomes";
 import { SignalCard } from "@/components/SignalCard";
-import { Signal } from "@/types";
+import { Signal, SignalFunnelResponse } from "@/types";
 import { Zap, Trophy, SlidersHorizontal, Flag, ExternalLink, ChevronDown, ChevronUp, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,39 @@ function useSwedishSignals() {
     const t = setInterval(load, 60000);
     return () => clearInterval(t);
   }, []);
+
+  return { data, isLoading };
+}
+
+function useSignalFunnel(hours = 24) {
+  const [data, setData] = useState<SignalFunnelResponse>({
+    hours,
+    total: 0,
+    byOrigin: [],
+    byVerification: [],
+    byGateOutcome: [],
+    aboveConfidence65: 0,
+    pushed: 0,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/signals/funnel?hours=${hours}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setData(await res.json());
+      } catch {
+        // Keep previous data on transient failures.
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, [hours]);
 
   return { data, isLoading };
 }
@@ -339,6 +372,7 @@ const SignalFeed = () => {
   const { data: swedishSignals, isLoading: sweLoading } = useSwedishSignals();
   const { data: briefings, isLoading: briefingsLoading } = useBriefings(10);
   const { data: pushOutcomes, isLoading: pushOutcomesLoading } = usePushOutcomes(7);
+  const { data: signalFunnel, isLoading: funnelLoading } = useSignalFunnel(24);
   const { data: streamingHealth, isLoading: streamingLoading } = useStreamingHealth();
   const { decisions: fusionDecisions, suppressed: fusionSuppressed, isLoading: fusionLoading } = useFusionDecisions();
   const { recent: recentCatalysts, diagnostics: catalystDiagnostics, isLoading: catalystLoading } = useCatalysts();
@@ -376,6 +410,30 @@ const SignalFeed = () => {
     [pushDiagnostics]
   );
   const topBlockMax = topBlockEntries[0]?.[1] || 1;
+  const approvedCount = useMemo(
+    () => signalFunnel.byVerification.find((row) => row.verification_status === "approved")?.c || 0,
+    [signalFunnel]
+  );
+  const needsReviewCount = useMemo(
+    () => signalFunnel.byVerification.find((row) => row.verification_status === "needs_review")?.c || 0,
+    [signalFunnel]
+  );
+  const funnelStages = useMemo(() => ([
+    { label: "Signals generated", value: signalFunnel.total, tone: "border-primary/40 bg-primary/10 text-primary" },
+    { label: "Approved by guard", value: approvedCount, tone: "border-bull/40 bg-bull/10 text-bull" },
+    { label: "Needs review", value: needsReviewCount, tone: "border-whale/40 bg-whale/10 text-whale" },
+    { label: "Above 65 confidence", value: signalFunnel.aboveConfidence65, tone: "border-bull/40 bg-bull/10 text-bull" },
+    { label: "Pushed", value: signalFunnel.pushed, tone: "border-bull/40 bg-bull/10 text-bull" },
+  ]), [approvedCount, needsReviewCount, signalFunnel]);
+  const funnelMax = Math.max(1, ...funnelStages.map(stage => stage.value));
+  const originRows = useMemo(
+    () => signalFunnel.byOrigin.slice().sort((a, b) => (b.c || 0) - (a.c || 0)),
+    [signalFunnel]
+  );
+  const gateRows = useMemo(
+    () => signalFunnel.byGateOutcome.slice().sort((a, b) => (b.c || 0) - (a.c || 0)).slice(0, 5),
+    [signalFunnel]
+  );
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -642,6 +700,70 @@ const SignalFeed = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Signal Funnel */}
+      <div className="rounded-lg border border-border bg-card/50 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Signal Funnel</h2>
+          <span className="text-xs font-mono text-muted-foreground ml-auto">
+            {funnelLoading ? "..." : `last ${signalFunnel.hours}h`}
+          </span>
+        </div>
+        {funnelLoading ? (
+          <p className="text-xs text-muted-foreground font-mono">Loading funnel data...</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded border border-border/60 bg-background/40 p-3 space-y-2">
+              <p className="text-[11px] font-mono text-muted-foreground">Pipeline stages</p>
+              <div className="space-y-2">
+                {funnelStages.map((stage) => (
+                  <div key={stage.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-muted-foreground">{stage.label}</span>
+                      <span className="text-foreground">{stage.value}</span>
+                    </div>
+                    <div className="h-2 rounded bg-background/70 overflow-hidden">
+                      <div
+                        className={`h-full rounded ${stage.tone.split(" ").slice(1, 2)[0] ?? "bg-primary/10"}`}
+                        style={{ width: `${Math.max(6, (stage.value / funnelMax) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-background/40 p-3 space-y-3">
+              <div>
+                <p className="text-[11px] font-mono text-muted-foreground mb-2">By origin</p>
+                <div className="space-y-1 text-[11px] font-mono">
+                  {originRows.length === 0 ? (
+                    <p className="text-muted-foreground">No signal rows in this window.</p>
+                  ) : originRows.map((row) => (
+                    <div key={row.signal_origin || "unknown"} className="flex items-center justify-between">
+                      <span className="uppercase text-muted-foreground">{row.signal_origin || "unknown"}</span>
+                      <span className="text-foreground">{row.c}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] font-mono text-muted-foreground mb-2">Top gate outcomes</p>
+                <div className="space-y-1 text-[11px] font-mono">
+                  {gateRows.length === 0 ? (
+                    <p className="text-muted-foreground">No recorded gate outcomes in this window.</p>
+                  ) : gateRows.map((row) => (
+                    <div key={row.push_gate_outcome || "unknown"} className="flex items-start justify-between gap-2">
+                      <span className="text-muted-foreground break-all">{row.push_gate_outcome || "unknown"}</span>
+                      <span className="text-foreground shrink-0">{row.c}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}

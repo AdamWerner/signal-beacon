@@ -121,6 +121,23 @@ export interface PushOutcomesResponse {
   outcomes: PushOutcomeRecord[];
 }
 
+export interface SignalFunnelBucket {
+  c: number;
+  signal_origin?: string;
+  verification_status?: string;
+  push_gate_outcome?: string | null;
+}
+
+export interface SignalFunnelResponse {
+  hours: number;
+  total: number;
+  byOrigin: SignalFunnelBucket[];
+  byVerification: SignalFunnelBucket[];
+  byGateOutcome: SignalFunnelBucket[];
+  aboveConfidence65: number;
+  pushed: number;
+}
+
 export interface MarketWatch {
   id: string;
   market: string;
