@@ -255,6 +255,69 @@ router.get('/', (req, res) => {
   }
 });
 
+// GET /api/signals/funnel - recent signal funnel summary
+router.get('/funnel', (req, res) => {
+  const hours = parseInt(req.query.hours as string || '24', 10);
+
+  try {
+    const total = services.db.prepare(`
+      SELECT COUNT(*) as c FROM signals
+      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+    `).get(hours) as { c: number } | undefined;
+
+    const byOrigin = services.db.prepare(`
+      SELECT COALESCE(signal_origin, 'polymarket') as signal_origin, COUNT(*) as c
+      FROM signals
+      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+      GROUP BY COALESCE(signal_origin, 'polymarket')
+      ORDER BY c DESC
+    `).all(hours);
+
+    const byVerification = services.db.prepare(`
+      SELECT verification_status, COUNT(*) as c
+      FROM signals
+      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+      GROUP BY verification_status
+      ORDER BY c DESC
+    `).all(hours);
+
+    const byGateOutcome = services.db.prepare(`
+      SELECT push_gate_outcome, COUNT(*) as c
+      FROM signals
+      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+        AND push_gate_outcome IS NOT NULL
+      GROUP BY push_gate_outcome
+      ORDER BY c DESC
+    `).all(hours);
+
+    const pushed = services.db.prepare(`
+      SELECT COUNT(*) as c
+      FROM signals
+      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+        AND push_sent_at IS NOT NULL
+    `).get(hours) as { c: number } | undefined;
+
+    const aboveConfidence = services.db.prepare(`
+      SELECT COUNT(*) as c
+      FROM signals
+      WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+        AND confidence >= 65
+    `).get(hours) as { c: number } | undefined;
+
+    res.json({
+      hours,
+      total: total?.c ?? 0,
+      byOrigin,
+      byVerification,
+      byGateOutcome,
+      aboveConfidence65: aboveConfidence?.c ?? 0,
+      pushed: pushed?.c ?? 0
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch signal funnel' });
+  }
+});
+
 // GET /api/signals/top - AI-ranked top 10 signals (must be before /:id)
 router.get('/top', async (req, res) => {
   try {
