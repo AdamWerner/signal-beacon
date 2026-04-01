@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { ASSET_TO_TICKER, getAssetDisplayName, getAssetTicker } from '../utils/ticker-map.js';
 import { SourceCatalyst } from './types.js';
@@ -8,6 +9,8 @@ import { SourceCatalyst } from './types.js';
 const FOREX_FACTORY_FEED = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const RELEASE_LOOKBACK_MS = 15 * 60 * 1000;
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const MACRO_CALENDAR_PATH = path.resolve(MODULE_DIR, '../../../../data/macro-calendar.json');
 
 interface MacroCalendarEntry {
   name: string;
@@ -334,13 +337,12 @@ export class EconCalendarScanner {
   }
 
   private loadMacroEntries(): MacroCalendarEntry[] {
-    const filePath = path.resolve(process.cwd(), 'data', 'macro-calendar.json');
     try {
-      const raw = fs.readFileSync(filePath, 'utf8');
+      const raw = fs.readFileSync(MACRO_CALENDAR_PATH, 'utf8');
       const parsed = JSON.parse(raw) as MacroCalendarEntry[];
       return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
-      console.warn('[econ] failed to load macro-calendar.json:', error);
+      console.warn(`[econ] failed to load macro-calendar.json at ${MACRO_CALENDAR_PATH}:`, error);
       return [];
     }
   }
