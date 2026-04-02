@@ -18,6 +18,14 @@ const CONTEXT_DEPENDENT_MAX_CONFIDENCE = 40;
 const PROXY_CLUSTER_WINDOW_HOURS = 12;
 const CATALYST_SIGNAL_WINDOW_MINUTES = 60;
 const CATALYST_REEMIT_MINUTES = 10;
+
+// Assets that have many low-quality "Up or Down" price-following markets on Polymarket.
+// Capped at 1 per cycle so they don't crowd out oil/defense/Swedish signals.
+const NOISY_ASSET_CAP: Record<string, number> = {
+  'ev-tesla': 1,
+  'crypto-coinbase': 1,
+};
+const DEFAULT_ASSET_CAP = 3;
 const CONTEXT_EFFECT_POSITIVE_PATTERNS: Record<string, RegExp[]> = {
   sp500: [
     /\brate cut(s)?\b/i,
@@ -251,6 +259,17 @@ export class SignalGenerator {
             signal.reasoning += ' [micro_timebox:-28]';
           }
 
+          // Penalize same-day resolution "Up or Down" markets — they follow price action,
+          // not causal events. "Tesla Up or Down on March 31?" has no predictive thesis.
+          if (
+            /up or down/i.test(market.title) &&
+            /\bon\s+\w+\s+\d+/i.test(market.title) &&
+            !isMicroTimebox // already penalised above
+          ) {
+            signal.confidence = Math.max(0, signal.confidence - 20);
+            signal.reasoning += ' [same-day-resolution:-20]';
+          }
+
           const instability = this.getDirectionalInstabilityPenalty(recentSignals, signal);
           if (instability.penalty > 0) {
             signal.confidence = Math.max(0, signal.confidence - instability.penalty);
@@ -326,9 +345,10 @@ export class SignalGenerator {
             );
           }
 
-          // Max 3 signals per asset per cycle to prevent clustering
+          // Per-asset cap: noisy assets (Tesla, Coinbase) limited to 1; others to 3
+          const assetCap = NOISY_ASSET_CAP[signal.matched_asset_id] ?? DEFAULT_ASSET_CAP;
           const assetCountThisCycle = signals.filter(s => s.matched_asset_id === signal.matched_asset_id).length;
-          if (assetCountThisCycle >= 3) {
+          if (assetCountThisCycle >= assetCap) {
             continue; // silent skip — not worth logging every one
           }
 
