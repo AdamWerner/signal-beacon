@@ -20,6 +20,7 @@ import { TechnicalScanner } from '../sources/technical-scanner.js';
 import { EconCalendarScanner } from '../sources/econ-calendar-scanner.js';
 import { InsiderScanner } from '../sources/insider-scanner.js';
 import { PriceAlertScanner } from '../sources/price-alert-scanner.js';
+import { NewsCatalystScanner } from '../sources/news-catalyst-scanner.js';
 import { SourceCatalyst } from '../sources/types.js';
 import { getAiBudgetMode, type AiBudgetMode } from '../utils/ai-budget.js';
 
@@ -67,6 +68,7 @@ export class ScanCycleJob {
     private technicalScanner?: TechnicalScanner,
     private econCalendarScanner?: EconCalendarScanner,
     private insiderScanner?: InsiderScanner,
+    private newsCatalystScanner?: NewsCatalystScanner,
     private fusionOptions: {
       enableFusionGating: boolean;
       enableSuppressedDecisionStorage: boolean;
@@ -152,8 +154,13 @@ export class ScanCycleJob {
       let econSurprises: SourceCatalyst[] = [];
       let insiderCatalysts: SourceCatalyst[] = [];
       let technicalBreakouts: SourceCatalyst[] = [];
+      let newsCatalysts: SourceCatalyst[] = [];
       if (budgetMode === 'dormant') {
         console.log('  [dormant] Skipping external catalysts (market closed)');
+        // RSS news is pure DB — run even in dormant mode so oil/defense catalysts accumulate
+        if (this.newsCatalystScanner) {
+          newsCatalysts = await runSourceScan('rss-news', () => this.newsCatalystScanner!.scan());
+        }
       } else {
         if (runActiveCatchup) {
           console.log('  [catch-up] First active cycle after dormant mode: running broad external scan coverage');
@@ -164,10 +171,11 @@ export class ScanCycleJob {
             ? runSourceScan('price-alert', () => this.priceAlertScanner!.scan([], { fullCoverage: runActiveCatchup }))
             : Promise.resolve([] as SourceCatalyst[]),
           this.econCalendarScanner ? runSourceScan('econ', () => this.econCalendarScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
-          this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
+          this.insiderScanner ? runSourceScan('insider', () => this.insiderScanner!.scan()) : Promise.resolve([] as SourceCatalyst[]),
+          this.newsCatalystScanner ? runSourceScan('rss-news', () => this.newsCatalystScanner!.scan()) : Promise.resolve([] as SourceCatalyst[])
         ]);
 
-        [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts] = await wave1Promise;
+        [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts, newsCatalysts] = await wave1Promise;
         const wave1AssetIds = [...new Set([
           ...finvizCatalysts.map(catalyst => catalyst.assetId),
           ...priceAlerts.map(catalyst => catalyst.assetId),
@@ -187,7 +195,8 @@ export class ScanCycleJob {
           ...priceAlerts,
           ...technicalBreakouts,
           ...econSurprises,
-          ...insiderCatalysts
+          ...insiderCatalysts,
+          ...newsCatalysts
         ];
         if (this.catalystEngine && allCatalysts.length > 0) {
           this.catalystEngine.ingestExternalCatalysts(allCatalysts);
@@ -195,8 +204,17 @@ export class ScanCycleJob {
         console.log(
           `Captured ${allCatalysts.length} catalysts ` +
           `(FinViz ${finvizCatalysts.length}, price-alert ${priceAlerts.length}, technical ${technicalBreakouts.length}, ` +
-          `econ ${econSurprises.length}, insider ${insiderCatalysts.length})`
+          `econ ${econSurprises.length}, insider ${insiderCatalysts.length}, rss-news ${newsCatalysts.length})`
         );
+      }
+
+      // In dormant mode, RSS news catalysts still run — include them in allCatalysts
+      if (budgetMode === 'dormant' && newsCatalysts.length > 0) {
+        allCatalysts = [...newsCatalysts];
+        if (this.catalystEngine) {
+          this.catalystEngine.ingestExternalCatalysts(allCatalysts);
+        }
+        console.log(`  [dormant] RSS news catalysts: ${newsCatalysts.length} (no other external catalysts)`);
       }
 
       console.log('\n[4/6] Converging parallel tasks...');
@@ -511,7 +529,7 @@ export class ScanCycleJob {
         `Odds changes detected: ${oddsChanges.length}`,
         `External catalysts: ${allCatalysts.length} ` +
           `(finviz:${finvizCatalysts.length} tech:${technicalBreakouts.length} econ:${econSurprises.length} ` +
-          `insider:${insiderCatalysts.length} price:${priceAlerts.length})`,
+          `insider:${insiderCatalysts.length} price:${priceAlerts.length} rss-news:${newsCatalysts.length})`,
         `Signals generated (poly): ${polySignals.length}`,
         `Signals generated (catalyst): ${catalystSignals.length}`,
         `Total after dedup: ${signals.length}`,

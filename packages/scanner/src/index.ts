@@ -43,6 +43,7 @@ import { TechnicalScanner } from './sources/technical-scanner.js';
 import { EconCalendarScanner } from './sources/econ-calendar-scanner.js';
 import { InsiderScanner } from './sources/insider-scanner.js';
 import { PriceAlertScanner } from './sources/price-alert-scanner.js';
+import { NewsCatalystScanner } from './sources/news-catalyst-scanner.js';
 import { PushOutcomeTracker } from './intelligence/push-tracker.js';
 
 export class PolySignalScanner {
@@ -67,6 +68,7 @@ export class PolySignalScanner {
   private econCalendarScanner = new EconCalendarScanner(this.db);
   private insiderScanner = new InsiderScanner(this.db);
   private priceAlertScanner = new PriceAlertScanner(this.db);
+  private newsCatalystScanner = new NewsCatalystScanner(this.db);
   private sourceDiagnostics = new SourceDiagnosticsService(this.catalystStore);
   private executionReplay = new ExecutionReplayService(this.catalystStore);
   private catalystEngine: CatalystEngine;
@@ -215,6 +217,7 @@ export class PolySignalScanner {
       this.technicalScanner,
       this.econCalendarScanner,
       this.insiderScanner,
+      this.newsCatalystScanner,
       {
         enableFusionGating: this.config.enableFusionGating,
         enableSuppressedDecisionStorage: this.config.enableSuppressedDecisionStorage,
