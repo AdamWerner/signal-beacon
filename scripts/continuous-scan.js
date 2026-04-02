@@ -24,6 +24,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const DATA_DIR = join(ROOT, 'data');
 
+const CYCLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per cycle
+const HEARTBEAT_FILE = join(DATA_DIR, 'scanner-heartbeat.txt');
+
 const SCAN_INTERVAL_MS = 10 * 60 * 1000;
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -389,6 +392,15 @@ async function checkMorningBriefings() {
   }
 }
 
+async function runOneCycleWithTimeout() {
+  return Promise.race([
+    runOneCycle(),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Cycle timeout after 5 minutes')), CYCLE_TIMEOUT_MS)
+    )
+  ]);
+}
+
 async function loop() {
   logScan('[start] polysignal continuous scan started');
 
@@ -398,7 +410,14 @@ async function loop() {
 
   while (true) {
     const cycleStart = Date.now();
-    await runOneCycle();
+    try {
+      await runOneCycleWithTimeout();
+      try { writeFileSync(HEARTBEAT_FILE, new Date().toISOString()); } catch {}
+    } catch (err) {
+      logError('cycle failed', err instanceof Error ? err : new Error(String(err)));
+      // Don't crash — wait 30s then continue
+      await new Promise(resolve => setTimeout(resolve, 30_000));
+    }
     const elapsed = Date.now() - cycleStart;
 
     if (elapsed > 8 * 60 * 1000) {
