@@ -13,12 +13,15 @@ export interface PushOutcome {
   priceAt30m: number | null;
   priceAt60m: number | null;
   priceAt120m: number | null;
+  priceAt180m: number | null;
+  priceAt240m: number | null;
   hitTp: boolean;
   hitSl: boolean;
   tpFirst: boolean;
   maxFavorable: number;
   maxAdverse: number;
   timeToPeakMinutes: number;
+  directionallyAccurate: boolean;
   signalOrigin: string;
   confidence: number;
   sourceCount: number;
@@ -126,7 +129,7 @@ export class PushOutcomeTracker {
         po.source_count
       FROM push_outcomes po
       WHERE po.evaluated_at IS NULL
-        AND po.push_timestamp <= datetime('now', '-120 minutes')
+        AND po.push_timestamp <= datetime('now', '-240 minutes')
       ORDER BY po.push_timestamp DESC
       LIMIT ?
     `).all(limit) as Array<{
@@ -168,7 +171,7 @@ export class PushOutcomeTracker {
     const pushMs = new Date(candidate.push_timestamp.replace(' ', 'T') + 'Z').getTime();
     if (!Number.isFinite(pushMs)) return null;
 
-    const endMs = pushMs + (120 * 60 * 1000);
+    const endMs = pushMs + (240 * 60 * 1000);
     const points = await this.priceClient.getSeries(ticker, pushMs, endMs);
     if (points.length < 3) return null;
 
@@ -216,6 +219,14 @@ export class PushOutcomeTracker {
       tpFirst = true;
     }
 
+    // Directional accuracy: price moved in the right direction within 60 minutes
+    const price60m = this.getPriceAt(points, pushMs, 60);
+    const directionallyAccurate = price60m !== null && entryPoint.close > 0
+      ? direction === 'bull'
+        ? price60m > entryPoint.close
+        : price60m < entryPoint.close
+      : false;
+
     return {
       signalId: candidate.signal_id,
       assetId: candidate.asset_id,
@@ -225,14 +236,17 @@ export class PushOutcomeTracker {
       priceAtPush: entryPoint.close,
       priceAt10m: this.getPriceAt(points, pushMs, 10),
       priceAt30m: this.getPriceAt(points, pushMs, 30),
-      priceAt60m: this.getPriceAt(points, pushMs, 60),
+      priceAt60m: price60m,
       priceAt120m: this.getPriceAt(points, pushMs, 120),
+      priceAt180m: this.getPriceAt(points, pushMs, 180),
+      priceAt240m: this.getPriceAt(points, pushMs, 240),
       hitTp,
       hitSl,
       tpFirst,
       maxFavorable: Number.isFinite(maxFavorable) ? maxFavorable : 0,
       maxAdverse: Number.isFinite(maxAdverse) ? maxAdverse : 0,
       timeToPeakMinutes,
+      directionallyAccurate,
       signalOrigin: candidate.signal_origin || 'polymarket',
       confidence: candidate.confidence || 0,
       sourceCount: candidate.source_count || 1
@@ -252,12 +266,15 @@ export class PushOutcomeTracker {
           price_at_30m = ?,
           price_at_60m = ?,
           price_at_120m = ?,
+          price_at_180m = ?,
+          price_at_240m = ?,
           hit_tp = ?,
           hit_sl = ?,
           tp_first = ?,
           max_favorable_pct = ?,
           max_adverse_pct = ?,
           time_to_peak_minutes = ?,
+          directionally_accurate = ?,
           evaluated_at = datetime('now')
       WHERE signal_id = ?
     `).run(
@@ -271,12 +288,15 @@ export class PushOutcomeTracker {
       outcome.priceAt30m,
       outcome.priceAt60m,
       outcome.priceAt120m,
+      outcome.priceAt180m,
+      outcome.priceAt240m,
       outcome.hitTp ? 1 : 0,
       outcome.hitSl ? 1 : 0,
       outcome.tpFirst ? 1 : 0,
       outcome.maxFavorable,
       outcome.maxAdverse,
       outcome.timeToPeakMinutes,
+      outcome.directionallyAccurate ? 1 : 0,
       outcome.signalId
     );
   }

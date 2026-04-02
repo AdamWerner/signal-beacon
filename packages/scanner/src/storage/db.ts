@@ -122,6 +122,9 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE tweet_accounts ADD COLUMN last_collected_at DATETIME`,
     `ALTER TABLE tweet_accounts ADD COLUMN feed_url TEXT`,
     `ALTER TABLE daily_backtest_runs ADD COLUMN candidate_mode TEXT DEFAULT 'push_only'`,
+    `ALTER TABLE push_outcomes ADD COLUMN price_at_180m REAL`,
+    `ALTER TABLE push_outcomes ADD COLUMN price_at_240m REAL`,
+    `ALTER TABLE push_outcomes ADD COLUMN directionally_accurate INTEGER DEFAULT 0`,
   ]) {
     try {
       db.exec(sql);
@@ -420,12 +423,15 @@ function runMigrations(db: Database.Database): void {
         price_at_30m REAL,
         price_at_60m REAL,
         price_at_120m REAL,
+        price_at_180m REAL,
+        price_at_240m REAL,
         hit_tp INTEGER DEFAULT 0,
         hit_sl INTEGER DEFAULT 0,
         tp_first INTEGER DEFAULT 0,
         max_favorable_pct REAL,
         max_adverse_pct REAL,
         time_to_peak_minutes REAL,
+        directionally_accurate INTEGER DEFAULT 0,
         evaluated_at TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );
@@ -1001,12 +1007,15 @@ function createTables(db: Database.Database): void {
       price_at_30m REAL,
       price_at_60m REAL,
       price_at_120m REAL,
+      price_at_180m REAL,
+      price_at_240m REAL,
       hit_tp INTEGER DEFAULT 0,
       hit_sl INTEGER DEFAULT 0,
       tp_first INTEGER DEFAULT 0,
       max_favorable_pct REAL,
       max_adverse_pct REAL,
       time_to_peak_minutes REAL,
+      directionally_accurate INTEGER DEFAULT 0,
       evaluated_at TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
