@@ -100,14 +100,18 @@ export class AlertDispatcher {
     for (const signal of signals) {
       if (signal.confidence < this.minConfidence) {
         diagnostics.skippedMinConfidence += 1;
+        this.recordGateOutcome(signal.id, 'min_confidence', `conf=${signal.confidence}/${this.minConfidence}`);
         continue;
       }
       if (signal.requires_judgment) {
         diagnostics.skippedRequiresJudgment += 1;
+        this.recordGateOutcome(signal.id, 'requires_judgment', 'context_dependent signal requires human judgment');
         continue;
       }
       if (this.verificationRequiredForPush && !this.isEligibleByVerification(signal)) {
         diagnostics.skippedVerification += 1;
+        this.recordGateOutcome(signal.id, 'verification_required',
+          `status=${signal.verification_status} source=${signal.verification_source}`);
         console.log(
           `  Skip push ${signal.id} not verification-approved ` +
           `(${signal.verification_status}/${signal.verification_source})`

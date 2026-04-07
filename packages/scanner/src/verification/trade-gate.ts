@@ -111,6 +111,27 @@ export class TradeVerificationGate {
       };
     }
 
+    // When AI is unavailable and the signal has a high guard score but was flagged only
+    // for negated market language (not unknown entity or other serious issues), auto-approve.
+    // Score of 60+ means strong keyword+entity match — the negation is in the description,
+    // not the causal relationship between market and asset.
+    if (
+      guard.status === 'needs_review' &&
+      guard.score >= 60 &&
+      guard.flags.length > 0 &&
+      guard.flags.every(f => f === 'negated_market_language')
+    ) {
+      return {
+        status: 'approved',
+        score: guard.score,
+        reason: `${guard.reason}. AI unavailable; high-score negated-language approved by guard fallback.`,
+        flags: mergeFlags(guard.flags, ['ai_unavailable', 'guard_fallback_approved']),
+        source: 'fallback_guard',
+        confidenceAdjustment: -5,
+        record: { guard, fallbackReason: 'negated_language_high_score_fallback' }
+      };
+    }
+
     const base = this.guardOnlyFromStrictGuard(guard);
     return {
       ...base,

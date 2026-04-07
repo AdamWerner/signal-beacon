@@ -176,6 +176,7 @@ export class ScanCycleJob {
         ]);
 
         [finvizCatalysts, priceAlerts, econSurprises, insiderCatalysts, newsCatalysts] = await wave1Promise;
+        console.log(`  [news] RSS news catalyst scanner returned ${newsCatalysts.length} catalysts`);
         const wave1AssetIds = [...new Set([
           ...finvizCatalysts.map(catalyst => catalyst.assetId),
           ...priceAlerts.map(catalyst => catalyst.assetId),

@@ -48,12 +48,15 @@ export class NewsCatalystScanner {
           excludes: (asset.polymarket_patterns.exclude_keywords || []).map(k => k.toLowerCase())
         });
       }
-    } catch {
-      // If ontology can't be read, the scanner returns no catalysts silently.
+      console.log(`  [news-scanner] loaded ${this.assetKeywords.size} assets from ontology`);
+    } catch (err) {
+      console.warn(`  [news-scanner] ontology load failed: ${String(err)}`);
     }
   }
 
   async scan(): Promise<SourceCatalyst[]> {
+    const startTime = Date.now();
+    console.log(`  [news-scanner] starting scan, looking back ${LOOKBACK_HOURS}h`);
     const catalysts: SourceCatalyst[] = [];
 
     let rows: Array<{ account_handle: string; tweet_text: string; scraped_at: string }>;
@@ -69,7 +72,10 @@ export class NewsCatalystScanner {
       return [];
     }
 
-    if (rows.length === 0) return [];
+    if (rows.length === 0) {
+      console.log(`  [news-scanner] 0 rows in last ${LOOKBACK_HOURS}h — tweet_snapshots may be empty`);
+      return [];
+    }
 
     for (const [assetId, config] of this.assetKeywords) {
       const matchingRows: Array<{
@@ -151,6 +157,7 @@ export class NewsCatalystScanner {
       });
     }
 
+    console.log(`  [news-scanner] complete in ${Date.now() - startTime}ms — ${catalysts.length} catalysts from ${rows.length} rows`);
     return catalysts;
   }
 }
