@@ -23,6 +23,7 @@ import { PriceAlertScanner } from '../sources/price-alert-scanner.js';
 import { NewsCatalystScanner } from '../sources/news-catalyst-scanner.js';
 import { SourceCatalyst } from '../sources/types.js';
 import { getAiBudgetMode, type AiBudgetMode } from '../utils/ai-budget.js';
+import { parseDbTimestampMs } from '../utils/time.js';
 
 export interface ScanCycleResult {
   marketsTracked: number;
@@ -334,7 +335,7 @@ export class ScanCycleJob {
           if (signal.signal_origin === 'polymarket' && allCatalysts.length > 0) {
             const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
             const confirming = allCatalysts.filter(catalyst => {
-              const catalystTs = Date.parse(catalyst.timestamp);
+              const catalystTs = parseDbTimestampMs(catalyst.timestamp);
               return catalyst.assetId === signal.matched_asset_id &&
                 catalyst.directionHint === signalDirection &&
                 Number.isFinite(catalystTs) &&

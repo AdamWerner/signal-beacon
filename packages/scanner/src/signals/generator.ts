@@ -11,6 +11,7 @@ import { BatchVerificationCandidate, TradeVerificationGate } from '../verificati
 import { VerificationContext } from '../verification/types.js';
 import { isNoiseMarketQuestion, isCircularMarket } from '../polymarket/noise-filter.js';
 import { SourceCatalyst } from '../sources/types.js';
+import { parseDbTimestampMs } from '../utils/time.js';
 
 const DEDUP_WINDOW_HOURS = 4;
 const DEDUP_ESCALATION_THRESHOLD_PCT = 5;
@@ -539,7 +540,7 @@ export class SignalGenerator {
     const eligible = catalysts
       .filter(catalyst => catalyst.directionHint !== 'neutral')
       .filter(catalyst => {
-        const timestampMs = Date.parse(catalyst.timestamp);
+        const timestampMs = parseDbTimestampMs(catalyst.timestamp);
         return Number.isFinite(timestampMs) && timestampMs >= windowStartMs;
       });
 
@@ -1238,7 +1239,7 @@ export class SignalGenerator {
     catalysts: SourceCatalyst[]
   ) {
     const latestTimestamp = catalysts
-      .map(catalyst => Date.parse(catalyst.timestamp))
+      .map(catalyst => parseDbTimestampMs(catalyst.timestamp))
       .filter(value => Number.isFinite(value))
       .sort((a, b) => b - a)[0] || Date.now();
     const familySummary = [...new Set(catalysts.map(catalyst => this.getCatalystFamilyKey(catalyst.sourceType)))].join('-');

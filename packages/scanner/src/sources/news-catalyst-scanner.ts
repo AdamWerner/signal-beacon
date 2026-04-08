@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { SourceCatalyst } from './types.js';
 import { getAssetDisplayName } from '../utils/ticker-map.js';
+import { parseDbTimestampMs } from '../utils/time.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -146,7 +147,9 @@ export class NewsCatalystScanner {
         body: leadHeadline.text.slice(0, 200),
         directionHint: direction,
         urgency,
-        timestamp: leadHeadline.timestamp,
+        // Convert SQLite 'YYYY-MM-DD HH:MM:SS' (UTC, no suffix) to a proper ISO string
+        // so downstream Date.parse calls always get unambiguous UTC timestamps.
+        timestamp: new Date(parseDbTimestampMs(leadHeadline.timestamp) || Date.now()).toISOString(),
         sourceWeight: Math.min(1.3, 1 + matchingRows.length * 0.05),
         metadata: {
           sourceCount: matchingRows.length,
