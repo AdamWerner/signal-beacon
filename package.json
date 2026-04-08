@@ -26,7 +26,8 @@
     "self-test": "node scripts/self-test-loop.js",
     "policy:optimize": "node scripts/policy-optimizer.js",
     "self-improve": "node scripts/self-improve.js",
-    "system-test": "node scripts/system-test.js"
+    "system-test": "node scripts/system-test.js",
+    "smoke:push": "node scripts/smoke-push.js"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
