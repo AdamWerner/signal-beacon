@@ -1,6 +1,14 @@
 import { Router } from 'express';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { scanner, getClaudeUsage, getAiBudgetMode } from '@polysignal/scanner';
 import { loadConfig } from '@polysignal/scanner/dist/config.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const HEARTBEAT_FILE = join(__dirname, '../../../../data/scanner-heartbeat.txt');
+const HEARTBEAT_STALE_SECONDS = 900; // 15 min — two missed cycles
 
 const router = Router();
 const services = scanner.getServices();
@@ -20,6 +28,26 @@ router.get('/', (req, res) => {
 
     const lastScanAt = services.signalStore.getLatestTimestamp();
 
+    let scannerHeartbeat: { heartbeat: string | null; ageSeconds: number | null; stale: boolean } = {
+      heartbeat: null,
+      ageSeconds: null,
+      stale: true
+    };
+    try {
+      const raw = readFileSync(HEARTBEAT_FILE, 'utf-8').trim();
+      const ts = Date.parse(raw);
+      if (Number.isFinite(ts)) {
+        const ageSeconds = Math.round((Date.now() - ts) / 1000);
+        scannerHeartbeat = {
+          heartbeat: raw,
+          ageSeconds,
+          stale: ageSeconds > HEARTBEAT_STALE_SECONDS
+        };
+      }
+    } catch {
+      // file does not exist yet (scanner hasn't run)
+    }
+
     res.json({
       status: 'healthy',
       uptime: process.uptime(),
@@ -29,6 +57,7 @@ router.get('/', (req, res) => {
       source_health: (services.sourceDiagnostics as any)?.getSourceHealth?.() ?? [],
       last_scan_at: lastScanAt,
       avanza: services.avanzaAvailable ? 'connected' : 'not connected',
+      scanner_heartbeat: scannerHeartbeat,
       scanner: {
         markets: marketStats,
         signals: signalStats,
