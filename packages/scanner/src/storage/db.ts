@@ -1343,6 +1343,22 @@ function createTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_execution_replay_profiles_asset
     ON execution_replay_profiles(asset_id, source_family, updated_at DESC);
 
+    CREATE TABLE IF NOT EXISTS catalyst_rejections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      asset_id TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      source_types TEXT NOT NULL,
+      source_count INTEGER DEFAULT 1
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalyst_rejections_time
+    ON catalyst_rejections(timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_catalyst_rejections_asset
+    ON catalyst_rejections(asset_id, timestamp DESC);
+
     INSERT OR IGNORE INTO push_policy_config (market, min_confidence, min_delta_pct, min_evidence_score)
     VALUES
       ('swedish', 65, 15, 3),

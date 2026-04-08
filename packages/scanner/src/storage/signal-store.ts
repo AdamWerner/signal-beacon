@@ -624,6 +624,23 @@ export class SignalStore {
     };
   }
 
+  recordCatalystRejection(entry: {
+    assetId: string;
+    direction: 'bull' | 'bear';
+    reason: string;
+    sourceTypes: string[];
+    sourceCount: number;
+  }): void {
+    try {
+      this.db.prepare(`
+        INSERT INTO catalyst_rejections (asset_id, direction, reason, source_types, source_count)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(entry.assetId, entry.direction, entry.reason, JSON.stringify(entry.sourceTypes), entry.sourceCount);
+    } catch {
+      // best-effort; table may not exist on very old schema
+    }
+  }
+
   private estimateSourceCount(signal: Signal): number {
     const reasoning = String(signal.reasoning || '');
     const catalystMatch = reasoning.match(/\[catalysts:(\d+)\]/i);

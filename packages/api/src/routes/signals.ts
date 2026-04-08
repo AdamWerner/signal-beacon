@@ -304,6 +304,19 @@ router.get('/funnel', (req, res) => {
         AND confidence >= 65
     `).get(hours) as { c: number } | undefined;
 
+    let catalystRejections: { reason: string; c: number }[] = [];
+    try {
+      catalystRejections = services.db.prepare(`
+        SELECT reason, COUNT(*) as c
+        FROM catalyst_rejections
+        WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+        GROUP BY reason
+        ORDER BY c DESC
+      `).all(hours) as { reason: string; c: number }[];
+    } catch {
+      // table may not exist on old schema
+    }
+
     res.json({
       hours,
       total: total?.c ?? 0,
@@ -311,7 +324,8 @@ router.get('/funnel', (req, res) => {
       byVerification,
       byGateOutcome,
       aboveConfidence65: aboveConfidence?.c ?? 0,
-      pushed: pushed?.c ?? 0
+      pushed: pushed?.c ?? 0,
+      catalystRejections
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch signal funnel' });

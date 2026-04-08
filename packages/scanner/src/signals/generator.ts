@@ -605,6 +605,13 @@ export class SignalGenerator {
       }
 
       if (!rssBurstOverride && alignedCatalysts.length < 2) {
+        this.signalStore.recordCatalystRejection({
+          assetId,
+          direction,
+          reason: 'insufficient_convergence',
+          sourceTypes: bucket.map(c => c.sourceType),
+          sourceCount: bucket.length
+        });
         continue;
       }
       // ── end RSS-burst carve-out ─────────────────────────────────────────────
@@ -616,6 +623,13 @@ export class SignalGenerator {
       const sourceCount = alignedCatalysts.length;
 
       if (!rssBurstOverride && !hasNonPriceCatalystFamily) {
+        this.signalStore.recordCatalystRejection({
+          assetId,
+          direction,
+          reason: 'price_action_only',
+          sourceTypes: bucket.map(c => c.sourceType),
+          sourceCount: bucket.length
+        });
         continue;
       }
 
@@ -728,6 +742,13 @@ export class SignalGenerator {
         (rssReasoningTag ? ` ${rssReasoningTag}` : '');
 
       if (signal.confidence < 42) {
+        this.signalStore.recordCatalystRejection({
+          assetId,
+          direction,
+          reason: 'post_verify_confidence_too_low',
+          sourceTypes: alignedCatalysts.map(c => c.sourceType),
+          sourceCount: alignedCatalysts.length
+        });
         continue;
       }
 
