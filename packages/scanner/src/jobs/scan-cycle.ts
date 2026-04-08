@@ -332,6 +332,16 @@ export class ScanCycleJob {
             );
           }
 
+          if (newsBoost.contradiction) {
+            signal.confidence = Math.max(0, signal.confidence - 8);
+            signal.reasoning += ` [news-contradiction:-8 (dominant:${newsBoost.dominantDirection})]`;
+            changed = true;
+            console.log(
+              `  News contradiction -8 for ${signal.matched_asset_name} ` +
+              `(dominant news: ${newsBoost.dominantDirection}, signal: ${signalDirection}) -> ${signal.confidence}%`
+            );
+          }
+
           if (signal.signal_origin === 'polymarket' && allCatalysts.length > 0) {
             const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
             const confirming = allCatalysts.filter(catalyst => {

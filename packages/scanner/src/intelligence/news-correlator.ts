@@ -14,6 +14,8 @@ export interface NewsBoostResult {
   boost: number;
   sourceCount: number;
   matchedSources: string[];
+  contradiction: boolean;
+  dominantDirection: 'bull' | 'bear' | 'mixed';
 }
 
 export interface NewsEvidenceItem {
@@ -95,7 +97,7 @@ export class NewsCorrelator {
     const allTerms = [...new Set([...keywords, ...nameTokens])];
 
     if (allTerms.length === 0) {
-      return { boost: 0, sourceCount: 0, matchedSources: [] };
+      return { boost: 0, sourceCount: 0, matchedSources: [], contradiction: false, dominantDirection: 'mixed' };
     }
 
     let rows: { account_handle: string; tweet_text: string; scraped_at: string }[];
@@ -108,11 +110,12 @@ export class NewsCorrelator {
         LIMIT 500
       `).all(hours) as { account_handle: string; tweet_text: string; scraped_at: string }[];
     } catch {
-      return { boost: 0, sourceCount: 0, matchedSources: [] };
+      return { boost: 0, sourceCount: 0, matchedSources: [], contradiction: false, dominantDirection: 'mixed' };
     }
 
     const matchedSources = new Set<string>();
     const sourceWeights = new Map<string, number>();
+    const opposingSources = new Set<string>();
     let hasBreaking = false;
 
     for (const row of rows) {
@@ -121,7 +124,10 @@ export class NewsCorrelator {
       if (!matches) continue;
 
       const rowDirection = inferNewsDirection(text);
+
       if (rowDirection !== 'mixed' && rowDirection !== direction) {
+        // Count sources pointing the other way for contradiction detection
+        opposingSources.add(row.account_handle);
         continue;
       }
 
@@ -148,10 +154,17 @@ export class NewsCorrelator {
     if (hasBreaking && weightedSources >= 1.5) boost += 3;
     boost = Math.min(boost, 15);
 
+    const totalDirectional = n + opposingSources.size;
+    const contradiction = totalDirectional >= 3 && opposingSources.size / totalDirectional >= 0.3;
+    const dominantDirection: 'bull' | 'bear' | 'mixed' =
+      n > opposingSources.size ? direction : opposingSources.size > n ? (direction === 'bull' ? 'bear' : 'bull') : 'mixed';
+
     return {
       boost,
       sourceCount: n,
-      matchedSources: Array.from(matchedSources)
+      matchedSources: Array.from(matchedSources),
+      contradiction,
+      dominantDirection
     };
   }
 
