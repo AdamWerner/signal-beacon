@@ -573,43 +573,89 @@ export class SignalGenerator {
       }
 
       const alignedCatalysts = Array.from(byFamily.values());
-      if (alignedCatalysts.length < 2) {
-        continue;
+      const familySet = new Set(Array.from(byFamily.keys()));
+
+      // ── RSS-burst carve-out ──────────────────────────────────────────────────
+      // When all bucket catalysts are rss_news and a strong unanimous burst is
+      // present, allow originating a signal without 2-family convergence.
+      // This is strictly additive and capped below the cross-family confidence.
+      const isRssOnlyBucket = bucket.every(c => c.sourceType === 'rss_news');
+      let rssBurstOverride = false;
+      let rssReasoningTag = '';
+
+      if (isRssOnlyBucket && alignedCatalysts.length < 2) {
+        // Count distinct handles across the entire bucket (not family-deduped)
+        const distinctHandles = bucket.reduce((sum, c) => {
+          const n = typeof c.metadata?.sourceCount === 'number' ? c.metadata.sourceCount : 1;
+          return sum + n;
+        }, 0);
+        const allSameDirection = bucket.every(c => c.directionHint === direction);
+        const hasUrgency = bucket.some(c =>
+          c.metadata?.isBreaking === true || c.urgency === 'high'
+        );
+
+        if (distinctHandles >= 4 && allSameDirection && hasUrgency) {
+          rssBurstOverride = true;
+          const breaking = bucket.some(c => c.metadata?.isBreaking === true);
+          rssReasoningTag = `[rss-origin: ${distinctHandles} handles unanimous ${direction}${breaking ? ' breaking' : ''}]`;
+          console.log(
+            `  [catalyst] RSS burst: ${distinctHandles} handles for ${mapping.assetName} ${direction}${breaking ? ' BREAKING' : ''}`
+          );
+        }
       }
 
-      const familySet = new Set(Array.from(byFamily.keys()));
+      if (!rssBurstOverride && alignedCatalysts.length < 2) {
+        continue;
+      }
+      // ── end RSS-burst carve-out ─────────────────────────────────────────────
+
       const hasTechnical = familySet.has('technical');
       const hasNewsLike = familySet.has('news') || familySet.has('macro') || familySet.has('volume');
       const hasInsider = familySet.has('insider');
       const hasNonPriceCatalystFamily = Array.from(familySet).some(family => !['technical', 'volume'].includes(family));
       const sourceCount = alignedCatalysts.length;
-      if (!hasNonPriceCatalystFamily) {
+
+      if (!rssBurstOverride && !hasNonPriceCatalystFamily) {
         continue;
       }
-      const avgWeight = alignedCatalysts.reduce((sum, catalyst) => sum + (catalyst.sourceWeight || 1), 0) / sourceCount;
-      const totalBoost = alignedCatalysts.reduce((sum, catalyst) => {
-        const metadataBoost = typeof catalyst.metadata?.totalBoost === 'number'
-          ? catalyst.metadata.totalBoost
-          : 0;
-        return sum + metadataBoost;
-      }, 0);
 
-      let confidence = sourceCount >= 3 ? 65 : 52;
-      confidence += Math.round((avgWeight - 1) * 20);
-      confidence += sourceCount >= 4 ? 8 : (sourceCount >= 3 ? 4 : 0);
-      if (hasTechnical && hasNewsLike) confidence += 10;
-      if (hasInsider) confidence += 3;
-      if (familySet.has('macro')) confidence += 8;
-      if (familySet.has('volume')) confidence += 5;
-      if (hasTechnical && hasNewsLike && familySet.has('macro')) confidence += 6;
-      confidence += Math.min(8, Math.round(totalBoost / 5));
-      confidence = Math.max(40, Math.min(confidence, 88));
+      let confidence: number;
+      let syntheticDeltaPct: number;
 
-      let syntheticDeltaPct = sourceCount >= 3 ? 28 : 18;
-      if (hasTechnical && hasNewsLike) syntheticDeltaPct += 6;
-      if (hasInsider) syntheticDeltaPct += 3;
-      if (familySet.has('macro')) syntheticDeltaPct += 4;
-      syntheticDeltaPct = Math.max(12, Math.min(syntheticDeltaPct, 36));
+      if (rssBurstOverride) {
+        // Single-family RSS burst: capped below cross-family convergence
+        const distinctHandles = bucket.reduce((sum, c) => {
+          const n = typeof c.metadata?.sourceCount === 'number' ? c.metadata.sourceCount : 1;
+          return sum + n;
+        }, 0);
+        confidence = Math.min(62 + Math.min(distinctHandles - 4, 6) * 2, 74);
+        syntheticDeltaPct = 20;
+      } else {
+        const avgWeight = alignedCatalysts.reduce((sum, catalyst) => sum + (catalyst.sourceWeight || 1), 0) / sourceCount;
+        const totalBoost = alignedCatalysts.reduce((sum, catalyst) => {
+          const metadataBoost = typeof catalyst.metadata?.totalBoost === 'number'
+            ? catalyst.metadata.totalBoost
+            : 0;
+          return sum + metadataBoost;
+        }, 0);
+
+        confidence = sourceCount >= 3 ? 65 : 52;
+        confidence += Math.round((avgWeight - 1) * 20);
+        confidence += sourceCount >= 4 ? 8 : (sourceCount >= 3 ? 4 : 0);
+        if (hasTechnical && hasNewsLike) confidence += 10;
+        if (hasInsider) confidence += 3;
+        if (familySet.has('macro')) confidence += 8;
+        if (familySet.has('volume')) confidence += 5;
+        if (hasTechnical && hasNewsLike && familySet.has('macro')) confidence += 6;
+        confidence += Math.min(8, Math.round(totalBoost / 5));
+        confidence = Math.max(40, Math.min(confidence, 88));
+
+        syntheticDeltaPct = sourceCount >= 3 ? 28 : 18;
+        if (hasTechnical && hasNewsLike) syntheticDeltaPct += 6;
+        if (hasInsider) syntheticDeltaPct += 3;
+        if (familySet.has('macro')) syntheticDeltaPct += 4;
+        syntheticDeltaPct = Math.max(12, Math.min(syntheticDeltaPct, 36));
+      }
 
       const syntheticMarket = this.buildCatalystMarket(mapping.assetId, mapping.assetName, direction, alignedCatalysts);
       this.marketStore.insert(syntheticMarket);
@@ -678,7 +724,8 @@ export class SignalGenerator {
       signal.confidence = Math.max(0, Math.min(signal.confidence + verification.confidenceAdjustment, 92));
       signal.reasoning +=
         ` [catalysts:${sourceCount}] [families:${Array.from(familySet).join('+')}]` +
-        ` [score: base:${confidence}, verify:${verification.confidenceAdjustment >= 0 ? '+' : ''}${verification.confidenceAdjustment}]`;
+        ` [score: base:${confidence}, verify:${verification.confidenceAdjustment >= 0 ? '+' : ''}${verification.confidenceAdjustment}]` +
+        (rssReasoningTag ? ` ${rssReasoningTag}` : '');
 
       if (signal.confidence < 42) {
         continue;
@@ -1269,7 +1316,7 @@ export class SignalGenerator {
   private getCatalystFamilyKey(sourceType: SourceCatalyst['sourceType']): string {
     if (sourceType === 'technical_breakout') return 'technical';
     if (sourceType === 'econ_surprise') return 'macro';
-    if (sourceType === 'finviz_news') return 'news';
+    if (sourceType === 'finviz_news' || sourceType === 'rss_news') return 'news';
     if (sourceType === 'finviz_volume') return 'volume';
     if (sourceType === 'finviz_insider' || sourceType === 'congressional_trade' || sourceType === 'sec_insider') {
       return 'insider';

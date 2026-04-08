@@ -1,5 +1,6 @@
 export type SourceCatalystType =
   | 'finviz_news'
+  | 'rss_news'
   | 'finviz_insider'
   | 'finviz_volume'
   | 'technical_breakout'

@@ -138,7 +138,7 @@ export class NewsCatalystScanner {
       const leadHeadline = matchingRows[0];
 
       catalysts.push({
-        sourceType: 'finviz_news', // Maps to 'news' family in convergence engine — not price-action
+        sourceType: 'rss_news', // Maps to 'news' family in convergence engine — not price-action
         sourceKey: `rss_news:${assetId}:${direction}:${new Date().toISOString().slice(0, 13)}`,
         ticker: '',
         assetId,
@@ -152,8 +152,8 @@ export class NewsCatalystScanner {
         timestamp: new Date(parseDbTimestampMs(leadHeadline.timestamp) || Date.now()).toISOString(),
         sourceWeight: Math.min(1.3, 1 + matchingRows.length * 0.05),
         metadata: {
-          sourceCount: matchingRows.length,
-          sources: matchingRows.map(r => r.source).slice(0, 5),
+          sourceCount: matchingRows.length,          // distinct RSS handles — used by RSS-burst carve-out
+          sources: matchingRows.map(r => r.source).slice(0, 10),
           totalBoost: matchingRows.length >= 4 ? 8 : matchingRows.length >= 3 ? 5 : 3,
           isBreaking
         }

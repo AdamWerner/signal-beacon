@@ -684,6 +684,7 @@ export class ScanCycleJob {
           labels.add('technical');
           break;
         case 'finviz_news':
+        case 'rss_news':
           labels.add('news');
           break;
         case 'econ_surprise':
