@@ -27,7 +27,8 @@ function createGenerator(insertedSignals: any[] = []): SignalGenerator {
     {
       findFiltered: () => [],
       findRecentByDeduplicationKey: () => null,
-      insert: (s: any) => { insertedSignals.push(s); }
+      insert: (s: any) => { insertedSignals.push(s); },
+      recordCatalystRejection: () => {}
     } as any,
     {
       guardOnly: () => ({

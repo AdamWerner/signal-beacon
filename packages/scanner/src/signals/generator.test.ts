@@ -19,7 +19,8 @@ function createGenerator(): SignalGenerator {
     {
       findFiltered: () => [],
       findRecentByDeduplicationKey: () => null,
-      insert: () => {}
+      insert: () => {},
+      recordCatalystRejection: () => {}
     } as any,
     {
       guardOnly: () => ({
