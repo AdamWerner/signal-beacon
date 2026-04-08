@@ -51,26 +51,24 @@ const EVOLUTION_POSITIVE_TERMS = [
   'evolution gaming'
 ];
 
-const NEGATION_TERMS = [
-  ' not ',
-  "n't ",
-  'fail to',
-  'fails to',
-  'failed to',
-  'without',
-  'prevent',
-  'prevents',
-  'prevented',
-  'avoid',
-  'avoids',
-  'avoided',
-  'block',
-  'blocks',
-  'blocked',
-  'stop',
-  'stops',
-  'stopped'
-];
+// Word-boundary regex for genuine linguistic negations — only match when the
+// negating word is a standalone word, not embedded in another (e.g. "blockchain"
+// or "nonstop" must NOT trigger). Uses a single compiled regex for performance.
+// We handle "n't" separately because the apostrophe breaks \b matching.
+const NEGATION_REGEX = /\b(?:not|fail(?:s|ed)?\s+to|without|prevent(?:s|ed)?|avoid(?:s|ed)?|block(?:s|ed)?|stop(?:s|ped)?)\b|\w+n['']t\b/i;
+
+/**
+ * Strip Polymarket resolution boilerplate from a description before negation
+ * checking. Resolution text like "Resolves NO if the market does not settle
+ * above X" contains negation words that are resolution rules, not signal-
+ * thesis negations. Everything from the first resolution clause to the end
+ * of the string is removed.
+ */
+function stripResolutionClauses(text: string): string {
+  const cutRe = /resolves?\s+(?:yes|no)\b|resolution\s+source|this\s+market\s+resolves|if\s+this\s+market/i;
+  const idx = text.search(cutRe);
+  return idx >= 0 ? text.slice(0, idx) : text;
+}
 
 const WEAK_CONTEXT_CATEGORIES = ['entertainment', 'culture', 'sports'];
 
@@ -112,7 +110,10 @@ export class EntityRelevanceGuard {
     const titleLower = String(context.marketTitle || '').toLowerCase();
     const matchedKeywords = unique(context.ontologyKeywords);
     const explicitKeywordMatch = matchedKeywords.length > 0;
-    const hasNegation = NEGATION_TERMS.some(term => lower.includes(term));
+    // Check negation only in the title — description contains resolution boilerplate
+    // ("Resolves NO if it does not settle above X") that would otherwise fire on
+    // every Polymarket signal. Word-boundary regex avoids "blockchain" ≠ "block".
+    const hasNegation = NEGATION_REGEX.test(titleLower);
 
     const extractedPersons = extractPersons(context.marketTitle);
     const extractedEntities = extractEntityHints(baseText);

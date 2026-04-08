@@ -104,4 +104,57 @@ describe('EntityRelevanceGuard', () => {
     expect(result.status).toBe('rejected');
     expect(result.flags).toContain('keyword_only_match');
   });
+
+  // --- Negation fix tests ---
+
+  it('approves crude oil market despite resolution boilerplate with NOT in description', () => {
+    // "does not settle above" in description should NOT trigger negation flag —
+    // the check is title-only and stripResolutionClauses removes resolution rules.
+    const result = guard.evaluate(buildContext({
+      marketTitle: 'Will crude oil settle above $80 by April 30?',
+      marketDescription: 'Resolves NO if the market does not settle above $80 by April 30.',
+      matchedAssetId: 'oil-equinor',
+      matchedAssetName: 'Equinor',
+      ontologyKeywords: ['oil', 'crude']
+    }));
+
+    expect(result.flags).not.toContain('negated_market_language');
+    expect(result.status).toBe('approved');
+  });
+
+  it('flags "Will the Fed NOT cut rates in April?" as needs_review with negation flag', () => {
+    const result = guard.evaluate(buildContext({
+      marketTitle: 'Will the Fed NOT cut rates in April?',
+      matchedAssetId: 'sp500',
+      matchedAssetName: 'S&P 500',
+      ontologyKeywords: ['fed', 'rate cut']
+    }));
+
+    expect(result.flags).toContain('negated_market_language');
+    expect(result.status).toBe('needs_review');
+  });
+
+  it('does NOT flag "Is blockchain regulation coming?" — blockchain contains block but is a standalone word', () => {
+    // "blockchain" must NOT match the \bblock\b word-boundary regex.
+    const result = guard.evaluate(buildContext({
+      marketTitle: 'Is blockchain regulation coming?',
+      matchedAssetId: 'crypto-bitcoin',
+      matchedAssetName: 'Bitcoin',
+      ontologyKeywords: ['blockchain', 'regulation']
+    }));
+
+    expect(result.flags).not.toContain('negated_market_language');
+  });
+
+  it('flags "Russia stopped gas exports" as needs_review with negation flag when ontology matches', () => {
+    const result = guard.evaluate(buildContext({
+      marketTitle: 'Russia stopped gas exports to Europe',
+      matchedAssetId: 'energy-equinor',
+      matchedAssetName: 'Equinor',
+      ontologyKeywords: ['equinor', 'gas']
+    }));
+
+    expect(result.flags).toContain('negated_market_language');
+    expect(result.status).toBe('needs_review');
+  });
 });
