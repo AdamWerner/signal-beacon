@@ -247,7 +247,14 @@ export class ScanCycleJob {
         }
         intelligence.processNewSignals(signals);
 
-        const pendingUpdates: Array<{ confidence: number; reasoning: string; signalOrigin: string; id: string }> = [];
+        const pendingUpdates: Array<{
+          confidence: number;
+          reasoning: string;
+          signalOrigin: string;
+          confirmingSourceFamilies: string | null;
+          sourceCountOverride: number | null;
+          id: string;
+        }> = [];
 
         for (const signal of signals) {
           let changed = false;
@@ -359,12 +366,16 @@ export class ScanCycleJob {
               signal.reasoning +=
                 ` [cross-source: ${familyCount} external families confirm ${familyLabels.join('+')}]`;
               signal.signal_origin = 'hybrid';
+              signal.confirming_source_families = familyLabels;
+              signal.source_count_override = confirming.length;
               changed = true;
             } else if (familyCount === 1) {
               signal.confidence = Math.min(signal.confidence + 5, 92);
               signal.reasoning +=
                 ` [cross-source: 1 external family confirms ${familyLabels.join('+')}]`;
               signal.signal_origin = 'hybrid';
+              signal.confirming_source_families = familyLabels;
+              signal.source_count_override = confirming.length;
               changed = true;
             }
           }
@@ -468,6 +479,9 @@ export class ScanCycleJob {
               confidence: signal.confidence,
               reasoning: signal.reasoning,
               signalOrigin: signal.signal_origin || 'polymarket',
+              confirmingSourceFamilies: signal.confirming_source_families
+                ? JSON.stringify(signal.confirming_source_families) : null,
+              sourceCountOverride: signal.source_count_override ?? null,
               id: signal.id
             });
           }
@@ -475,10 +489,16 @@ export class ScanCycleJob {
 
         if (pendingUpdates.length > 0) {
           try {
-            const stmt = this.db.prepare('UPDATE signals SET confidence = ?, reasoning = ?, signal_origin = ? WHERE id = ?');
+            const stmt = this.db.prepare(
+              'UPDATE signals SET confidence = ?, reasoning = ?, signal_origin = ?, ' +
+              'confirming_source_families = ?, source_count_override = ? WHERE id = ?'
+            );
             const batchUpdate = this.db.transaction((items: typeof pendingUpdates) => {
               for (const item of items) {
-                stmt.run(item.confidence, item.reasoning, item.signalOrigin, item.id);
+                stmt.run(
+                  item.confidence, item.reasoning, item.signalOrigin,
+                  item.confirmingSourceFamilies, item.sourceCountOverride, item.id
+                );
               }
             });
             batchUpdate(pendingUpdates);

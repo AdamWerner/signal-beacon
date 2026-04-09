@@ -8,6 +8,15 @@ import { estimateExecutionCost } from '../intelligence/execution-feasibility.js'
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 import { shouldDoDeepVerify } from '../utils/ai-budget.js';
 
+/** Exported for unit-testing. Returns the set of source families on a signal. */
+export function extractCatalystSourceFamilies(signal: Pick<GeneratedSignal, 'confirming_source_families'>): Set<string> {
+  const families = signal.confirming_source_families;
+  if (families && families.length > 0) {
+    return new Set(families);
+  }
+  return new Set();
+}
+
 export class AlertDispatcher {
   private pushover?: PushoverClient;
   private webhook?: WebhookClient;
@@ -807,7 +816,7 @@ export class AlertDispatcher {
     }
 
     if (this.isCatalystAwareSignal(signal)) {
-      const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
+      const sourceTypes = this.extractCatalystSourceTypes(signal);
       score += Math.min(4, sourceTypes.size);
       if (sourceTypes.size >= 2) score += 2;
       if (
@@ -901,7 +910,7 @@ export class AlertDispatcher {
     if (signal.confidence < 65) return false;
     if (Math.abs(signal.delta_pct) < 18) return false;
 
-    const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
+    const sourceTypes = this.extractCatalystSourceTypes(signal);
     if (sourceTypes.size < 2) return false;
     if (sourceTypes.has('polymarket')) return true;
 
@@ -913,20 +922,8 @@ export class AlertDispatcher {
     return signal.verification_status === 'approved';
   }
 
-  private extractCatalystSourceTypes(reasoning: string): Set<string> {
-    const sourceTypes = new Set<string>();
-    const reasoningLower = (reasoning || '').toLowerCase();
-    if (reasoningLower.includes('technical')) sourceTypes.add('technical');
-    if (
-      reasoningLower.includes('finviz') ||
-      reasoningLower.includes('volume spike') ||
-      reasoningLower.includes('[news:+')
-    ) sourceTypes.add('news');
-    if (reasoningLower.includes('econ') || reasoningLower.includes('macro')) sourceTypes.add('macro');
-    if (reasoningLower.includes('insider') || reasoningLower.includes('congressional')) sourceTypes.add('insider');
-    if (reasoningLower.includes('price alert') || reasoningLower.includes('intraday')) sourceTypes.add('price');
-    if (reasoningLower.includes('poly-confirms') || reasoningLower.includes('cross-source')) sourceTypes.add('polymarket');
-    return sourceTypes;
+  private extractCatalystSourceTypes(signal: GeneratedSignal): Set<string> {
+    return extractCatalystSourceFamilies(signal);
   }
 
   /**
@@ -979,7 +976,7 @@ export class AlertDispatcher {
     const oddsSummary = hasRealPolymarketOdds
       ? `${(signal.odds_before * 100).toFixed(1)}% -> ${(signal.odds_now * 100).toFixed(1)}% (${deltaSign}${signal.delta_pct.toFixed(1)}%)`
       : `external catalyst signal (${deltaSign}${signal.delta_pct.toFixed(1)}% synthetic strength)`;
-    const sourceTypes = this.extractCatalystSourceTypes(signal.reasoning || '');
+    const sourceTypes = this.extractCatalystSourceTypes(signal);
     if (origin !== 'polymarket') {
       sourceTypes.delete('polymarket');
     }

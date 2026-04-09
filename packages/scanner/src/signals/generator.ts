@@ -977,7 +977,9 @@ export class SignalGenerator {
       verification_flags: [],
       verification_source: 'none',
       verification_record: null,
-      catalyst_score: catalysts.length
+      catalyst_score: catalysts.length,
+      confirming_source_families: [...new Set(catalysts.map(c => c.sourceType))],
+      source_count_override: catalysts.length
     };
   }
 

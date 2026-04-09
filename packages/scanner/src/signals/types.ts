@@ -42,4 +42,6 @@ export interface GeneratedSignal {
   fusion_decision?: 'allow' | 'suppress' | 'fallback_phase1';
   fusion_reasons?: string[];
   fusion_suppress_reasons?: string[];
+  confirming_source_families?: string[];
+  source_count_override?: number | null;
 }

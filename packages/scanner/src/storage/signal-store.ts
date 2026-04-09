@@ -42,6 +42,8 @@ export interface Signal {
   execution_replay_win_rate?: number | null;
   push_gate_outcome?: string | null;
   status: 'new' | 'viewed' | 'dismissed' | 'acted';
+  confirming_source_families?: string | null;  // JSON-encoded string[]
+  source_count_override?: number | null;
 }
 
 export interface InsertSignal {
@@ -76,6 +78,8 @@ export interface InsertSignal {
   verification_flags: string[];
   verification_source: string;
   verification_record: string | null;
+  confirming_source_families?: string[];
+  source_count_override?: number | null;
 }
 
 export class SignalStore {
@@ -90,8 +94,9 @@ export class SignalStore {
         polarity, suggested_action, suggested_instruments, reasoning, confidence,
         requires_judgment, deduplication_key,
         verification_status, verification_score, verification_reason,
-        verification_flags, verification_source, verification_record, verification_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        verification_flags, verification_source, verification_record, verification_updated_at,
+        confirming_source_families, source_count_override
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)
     `);
 
     stmt.run(
@@ -120,7 +125,9 @@ export class SignalStore {
       signal.verification_reason,
       JSON.stringify(signal.verification_flags),
       signal.verification_source,
-      signal.verification_record
+      signal.verification_record,
+      signal.confirming_source_families ? JSON.stringify(signal.confirming_source_families) : null,
+      signal.source_count_override ?? null
     );
   }
 
@@ -642,13 +649,9 @@ export class SignalStore {
   }
 
   private estimateSourceCount(signal: Signal): number {
-    const reasoning = String(signal.reasoning || '');
-    const catalystMatch = reasoning.match(/\[catalysts:(\d+)\]/i);
-    if (catalystMatch) {
-      const parsed = parseInt(catalystMatch[1], 10);
-      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    if (signal.source_count_override != null && signal.source_count_override > 0) {
+      return signal.source_count_override;
     }
-
     if (signal.signal_origin === 'hybrid') return 2;
     if (signal.signal_origin === 'catalyst_convergence') return 2;
     return 1;

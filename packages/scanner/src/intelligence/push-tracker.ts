@@ -35,6 +35,7 @@ interface PendingPushSignal {
   signal_origin: string | null;
   confidence: number;
   reasoning: string | null;
+  source_count_override: number | null;
 }
 
 function directionalMovePct(entry: number, price: number, direction: 'bull' | 'bear'): number {
@@ -66,7 +67,8 @@ export class PushOutcomeTracker {
         s.push_sent_at,
         COALESCE(s.signal_origin, 'polymarket') AS signal_origin,
         s.confidence,
-        s.reasoning
+        s.reasoning,
+        s.source_count_override
       FROM signals s
       LEFT JOIN push_outcomes po
         ON po.signal_id = s.id
@@ -106,7 +108,7 @@ export class PushOutcomeTracker {
           row.push_sent_at,
           row.signal_origin || 'polymarket',
           row.confidence || 0,
-          this.extractSourceCount(row.reasoning || '', row.signal_origin || 'polymarket')
+          this.extractSourceCount(row.source_count_override, row.signal_origin || 'polymarket')
         );
       }
     });
@@ -310,17 +312,11 @@ export class PushOutcomeTracker {
     return action.toLowerCase().includes('bull') ? 'bull' : 'bear';
   }
 
-  private extractSourceCount(reasoning: string, signalOrigin: string): number {
-    const catalystMatch = reasoning.match(/\[catalysts:(\d+)\]/i);
-    if (catalystMatch) {
-      const parsed = parseInt(catalystMatch[1], 10);
-      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  private extractSourceCount(sourceCountOverride: number | null | undefined, signalOrigin: string): number {
+    if (sourceCountOverride != null && sourceCountOverride > 0) {
+      return sourceCountOverride;
     }
-
-    if (signalOrigin === 'hybrid') {
-      return 2;
-    }
-
+    if (signalOrigin === 'hybrid') return 2;
     return signalOrigin === 'catalyst_convergence' ? 2 : 1;
   }
 }
