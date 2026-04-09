@@ -1141,7 +1141,7 @@ export class SignalGenerator {
     for (const existing of recentSignals) {
       if (existing.matched_asset_id !== signal.matched_asset_id) continue;
       const tsRaw = String(existing.timestamp || '');
-      const ts = Date.parse(tsRaw.replace(' ', 'T') + (tsRaw.endsWith('Z') ? '' : 'Z'));
+      const ts = parseDbTimestampMs(tsRaw);
       if (!Number.isFinite(ts) || ts < cutoffMs) continue;
 
       const action = String(existing.suggested_action || '').toLowerCase();
@@ -1175,7 +1175,7 @@ export class SignalGenerator {
       if (existing.matched_asset_id !== signal.matched_asset_id) continue;
       if (existing.market_condition_id !== signal.market_condition_id) continue;
       const tsRaw = String(existing.timestamp || '');
-      const ts = Date.parse(tsRaw.replace(' ', 'T') + (tsRaw.endsWith('Z') ? '' : 'Z'));
+      const ts = parseDbTimestampMs(tsRaw);
       if (!Number.isFinite(ts) || ts < cutoffMs) continue;
 
       totalRecent += 1;
@@ -1277,7 +1277,7 @@ export class SignalGenerator {
       const reasoning = String(existing.reasoning || '');
       if (!reasoning.includes(proxyTag)) continue;
       const tsRaw = String(existing.timestamp || '');
-      const ts = Date.parse(tsRaw.replace(' ', 'T') + (tsRaw.endsWith('Z') ? '' : 'Z'));
+      const ts = parseDbTimestampMs(tsRaw);
       if (!Number.isFinite(ts) || ts < cutoffMs) continue;
 
       recentCount += 1;

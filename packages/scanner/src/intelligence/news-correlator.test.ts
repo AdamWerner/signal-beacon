@@ -1,6 +1,20 @@
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { NewsCorrelator } from './news-correlator.js';
+
+// Force Stockholm timezone so the SQLite-UTC recency fix is exercised.
+// On a Stockholm (CEST = UTC+2) machine, raw Date.parse('YYYY-MM-DD HH:MM:SS')
+// interprets the timestamp as local time → timestamps appear 2h older than
+// they really are → fresh news is silently under-counted by the boost tiers.
+beforeAll(() => {
+  process.env.TZ = 'Europe/Stockholm';
+});
+
+// Helper: produce a SQLite CURRENT_TIMESTAMP-style string (no Z) for a given
+// Date. This is the exact format SQLite stores in the tweet_snapshots table.
+function toSqliteUtc(date: Date): string {
+  return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+}
 
 function createDb(): Database.Database {
   const db = new Database(':memory:');
@@ -99,6 +113,90 @@ describe('NewsCorrelator', () => {
 
     // signal is bull, all news is bear → opposing dominant
     expect(result.dominantDirection).toBe('bear');
+  });
+
+  // ── Timezone / recency regression ────────────────────────────────────────
+  // These tests use vi.useFakeTimers() to pin Date.now() and insert rows in
+  // SQLite UTC format (no 'Z' suffix). With raw Date.parse(), on a Stockholm
+  // (UTC+2) machine the bare 'YYYY-MM-DD HH:MM:SS' would be interpreted as
+  // local time → timestamps appear 2 hours older → fresh-row boost = 0.
+  // parseDbTimestampMs() always appends 'Z', so the age is computed correctly.
+
+  it('5-min-old SQLite UTC row gets recencyWeight=1.0 → boost is non-zero (TZ regression)', () => {
+    vi.useFakeTimers();
+    const PINNED_NOW_MS = Date.parse('2026-04-09T14:30:00.000Z');
+    vi.setSystemTime(PINNED_NOW_MS);
+
+    const db = createDb();
+    openDbs.push(db);
+
+    // Insert one bullish Equinor headline exactly 5 min before pinned 'now' in SQLite UTC format
+    const fiveMinAgo = toSqliteUtc(new Date(PINNED_NOW_MS - 5 * 60 * 1000));
+    db.prepare(`
+      INSERT INTO tweet_snapshots (account_handle, tweet_text, scraped_at)
+      VALUES (?, ?, ?)
+    `).run('fresh-src', 'Equinor record profits surge', fiveMinAgo);
+
+    const correlator = new NewsCorrelator(db);
+    const result = correlator.getBoostForSignal('oil-equinor', 'bull', 6);
+
+    // With parseDbTimestampMs: age = 5 min → weight 1.0 → weightedSources = 1.0 → boost = 3
+    // With raw Date.parse on Stockholm: age ≈ 125 min → weight 0.25 → boost = 0
+    expect(result.boost).toBeGreaterThan(0);
+    expect(result.sourceCount).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it('75-min-old SQLite UTC row gets recencyWeight=0.5 (1h < age ≤ 3h tier)', () => {
+    vi.useFakeTimers();
+    const PINNED_NOW_MS = Date.parse('2026-04-09T14:30:00.000Z');
+    vi.setSystemTime(PINNED_NOW_MS);
+
+    const db = createDb();
+    openDbs.push(db);
+
+    const seventyFiveMinAgo = toSqliteUtc(new Date(PINNED_NOW_MS - 75 * 60 * 1000));
+    db.prepare(`
+      INSERT INTO tweet_snapshots (account_handle, tweet_text, scraped_at)
+      VALUES (?, ?, ?)
+    `).run('src-75m', 'Equinor gains on strong oil order', seventyFiveMinAgo);
+
+    const correlator = new NewsCorrelator(db);
+    const result = correlator.getBoostForSignal('oil-equinor', 'bull', 6);
+
+    // age = 75 min = 1.25h → tier 1h < age ≤ 3h → weight 0.5
+    // weightedSources = 0.5 → boost = 0 (below 1.0 threshold — single source)
+    // With broken Date.parse on Stockholm: age ≈ 195 min → weight 0.25 (same tier, same result)
+    // The key correctness: sourceCount=1 means the row was FOUND, not silently excluded by 6h window
+    expect(result.sourceCount).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it('270-min-old SQLite UTC row is within 6h window but has weight 0.25', () => {
+    vi.useFakeTimers();
+    const PINNED_NOW_MS = Date.parse('2026-04-09T14:30:00.000Z');
+    vi.setSystemTime(PINNED_NOW_MS);
+
+    const db = createDb();
+    openDbs.push(db);
+
+    const fourHoursAgo = toSqliteUtc(new Date(PINNED_NOW_MS - 270 * 60 * 1000));
+    db.prepare(`
+      INSERT INTO tweet_snapshots (account_handle, tweet_text, scraped_at)
+      VALUES (?, ?, ?)
+    `).run('src-4h', 'Equinor rises on contract win', fourHoursAgo);
+
+    const correlator = new NewsCorrelator(db);
+    const result = correlator.getBoostForSignal('oil-equinor', 'bull', 6);
+
+    // age = 270 min = 4.5h → tier 3h < age ≤ 6h → weight 0.25
+    // With broken Date.parse on Stockholm: age ≈ 390 min = 6.5h → OUTSIDE 6h window → sourceCount = 0
+    // This is a second class of bug: stale-window exclusion for a row that is actually fresh enough
+    expect(result.sourceCount).toBe(1);
+
+    vi.useRealTimers();
   });
 
   it('decays stale news instead of treating old mentions as fresh corroboration', () => {

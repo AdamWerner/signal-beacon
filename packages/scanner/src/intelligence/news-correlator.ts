@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { parseDbTimestampMs } from '../utils/time.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -50,7 +51,7 @@ function inferNewsDirection(text: string): 'bull' | 'bear' | 'mixed' {
 }
 
 function getRecencyWeight(timestamp: string): number {
-  const parsed = Date.parse(timestamp);
+  const parsed = parseDbTimestampMs(timestamp);
   if (!Number.isFinite(parsed)) return 0.25;
   const ageHours = (Date.now() - parsed) / (60 * 60 * 1000);
   if (ageHours <= 1) return 1;

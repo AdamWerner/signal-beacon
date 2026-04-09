@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import Database from 'better-sqlite3';
 import { ASSET_TO_FINVIZ_TICKER, ASSET_TO_TICKER, FINVIZ_TICKER_TO_ASSET, getAssetDisplayName } from '../utils/ticker-map.js';
 import { SourceCatalyst } from './types.js';
+import { parseDbTimestampMs } from '../utils/time.js';
 
 const HOUSE_TRANSACTIONS_URL = 'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json';
 const SENATE_TRANSACTIONS_URL = 'https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json';
@@ -145,7 +146,7 @@ export class InsiderScanner {
 
       const timestamp = parseUsDate(record.transaction_date);
       if (!timestamp) continue;
-      if (Date.parse(timestamp) < lookbackCutoff) continue;
+      if (parseDbTimestampMs(timestamp) < lookbackCutoff) continue;
 
       const amountUsd = parseAmountRange(record.amount);
       if (amountUsd <= 0) continue;

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { ASSET_TO_TICKER, getAssetDisplayName, getAssetTicker } from '../utils/ticker-map.js';
 import { SourceCatalyst } from './types.js';
+import { parseDbTimestampMs } from '../utils/time.js';
 
 const FOREX_FACTORY_FEED = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
 const CACHE_TTL_MS = 15 * 60 * 1000;
@@ -149,7 +150,7 @@ export class EconCalendarScanner {
     const now = Date.now();
 
     for (const event of events) {
-      const eventTime = Date.parse(event.date);
+      const eventTime = parseDbTimestampMs(event.date);
       if (!Number.isFinite(eventTime)) continue;
       if (Math.abs(now - eventTime) > RELEASE_LOOKBACK_MS) continue;
 
