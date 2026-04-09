@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { parseDbTimestampMs } from '../utils/time.js';
 
 export interface OddsSnapshot {
   id: number;
@@ -70,11 +71,31 @@ export class SnapshotStore {
   calculateDelta(
     market_condition_id: string,
     time_window_minutes: number
-  ): { odds_before: number; odds_now: number; delta_pct: number } | null {
+  ): { odds_before: number; odds_now: number; delta_pct: number; snapshot_gap_minutes: number } | null {
     const now = this.getLatest(market_condition_id);
     const before = this.getSnapshotAt(market_condition_id, time_window_minutes);
 
     if (!now || !before || before.odds_yes === 0) {
+      return null;
+    }
+
+    const nowMs = parseDbTimestampMs(now.timestamp);
+    const beforeMs = parseDbTimestampMs(before.timestamp);
+
+    if (!Number.isFinite(nowMs) || !Number.isFinite(beforeMs)) {
+      return null;
+    }
+
+    const gapMinutes = (nowMs - beforeMs) / 60000;
+
+    // Reject windows where the actual gap diverges too far from the requested window.
+    // > 1.75× means the "before" snapshot is stale (scanner was down); the scorer's
+    // time-compression bonus would falsely award points for a stale move.
+    if (gapMinutes > time_window_minutes * 1.75) {
+      return null;
+    }
+    // < 0.5× means two snapshots landed within seconds of each other (fast-insert anomaly).
+    if (gapMinutes < time_window_minutes * 0.5) {
       return null;
     }
 
@@ -83,7 +104,8 @@ export class SnapshotStore {
     return {
       odds_before: before.odds_yes,
       odds_now: now.odds_yes,
-      delta_pct: Math.round(delta_pct * 100) / 100 // Round to 2 decimals
+      delta_pct: Math.round(delta_pct * 100) / 100,
+      snapshot_gap_minutes: Math.round(gapMinutes)
     };
   }
 

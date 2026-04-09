@@ -10,6 +10,7 @@ export interface OddsChange {
   odds_now: number;
   delta_pct: number;
   time_window_minutes: number;
+  snapshot_gap_minutes?: number; // Actual observed gap between 'before' and 'now' snapshots
   timeframesTriggered?: number; // How many of [30, 60, 240] windows triggered for this market
 }
 
@@ -167,6 +168,14 @@ export class OddsTracker {
           continue;
         }
 
+        const gapDeviation = delta.snapshot_gap_minutes - timeWindowMinutes;
+        if (Math.abs(gapDeviation) > timeWindowMinutes * 0.1) {
+          console.log(
+            `  [window] ${market.title.substring(0, 40)} gap=${delta.snapshot_gap_minutes}min ` +
+            `(requested ${timeWindowMinutes}min, deviation ${gapDeviation > 0 ? '+' : ''}${Math.round(gapDeviation)}min)`
+          );
+        }
+
         changes.push({
           market_condition_id: market.condition_id,
           market_slug: market.slug,
@@ -174,7 +183,8 @@ export class OddsTracker {
           odds_before: oddsBefore,
           odds_now: oddsNow,
           delta_pct: delta.delta_pct,
-          time_window_minutes: timeWindowMinutes
+          time_window_minutes: timeWindowMinutes,
+          snapshot_gap_minutes: delta.snapshot_gap_minutes
         });
       }
     }
