@@ -43,7 +43,8 @@ export interface Trade {
   id: string;
   market_id: string;
   asset_id: string;
-  side: 'YES' | 'NO';
+  side: 'BUY' | 'SELL';
+  outcome?: 'Yes' | 'No' | 'YES' | 'NO';  // may be absent on old trades
   size: string;
   price: string;
   timestamp: number;

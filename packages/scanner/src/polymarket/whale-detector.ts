@@ -112,9 +112,14 @@ export class WhaleDetector {
             continue;
           }
 
-          // Normalize side: API may return BUY/SELL or yes/no or YES/NO
+          // Derive direction: XOR(isBuy, isYesToken).
+          // A whale buying YES → bullish (YES). Buying NO → bearish (NO).
+          // A whale selling YES → bearish (NO). Selling NO → bullish (YES).
           const sideRaw = String(trade.side ?? '').toUpperCase();
-          const side: 'YES' | 'NO' = (sideRaw === 'NO' || sideRaw === 'SELL') ? 'NO' : 'YES';
+          const outcomeRaw = String(trade.outcome ?? 'YES').toUpperCase();
+          const isBuy = sideRaw === 'BUY';
+          const isYesToken = outcomeRaw === 'YES';
+          const side: 'YES' | 'NO' = (isBuy === isYesToken) ? 'YES' : 'NO';
 
           const detection: WhaleDetection = {
             market_condition_id: conditionId,
@@ -139,7 +144,7 @@ export class WhaleDetector {
 
           this.whaleStore.insert(whaleEvent);
 
-          console.log(`  🐋 Whale detected: ${market.title.substring(0, 40)}... ($${sizeUsd.toFixed(0)})`);
+          console.log(`  🐋 Whale detected: ${market.title.substring(0, 40)}... ($${sizeUsd.toFixed(0)}) ${sideRaw}-${outcomeRaw} → ${side}`);
         }
       }
 
