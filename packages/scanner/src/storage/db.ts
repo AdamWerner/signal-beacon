@@ -1,6 +1,7 @@
 ﻿import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { estimateExecutionCost } from '../intelligence/execution-feasibility.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -17,7 +18,105 @@ export function initializeDatabase(): Database.Database {
 
   createTables(db);
   runMigrations(db);
+  backfillHybridConfirmingSourceFamilies(db);
+  backfillPushOutcomeCosts(db);
   return db;
+}
+
+function normalizeConfirmingFamily(label: string): string | null {
+  const normalized = label.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes('price')) return 'price';
+  if (normalized.includes('news')) return 'news';
+  if (normalized.includes('technical')) return 'technical';
+  if (normalized.includes('macro') || normalized.includes('econ')) return 'macro';
+  if (normalized.includes('insider') || normalized.includes('congressional')) return 'insider';
+  if (normalized.includes('polymarket')) return 'polymarket';
+  return normalized.replace(/\s+/g, '_');
+}
+
+function extractConfirmingFamiliesFromReasoning(reasoning: string | null): string[] {
+  if (!reasoning) return [];
+  const match = reasoning.match(/\[cross-source:\s*\d+\s+external famil(?:y|ies)\s+confirm(?:s)?\s+([^\]]+)\]/i);
+  if (!match) return [];
+  return [...new Set(
+    match[1]
+      .split('+')
+      .map(part => normalizeConfirmingFamily(part))
+      .filter((part): part is string => Boolean(part))
+  )];
+}
+
+function backfillHybridConfirmingSourceFamilies(db: Database.Database): void {
+  try {
+    const rows = db.prepare(`
+      SELECT id, reasoning
+      FROM signals
+      WHERE signal_origin = 'hybrid'
+        AND confirming_source_families IS NULL
+        AND reasoning LIKE '%[cross-source:%'
+    `).all() as Array<{ id: string; reasoning: string | null }>;
+
+    if (rows.length === 0) return;
+
+    const update = db.prepare(`
+      UPDATE signals
+      SET confirming_source_families = ?,
+          source_count_override = COALESCE(source_count_override, ?)
+      WHERE id = ?
+    `);
+
+    const tx = db.transaction((items: typeof rows) => {
+      for (const row of items) {
+        const families = extractConfirmingFamiliesFromReasoning(row.reasoning);
+        if (families.length === 0) continue;
+        update.run(JSON.stringify(families), families.length, row.id);
+      }
+    });
+
+    tx(rows);
+  } catch {
+    // Non-fatal startup hygiene only.
+  }
+}
+
+function backfillPushOutcomeCosts(db: Database.Database): void {
+  try {
+    const rows = db.prepare(`
+      SELECT signal_id, asset_id, max_favorable_pct, estimated_round_trip_cost_pct
+      FROM push_outcomes
+      WHERE estimated_round_trip_cost_pct IS NULL
+         OR (net_max_favorable_pct IS NULL AND max_favorable_pct IS NOT NULL)
+    `).all() as Array<{
+      signal_id: string;
+      asset_id: string;
+      max_favorable_pct: number | null;
+      estimated_round_trip_cost_pct: number | null;
+    }>;
+
+    if (rows.length === 0) return;
+
+    const update = db.prepare(`
+      UPDATE push_outcomes
+      SET estimated_round_trip_cost_pct = ?,
+          net_max_favorable_pct = ?
+      WHERE signal_id = ?
+    `);
+
+    const tx = db.transaction((items: typeof rows) => {
+      for (const row of items) {
+        const costPct = row.estimated_round_trip_cost_pct ?? estimateExecutionCost(row.asset_id, 3).roundTripCostPct;
+        const netMaxFavorable = row.max_favorable_pct != null
+          ? row.max_favorable_pct - (costPct * 100)
+          : null;
+        update.run(costPct, netMaxFavorable, row.signal_id);
+      }
+    });
+
+    tx(rows);
+  } catch {
+    // Non-fatal startup hygiene only.
+  }
 }
 
 function runMigrations(db: Database.Database): void {
