@@ -9,9 +9,7 @@ export class HomeAssistantAlert {
     private notifyService: string
   ) {}
 
-  /**
-   * Send a single-signal push notification.
-   */
+  // Aggregated multi-signal sends have been removed. One push = one signal.
   async send(signal: GeneratedSignal): Promise<boolean> {
     const action = signal.suggested_action.toLowerCase();
     const isBull = action.includes('bull');
@@ -28,36 +26,6 @@ export class HomeAssistantAlert {
     const detailUrl = `${publicUrl}/api/signals/${signal.id}/detail`;
 
     return this.pushNotification(title, message, detailUrl, signal.id);
-  }
-
-  /**
-   * Send a single aggregated push for a batch of actionable signals.
-   */
-  async sendAggregated(signals: GeneratedSignal[], market: 'swedish' | 'us'): Promise<boolean> {
-    if (signals.length === 0) {
-      return false;
-    }
-
-    const flag = market === 'swedish' ? '????' : '????';
-    const topSignal = signals[0];
-    const topDirection = topSignal.suggested_action.toLowerCase().includes('bull') ? 'BULL' : 'BEAR';
-    const topTicker = this.getTicker(topSignal.matched_asset_id, topSignal.matched_asset_name, 6);
-
-    const title = signals.length === 1
-      ? `PS: ${flag} ${topDirection} ${topTicker} ${topSignal.confidence}%`
-      : `PS: ${flag} ${signals.length} signals - ${topDirection} ${topTicker} leads`;
-
-    const summaryParts = signals.slice(0, 3).map(signal => {
-      const directionEmoji = signal.suggested_action.toLowerCase().includes('bull') ? '??' : '??';
-      return `${directionEmoji} ${this.getTicker(signal.matched_asset_id, signal.matched_asset_name, 5)} ${signal.confidence}%`;
-    });
-
-    const message = summaryParts.join(' | ');
-
-    const publicUrl = process.env.PUBLIC_URL || 'http://192.168.0.15:3100';
-    const detailUrl = `${publicUrl}/api/signals/${topSignal.id}/detail`;
-
-    return this.pushNotification(title, message, detailUrl, `agg_${market}`);
   }
 
   /**

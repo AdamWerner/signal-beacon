@@ -12,10 +12,7 @@ import 'dotenv/config';
 import {
   appendFileSync,
   mkdirSync,
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  unlinkSync
+  writeFileSync
 } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -36,7 +33,6 @@ const TWEET_EXPANSION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const SCAN_LOG = join(DATA_DIR, 'scan-log.txt');
 const ERROR_LOG = join(DATA_DIR, 'error-log.txt');
-const LOCK_FILE = join(DATA_DIR, 'continuous-scan.lock');
 
 try {
   mkdirSync(DATA_DIR, { recursive: true });
@@ -67,55 +63,16 @@ function logError(context, err) {
   }
 }
 
-function isPidRunning(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function acquireLockOrExit() {
-  if (existsSync(LOCK_FILE)) {
-    try {
-      const raw = JSON.parse(readFileSync(LOCK_FILE, 'utf8'));
-      const lockPid = Number(raw?.pid || 0);
-      if (lockPid > 0 && isPidRunning(lockPid)) {
-        logScan(`[fatal] another continuous scanner is already running (pid=${lockPid}). exiting.`);
-        process.exit(1);
-      }
-    } catch {
-      // stale/corrupt lock, overwrite below
-    }
-  }
-
-  writeFileSync(
-    LOCK_FILE,
-    JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }, null, 2),
-    'utf8'
-  );
-}
-
-function releaseLock() {
-  try {
-    if (!existsSync(LOCK_FILE)) return;
-    const raw = JSON.parse(readFileSync(LOCK_FILE, 'utf8'));
-    if (Number(raw?.pid) === process.pid) {
-      unlinkSync(LOCK_FILE);
-    }
-  } catch {
-    // ignore
-  }
-}
-
-acquireLockOrExit();
-
 let scanner;
 let IntelligenceEngine;
 let tradingHoursConfig;
+let scannerLock;
 
 try {
+  const { ScannerLock } = await import('../packages/scanner/dist/utils/scanner-lock.js');
+  scannerLock = new ScannerLock(join(DATA_DIR, 'scanner.lock'));
+  scannerLock.acquire('continuous-scan');
+
   logScan('[init] loading scanner module...');
   const mod = await import('@polysignal/scanner');
   scanner = mod.scanner;
@@ -127,7 +84,11 @@ try {
   IntelligenceEngine = engineMod?.IntelligenceEngine;
   logScan('[init] scanner module loaded');
 } catch (err) {
-  releaseLock();
+  try {
+    scannerLock?.release();
+  } catch {
+    // ignore
+  }
   logError('scanner init', err);
   logScan('[fatal] cannot load scanner - run npm run build:scanner');
   process.exit(1);
@@ -440,18 +401,30 @@ async function loop() {
 
 process.on('SIGINT', () => {
   logScan('[stop] received SIGINT - shutting down');
-  releaseLock();
+  try {
+    scannerLock?.release();
+  } catch {
+    // ignore
+  }
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   logScan('[stop] received SIGTERM - shutting down');
-  releaseLock();
+  try {
+    scannerLock?.release();
+  } catch {
+    // ignore
+  }
   process.exit(0);
 });
 
 process.on('exit', () => {
-  releaseLock();
+  try {
+    scannerLock?.release();
+  } catch {
+    // ignore
+  }
 });
 
 process.on('uncaughtException', err => {
@@ -463,7 +436,11 @@ process.on('unhandledRejection', reason => {
 });
 
 loop().catch(err => {
-  releaseLock();
+  try {
+    scannerLock?.release();
+  } catch {
+    // ignore
+  }
   logError('loop crash', err);
   process.exit(1);
 });
