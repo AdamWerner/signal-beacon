@@ -440,7 +440,7 @@ export class SignalGenerator {
               continue;
             }
 
-            this.signalStore.delete(existingThesisBest.id);
+            this.signalStore.replaceInTransaction(existingThesisBest.id, signal);
             const existingIndex = signals.findIndex(existingSignal => existingSignal.id === existingThesisBest.id);
             if (existingIndex >= 0) {
               signals.splice(existingIndex, 1);
@@ -466,7 +466,9 @@ export class SignalGenerator {
           }
 
           signals.push(signal);
-          this.signalStore.insert(signal);
+          if (!existingThesisBest) {
+            this.signalStore.insert(signal);
+          }
           cycleBestByThesis.set(thesisKey, signal);
           cycleAbsDeltaByKey.set(signal.deduplication_key, Math.abs(signal.delta_pct));
           if (proxyContext) {
