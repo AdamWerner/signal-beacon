@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { getAssetTicker } from '../utils/ticker-map.js';
+import { estimateExecutionCost } from '../intelligence/execution-feasibility.js';
 
 export interface Signal {
   id: string;
@@ -415,9 +416,10 @@ export class SignalStore {
         push_timestamp,
         signal_origin,
         confidence,
-        source_count
+        source_count,
+        estimated_round_trip_cost_pct
       )
-      VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?)
+      VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?, ?)
     `);
 
     const tx = this.db.transaction((ids: string[]) => {
@@ -425,6 +427,7 @@ export class SignalStore {
         stmt.run(channel, id);
         const signal = this.findById(id);
         if (!signal) continue;
+        const executionCost = estimateExecutionCost(signal.matched_asset_id, 3);
         pendingOutcomeStmt.run(
           signal.id,
           signal.matched_asset_id,
@@ -432,7 +435,8 @@ export class SignalStore {
           signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear',
           signal.signal_origin || 'polymarket',
           signal.confidence ?? 0,
-          this.estimateSourceCount(signal)
+          this.estimateSourceCount(signal),
+          executionCost.roundTripCostPct
         );
       }
     });

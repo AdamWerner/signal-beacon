@@ -54,6 +54,10 @@ router.get('/', (req, res) => {
       ? evaluated.reduce((sum, row) => sum + Number(row.max_favorable_pct || 0), 0) / evaluated.length
       : null;
 
+    const avgNetMaxFavorable = evaluated.length > 0
+      ? evaluated.reduce((sum, row) => sum + Number(row.net_max_favorable_pct || 0), 0) / evaluated.length
+      : null;
+
     const avgMaxAdverse = evaluated.length > 0
       ? evaluated.reduce((sum, row) => sum + Number(row.max_adverse_pct || 0), 0) / evaluated.length
       : null;
@@ -70,6 +74,7 @@ router.get('/', (req, res) => {
       pending: pending.length,
       winRate: evaluated.length > 0 ? wins.length / evaluated.length : null,
       avgMaxFavorable,
+      avgNetMaxFavorable,
       avgMaxAdverse,
       avgTimeToPeak,
       byOrigin,

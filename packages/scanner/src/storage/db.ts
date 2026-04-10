@@ -125,6 +125,8 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE push_outcomes ADD COLUMN price_at_180m REAL`,
     `ALTER TABLE push_outcomes ADD COLUMN price_at_240m REAL`,
     `ALTER TABLE push_outcomes ADD COLUMN directionally_accurate INTEGER DEFAULT 0`,
+    `ALTER TABLE push_outcomes ADD COLUMN net_max_favorable_pct REAL`,
+    `ALTER TABLE push_outcomes ADD COLUMN estimated_round_trip_cost_pct REAL`,
     `ALTER TABLE signals ADD COLUMN confirming_source_families TEXT`,
     `ALTER TABLE signals ADD COLUMN source_count_override INTEGER`,
   ]) {
@@ -431,9 +433,11 @@ function runMigrations(db: Database.Database): void {
         hit_sl INTEGER DEFAULT 0,
         tp_first INTEGER DEFAULT 0,
         max_favorable_pct REAL,
+        net_max_favorable_pct REAL,
         max_adverse_pct REAL,
         time_to_peak_minutes REAL,
         directionally_accurate INTEGER DEFAULT 0,
+        estimated_round_trip_cost_pct REAL,
         evaluated_at TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );
@@ -1015,9 +1019,11 @@ function createTables(db: Database.Database): void {
       hit_sl INTEGER DEFAULT 0,
       tp_first INTEGER DEFAULT 0,
       max_favorable_pct REAL,
+      net_max_favorable_pct REAL,
       max_adverse_pct REAL,
       time_to_peak_minutes REAL,
       directionally_accurate INTEGER DEFAULT 0,
+      estimated_round_trip_cost_pct REAL,
       evaluated_at TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );

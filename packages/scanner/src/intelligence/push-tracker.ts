@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { YahooPriceClient, PricePoint } from '../backtest/price-client.js';
+import { estimateExecutionCost } from './execution-feasibility.js';
 import { getAssetTicker } from '../utils/ticker-map.js';
 
 export interface PushOutcome {
@@ -19,12 +20,14 @@ export interface PushOutcome {
   hitSl: boolean;
   tpFirst: boolean;
   maxFavorable: number;
+  netMaxFavorable: number;
   maxAdverse: number;
   timeToPeakMinutes: number;
   directionallyAccurate: boolean;
   signalOrigin: string;
   confidence: number;
   sourceCount: number;
+  estimatedRoundTripCostPct: number;
 }
 
 interface PendingPushSignal {
@@ -36,6 +39,11 @@ interface PendingPushSignal {
   confidence: number;
   reasoning: string | null;
   source_count_override: number | null;
+}
+
+export function calculateNetMaxFavorable(maxFavorablePct: number, roundTripCostPct: number | null | undefined): number {
+  const costPct = roundTripCostPct ?? 0;
+  return maxFavorablePct - (costPct * 100);
 }
 
 function directionalMovePct(entry: number, price: number, direction: 'bull' | 'bear'): number {
@@ -91,15 +99,17 @@ export class PushOutcomeTracker {
         push_timestamp,
         signal_origin,
         confidence,
-        source_count
+        source_count,
+        estimated_round_trip_cost_pct
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const tx = this.db.transaction((rows: PendingPushSignal[]) => {
       for (const row of rows) {
         const direction = this.getDirection(row.suggested_action);
         const ticker = getAssetTicker(row.matched_asset_id);
+        const executionCost = estimateExecutionCost(row.matched_asset_id, 3);
         insert.run(
           row.id,
           row.matched_asset_id,
@@ -108,7 +118,8 @@ export class PushOutcomeTracker {
           row.push_sent_at,
           row.signal_origin || 'polymarket',
           row.confidence || 0,
-          this.extractSourceCount(row.source_count_override, row.signal_origin || 'polymarket')
+          this.extractSourceCount(row.source_count_override, row.signal_origin || 'polymarket'),
+          executionCost.roundTripCostPct
         );
       }
     });
@@ -128,7 +139,8 @@ export class PushOutcomeTracker {
         po.push_timestamp,
         po.signal_origin,
         po.confidence,
-        po.source_count
+        po.source_count,
+        po.estimated_round_trip_cost_pct
       FROM push_outcomes po
       WHERE po.evaluated_at IS NULL
         AND po.push_timestamp <= datetime('now', '-240 minutes')
@@ -143,6 +155,7 @@ export class PushOutcomeTracker {
       signal_origin: string | null;
       confidence: number | null;
       source_count: number | null;
+      estimated_round_trip_cost_pct: number | null;
     }>;
 
     let evaluated = 0;
@@ -166,6 +179,7 @@ export class PushOutcomeTracker {
     signal_origin: string | null;
     confidence: number | null;
     source_count: number | null;
+    estimated_round_trip_cost_pct: number | null;
   }): Promise<PushOutcome | null> {
     const ticker = candidate.ticker || getAssetTicker(candidate.asset_id);
     if (!ticker) return null;
@@ -228,6 +242,8 @@ export class PushOutcomeTracker {
         ? price60m > entryPoint.close
         : price60m < entryPoint.close
       : false;
+    const estimatedRoundTripCostPct = candidate.estimated_round_trip_cost_pct ?? estimateExecutionCost(candidate.asset_id, 3).roundTripCostPct;
+    const resolvedMaxFavorable = Number.isFinite(maxFavorable) ? maxFavorable : 0;
 
     return {
       signalId: candidate.signal_id,
@@ -245,13 +261,15 @@ export class PushOutcomeTracker {
       hitTp,
       hitSl,
       tpFirst,
-      maxFavorable: Number.isFinite(maxFavorable) ? maxFavorable : 0,
+      maxFavorable: resolvedMaxFavorable,
+      netMaxFavorable: calculateNetMaxFavorable(resolvedMaxFavorable, estimatedRoundTripCostPct),
       maxAdverse: Number.isFinite(maxAdverse) ? maxAdverse : 0,
       timeToPeakMinutes,
       directionallyAccurate,
       signalOrigin: candidate.signal_origin || 'polymarket',
       confidence: candidate.confidence || 0,
-      sourceCount: candidate.source_count || 1
+      sourceCount: candidate.source_count || 1,
+      estimatedRoundTripCostPct
     };
   }
 
@@ -274,9 +292,11 @@ export class PushOutcomeTracker {
           hit_sl = ?,
           tp_first = ?,
           max_favorable_pct = ?,
+          net_max_favorable_pct = ?,
           max_adverse_pct = ?,
           time_to_peak_minutes = ?,
           directionally_accurate = ?,
+          estimated_round_trip_cost_pct = ?,
           evaluated_at = datetime('now')
       WHERE signal_id = ?
     `).run(
@@ -296,9 +316,11 @@ export class PushOutcomeTracker {
       outcome.hitSl ? 1 : 0,
       outcome.tpFirst ? 1 : 0,
       outcome.maxFavorable,
+      outcome.netMaxFavorable,
       outcome.maxAdverse,
       outcome.timeToPeakMinutes,
       outcome.directionallyAccurate ? 1 : 0,
+      outcome.estimatedRoundTripCostPct,
       outcome.signalId
     );
   }
