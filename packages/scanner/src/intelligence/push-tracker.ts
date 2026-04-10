@@ -82,6 +82,8 @@ export class PushOutcomeTracker {
         ON po.signal_id = s.id
       WHERE s.push_sent_at IS NOT NULL
         AND po.signal_id IS NULL
+        AND COALESCE(s.signal_origin, 'polymarket') <> 'canary'
+        AND COALESCE(s.status, 'active') <> 'dismissed'
       ORDER BY s.push_sent_at DESC
       LIMIT 200
     `).all() as PendingPushSignal[];
@@ -142,7 +144,12 @@ export class PushOutcomeTracker {
         po.source_count,
         po.estimated_round_trip_cost_pct
       FROM push_outcomes po
+      LEFT JOIN signals s
+        ON s.id = po.signal_id
       WHERE po.evaluated_at IS NULL
+        AND COALESCE(po.signal_origin, 'polymarket') <> 'canary'
+        AND COALESCE(s.signal_origin, 'polymarket') <> 'canary'
+        AND COALESCE(s.status, 'active') <> 'dismissed'
         AND po.push_timestamp <= datetime('now', '-240 minutes')
       ORDER BY po.push_timestamp DESC
       LIMIT ?

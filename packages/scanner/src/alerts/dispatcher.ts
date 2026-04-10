@@ -286,6 +286,36 @@ export class AlertDispatcher {
     if (dedupedSignals.length === 0) return 0;
 
     for (const candidate of dedupedSignals) {
+      if (this.isLivePushCanary(candidate)) {
+        const DRY_RUN = process.env.DRY_RUN === 'true';
+        if (this.getPushCountToday() >= 5) {
+          this.recordGateOutcome(candidate.id, 'volume_capped', `${this.getPushCountToday()} already pushed today`);
+          console.log(`  [volume-cap] Already pushed ${this.getPushCountToday()} today, skipping canary ${candidate.id}`);
+          continue;
+        }
+
+        if (DRY_RUN) {
+          this.recordGateOutcome(candidate.id, 'dry_run_pushable', 'live-push canary would pass');
+          console.log(`[DRY_RUN] Would push live canary: ${candidate.id}`);
+          return 1;
+        }
+
+        const sent = await homeAssistant.send(candidate);
+        if (!sent) {
+          this.recordGateOutcome(candidate.id, 'push_failed', 'home assistant send failed');
+          console.warn(`  HA push attempt failed for live canary (${candidate.matched_asset_name})`);
+          continue;
+        }
+
+        this.recordGateOutcome(candidate.id, 'pushed', 'all gates passed');
+        if (this.onSignalsPushed) {
+          this.onSignalsPushed([candidate.id], market);
+        }
+        this.pushCountToday += 1;
+        console.log(`  Pushed live canary HA alert (${candidate.matched_asset_name} ${candidate.confidence}%)`);
+        return 1;
+      }
+
       const leverage = candidate.suggested_instruments[0]?.leverage ?? 3;
       const execution = estimateExecutionCost(candidate.matched_asset_id, leverage || 3);
       candidate.reasoning += ` [execution: ${execution.note}]`;
@@ -510,6 +540,12 @@ export class AlertDispatcher {
   private isCatalystAwareSignal(signal: Partial<GeneratedSignal>): boolean {
     const origin = this.getSignalOrigin(signal);
     return origin === 'catalyst_convergence' || origin === 'hybrid';
+  }
+
+  private isLivePushCanary(signal: Partial<GeneratedSignal>): boolean {
+    const title = String(signal.market_title || '').trim();
+    const reasoning = String(signal.reasoning || '');
+    return title.startsWith('POLYSIGNAL LIVE-PUSH CANARY') && reasoning.includes('[canary:test]');
   }
 
   private parseDbTimestamp(value: string | null | undefined): Date | null {

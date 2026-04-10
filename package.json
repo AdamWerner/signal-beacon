@@ -27,7 +27,8 @@
     "policy:optimize": "node scripts/policy-optimizer.js",
     "self-improve": "node scripts/self-improve.js",
     "system-test": "node scripts/system-test.js",
-    "smoke:push": "node scripts/smoke-push.js"
+    "smoke:push": "node scripts/smoke-push.js",
+    "canary:push": "node scripts/test-signal.js"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
