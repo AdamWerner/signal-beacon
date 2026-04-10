@@ -1,5 +1,93 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const MACRO_CALENDAR_PATH = path.resolve(MODULE_DIR, '../../../../data/macro-calendar.json');
+
+function normalizeTimeZone(tz: string): string {
+  switch (tz) {
+    case 'Europe/Frankfurt':
+      return 'Europe/Berlin';
+    default:
+      return tz;
+  }
+}
+
+function getZonedParts(date: Date, tz: string): Intl.DateTimeFormatPart[] {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: normalizeTimeZone(tz),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    weekday: 'short',
+    hour12: false
+  }).formatToParts(date);
+}
+
+function getPart(parts: Intl.DateTimeFormatPart[], type: string): string {
+  return parts.find(part => part.type === type)?.value ?? '';
+}
+
+/**
+ * Build a UTC epoch ms for a given calendar date at a given wall-clock
+ * time IN a named IANA timezone. Uses an Intl-based inverse lookup
+ * (build a Date in a test UTC, check how the target TZ formats it,
+ * compute offset, invert).
+ */
+function buildInZone(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  tz: string
+): Date {
+  try {
+    const normalizedTz = normalizeTimeZone(tz);
+    // Build a candidate UTC epoch assuming the target time is UTC, then
+    // measure the offset by formatting that epoch in the target TZ and
+    // computing the difference.
+    const candidateUtcMs = Date.UTC(year, month, day, hour, minute, 0, 0);
+
+    // Format the candidate in the target timezone to read back the wall time
+    const parts = getZonedParts(new Date(candidateUtcMs), normalizedTz);
+    const tzYear = parseInt(getPart(parts, 'year') || '0', 10);
+    const tzMonth = parseInt(getPart(parts, 'month') || '0', 10) - 1; // month is 1-based in formatToParts
+    const tzDay = parseInt(getPart(parts, 'day') || '0', 10);
+    const tzHour = parseInt(getPart(parts, 'hour') || '0', 10);
+    const tzMinute = parseInt(getPart(parts, 'minute') || '0', 10);
+    const tzSecond = parseInt(getPart(parts, 'second') || '0', 10);
+
+    // Difference in ms between what the TZ shows and what we want
+    const tzShownUtcMs = Date.UTC(tzYear, tzMonth, tzDay, tzHour, tzMinute, tzSecond);
+    const targetUtcMs = Date.UTC(year, month, day, hour, minute, 0, 0);
+    const offsetMs = tzShownUtcMs - targetUtcMs;
+
+    return new Date(candidateUtcMs - offsetMs);
+  } catch (err) {
+    console.warn(`[macro] buildInZone(${year},${month},${day},${hour}:${minute},${tz}) failed:`, err);
+    // Fallback: local-time Date (preserves old behavior with a warning)
+    return new Date(year, month, day, hour, minute, 0, 0);
+  }
+}
+
+function getWeekdayInZone(date: Date, tz: string): number {
+  const weekday = getPart(getZonedParts(date, tz), 'weekday');
+  const weekdayMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6
+  };
+  return weekdayMap[weekday] ?? date.getUTCDay();
+}
 
 export interface MacroCalendarEntry {
   name: string;
@@ -105,13 +193,12 @@ export class MacroCalendar {
   }
 
   private loadCalendar(): MacroCalendarEntry[] {
-    const filePath = path.resolve(process.cwd(), 'data', 'macro-calendar.json');
     try {
-      const raw = fs.readFileSync(filePath, 'utf8');
+      const raw = fs.readFileSync(MACRO_CALENDAR_PATH, 'utf8');
       const parsed = JSON.parse(raw) as MacroCalendarEntry[];
       return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
-      console.warn('[macro] failed to load macro-calendar.json:', error);
+      console.warn(`[macro] failed to load macro-calendar.json at ${MACRO_CALENDAR_PATH}:`, error);
       return [];
     }
   }
@@ -119,47 +206,53 @@ export class MacroCalendar {
   private computeNextOccurrence(entry: MacroCalendarEntry, from: Date): Date | null {
     const name = entry.name.toLowerCase();
     if (name.includes('us cpi')) {
-      return this.nextMonthlyDay(from, 13, 14, 30);
+      return this.nextMonthlyDay(from, 13, 8, 30, 'America/New_York');
     }
 
     if (name.includes('us ppi')) {
-      return this.nextMonthlyDay(from, 14, 14, 30);
+      return this.nextMonthlyDay(from, 14, 8, 30, 'America/New_York');
     }
 
     if (name.includes('non-farm payroll')) {
-      return this.nextFirstWeekdayOfMonth(from, 5, 14, 30); // Friday
+      return this.nextFirstWeekdayOfMonth(from, 5, 8, 30, 'America/New_York'); // Friday 8:30 ET
     }
 
     if (name.includes('fomc')) {
-      return this.nextApproximatePolicyDay(from, [1, 3, 5, 6, 7, 9, 11, 12], 3, 20, 0); // Wed
+      return this.nextApproximatePolicyDay(from, [1, 3, 5, 6, 7, 9, 11, 12], 3, 14, 0, 'America/New_York'); // Wed 14:00 ET
     }
 
     if (name.includes('ecb')) {
-      return this.nextApproximatePolicyDay(from, [1, 3, 4, 6, 7, 9, 10, 12], 4, 14, 15); // Thu
+      return this.nextApproximatePolicyDay(from, [1, 3, 4, 6, 7, 9, 10, 12], 4, 14, 15, 'Europe/Frankfurt'); // Thu 14:15 CET
     }
 
     if (name.includes('riksbank')) {
-      return this.nextApproximatePolicyDay(from, [2, 3, 5, 6, 8, 9, 11, 12], 4, 9, 30); // Thu
+      return this.nextApproximatePolicyDay(from, [2, 3, 5, 6, 8, 9, 11, 12], 4, 9, 30, 'Europe/Stockholm'); // Thu 09:30 CET
     }
 
     if (name.includes('opec')) {
-      return this.nextApproximatePolicyDay(from, [3, 6, 9, 12], 3, 14, 0); // Quarterly-ish
+      return this.nextApproximatePolicyDay(from, [3, 6, 9, 12], 3, 14, 0, 'Europe/Vienna'); // Quarterly-ish, Vienna
     }
 
     return null;
   }
 
-  private nextMonthlyDay(from: Date, day: number, hour: number, minute: number): Date {
+  private nextMonthlyDay(
+    from: Date,
+    day: number,
+    hour: number,
+    minute: number,
+    tz = 'America/New_York'
+  ): Date {
     let year = from.getFullYear();
     let month = from.getMonth();
-    let candidate = new Date(year, month, day, hour, minute, 0, 0);
+    let candidate = buildInZone(year, month, day, hour, minute, tz);
     if (candidate.getTime() <= from.getTime()) {
       month += 1;
       if (month > 11) {
         month = 0;
         year += 1;
       }
-      candidate = new Date(year, month, day, hour, minute, 0, 0);
+      candidate = buildInZone(year, month, day, hour, minute, tz);
     }
     return candidate;
   }
@@ -168,12 +261,13 @@ export class MacroCalendar {
     from: Date,
     weekday: number,
     hour: number,
-    minute: number
+    minute: number,
+    tz = 'America/New_York'
   ): Date {
     let year = from.getFullYear();
     let month = from.getMonth();
     for (let i = 0; i < 14; i++) {
-      const candidate = this.firstWeekdayOfMonth(year, month, weekday, hour, minute);
+      const candidate = this.firstWeekdayOfMonth(year, month, weekday, hour, minute, tz);
       if (candidate.getTime() > from.getTime()) {
         return candidate;
       }
@@ -191,13 +285,21 @@ export class MacroCalendar {
     month: number,
     weekday: number,
     hour: number,
-    minute: number
+    minute: number,
+    tz = 'America/New_York'
   ): Date {
-    const date = new Date(year, month, 1, hour, minute, 0, 0);
-    while (date.getDay() !== weekday) {
-      date.setDate(date.getDate() + 1);
+    // Start from the 1st; we need the wall-clock day in the target TZ,
+    // so iterate over UTC epoch values that correspond to that TZ day.
+    let dayOfMonth = 1;
+    while (dayOfMonth <= 7) {
+      const candidate = buildInZone(year, month, dayOfMonth, hour, minute, tz);
+      if (getWeekdayInZone(candidate, tz) === weekday) {
+        return candidate;
+      }
+      dayOfMonth += 1;
     }
-    return date;
+    // Fallback: shouldn't happen
+    return buildInZone(year, month, 1, hour, minute, tz);
   }
 
   private nextApproximatePolicyDay(
@@ -205,14 +307,15 @@ export class MacroCalendar {
     months: number[],
     weekday: number,
     hour: number,
-    minute: number
+    minute: number,
+    tz = 'America/New_York'
   ): Date {
     const normalizedMonths = new Set(months.map(m => m - 1));
     let year = from.getFullYear();
     let month = from.getMonth();
     for (let i = 0; i < 24; i++) {
       if (normalizedMonths.has(month)) {
-        const candidate = this.firstWeekdayOfMonth(year, month, weekday, hour, minute);
+        const candidate = this.firstWeekdayOfMonth(year, month, weekday, hour, minute, tz);
         if (candidate.getTime() > from.getTime()) {
           return candidate;
         }
