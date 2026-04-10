@@ -163,7 +163,15 @@ async function runBinary(
     };
 
     const timer = setTimeout(() => {
-      child.kill();
+      child.kill('SIGTERM');
+      const killTimer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // ignore
+        }
+      }, 2000);
+      child.once('close', () => clearTimeout(killTimer));
       finish(() => reject({ code: 'ETIMEDOUT', message: `timeout after ${timeoutMs}ms` }));
     }, timeoutMs);
 
@@ -198,8 +206,17 @@ async function runBinary(
       finish(() => reject({ code, message }));
     });
 
-    child.stdin.write(prompt);
-    child.stdin.end();
+    void (async () => {
+      try {
+        const accepted = child.stdin.write(prompt);
+        if (!accepted) {
+          await new Promise<void>(resolve => child.stdin.once('drain', () => resolve()));
+        }
+        child.stdin.end();
+      } catch (error) {
+        finish(() => reject(error));
+      }
+    })();
   });
 }
 
