@@ -3,6 +3,9 @@ import { YahooPriceClient, PricePoint } from '../backtest/price-client.js';
 import { estimateExecutionCost } from './execution-feasibility.js';
 import { getAssetTicker } from '../utils/ticker-map.js';
 
+const TP_THRESHOLD_PCT = parseFloat(process.env.PUSH_TP_UNDERLYING_PCT || '1.5');
+const SL_THRESHOLD_PCT = parseFloat(process.env.PUSH_SL_UNDERLYING_PCT || '1.0');
+
 export interface PushOutcome {
   signalId: string;
   assetId: string;
@@ -228,11 +231,11 @@ export class PushOutcomeTracker {
       if (point.movePct < maxAdverse) {
         maxAdverse = point.movePct;
       }
-      if (firstTpMs == null && point.movePct >= 3) {
+      if (firstTpMs == null && point.movePct >= TP_THRESHOLD_PCT) {
         hitTp = true;
         firstTpMs = point.timestampMs;
       }
-      if (firstSlMs == null && point.movePct <= -2) {
+      if (firstSlMs == null && point.movePct <= -SL_THRESHOLD_PCT) {
         hitSl = true;
         firstSlMs = point.timestampMs;
       }
