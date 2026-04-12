@@ -11,8 +11,9 @@
  * Without it, "no qualifying signal" and "broken push pipeline" are
  * indistinguishable during quiet sessions.
  *
- * The synthetic signal is explicitly tagged so cleanup can remove it from
- * outcome tracking and keep real performance stats clean.
+ * The synthetic signal reuses a real tracked market condition_id/slug for
+ * foreign-key integrity. It is tagged with signal_origin='canary' so
+ * downstream analytics and push-outcome tracking exclude it from real stats.
  */
 
 import 'dotenv/config';
@@ -21,6 +22,7 @@ import { randomUUID } from 'crypto';
 const CONFIRM_FLAG = '--confirm';
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const EXPECTED_OUTCOME = 'pushed: all gates passed';
+const TARGET_ASSET_ID = 'oil-equinor';
 
 function usage(exitCode = 1) {
   console.log('Usage: node scripts/test-signal.js --confirm');
@@ -28,12 +30,33 @@ function usage(exitCode = 1) {
   process.exit(exitCode);
 }
 
-function buildSyntheticSignal(id) {
+function findCanaryMarket(db) {
+  const preferred = db.prepare(`
+    SELECT condition_id, slug, title
+    FROM tracked_markets
+    WHERE is_active = TRUE
+      AND matched_asset_ids LIKE ?
+    ORDER BY COALESCE(last_checked_at, discovered_at) DESC, id DESC
+    LIMIT 1
+  `).get(`%${TARGET_ASSET_ID}%`);
+
+  if (preferred) return preferred;
+
+  return db.prepare(`
+    SELECT condition_id, slug, title
+    FROM tracked_markets
+    WHERE is_active = TRUE
+    ORDER BY COALESCE(last_checked_at, discovered_at) DESC, id DESC
+    LIMIT 1
+  `).get();
+}
+
+function buildSyntheticSignal(id, market) {
   return {
     id,
-    signal_origin: 'polymarket',
-    market_condition_id: `canary:${id}`,
-    market_slug: `polysignal-live-push-canary-${id}`,
+    signal_origin: 'canary',
+    market_condition_id: market.condition_id,
+    market_slug: market.slug,
     market_title: 'POLYSIGNAL LIVE-PUSH CANARY - NOT A REAL SIGNAL',
     odds_before: 0.52,
     odds_now: 0.77,
@@ -41,7 +64,7 @@ function buildSyntheticSignal(id) {
     time_window_minutes: 30,
     whale_detected: true,
     whale_amount_usd: 15000,
-    matched_asset_id: 'oil-equinor',
+    matched_asset_id: TARGET_ASSET_ID,
     matched_asset_name: 'Equinor',
     polarity: 'direct',
     suggested_action: 'BULL Equinor (TEST)',
@@ -107,9 +130,17 @@ if (!signalStore || !db || !dispatcher || typeof dispatcher.dispatchBatch !== 'f
 }
 
 const signalId = `canary-${randomUUID()}`;
-const syntheticSignal = buildSyntheticSignal(signalId);
+const market = findCanaryMarket(db);
 
-console.log(`Creating weekly live-push canary ${signalId}...`);
+if (!market) {
+  console.error(`No active tracked markets found. Cannot run canary without a real condition_id for FK integrity.`);
+  scanner.shutdown?.();
+  process.exit(2);
+}
+
+const syntheticSignal = buildSyntheticSignal(signalId, market);
+
+console.log(`Creating weekly live-push canary ${signalId} using tracked market ${market.condition_id} (${market.slug})...`);
 signalStore.insert(syntheticSignal);
 signalStore.updatePushGateOutcome(signalId, 'canary_pending');
 

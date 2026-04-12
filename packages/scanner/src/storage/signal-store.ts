@@ -427,6 +427,7 @@ export class SignalStore {
         stmt.run(channel, id);
         const signal = this.findById(id);
         if (!signal) continue;
+        if (String(signal.signal_origin || '') === 'canary' || signal.status === 'dismissed') continue;
         const executionCost = estimateExecutionCost(signal.matched_asset_id, 3);
         pendingOutcomeStmt.run(
           signal.id,

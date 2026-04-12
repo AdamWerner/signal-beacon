@@ -177,6 +177,31 @@ export class AlertDispatcher {
     if (signals.length === 0) return 0;
 
     const forceMarketOpen = process.env.FORCE_MARKET_OPEN === 'true';
+    const liveCanary = signals.find(signal => this.isLivePushCanary(signal));
+    if (liveCanary) {
+      const DRY_RUN = process.env.DRY_RUN === 'true';
+      if (DRY_RUN) {
+        this.recordGateOutcome(liveCanary.id, 'dry_run_pushable', 'live-push canary would pass');
+        console.log(`[DRY_RUN] Would push live canary: ${liveCanary.id}`);
+        return 1;
+      }
+
+      const sent = await homeAssistant.send(liveCanary);
+      if (!sent) {
+        this.recordGateOutcome(liveCanary.id, 'push_failed', 'home assistant send failed');
+        console.warn(`  HA push attempt failed for live canary (${liveCanary.matched_asset_name})`);
+        return 0;
+      }
+
+      this.recordGateOutcome(liveCanary.id, 'pushed', 'all gates passed');
+      if (this.onSignalsPushed) {
+        this.onSignalsPushed([liveCanary.id], market);
+      }
+      this.pushCountToday += 1;
+      console.log(`  Pushed live canary HA alert (${liveCanary.matched_asset_name} ${liveCanary.confidence}%)`);
+      return 1;
+    }
+
     if (!forceMarketOpen && !isMarketOpen(market)) {
       for (const signal of signals) {
         console.log(`  Brewing signal ${signal.id} (${signal.matched_asset_name} ${signal.confidence}%) - ${market} market closed`);
@@ -286,36 +311,6 @@ export class AlertDispatcher {
     if (dedupedSignals.length === 0) return 0;
 
     for (const candidate of dedupedSignals) {
-      if (this.isLivePushCanary(candidate)) {
-        const DRY_RUN = process.env.DRY_RUN === 'true';
-        if (this.getPushCountToday() >= 5) {
-          this.recordGateOutcome(candidate.id, 'volume_capped', `${this.getPushCountToday()} already pushed today`);
-          console.log(`  [volume-cap] Already pushed ${this.getPushCountToday()} today, skipping canary ${candidate.id}`);
-          continue;
-        }
-
-        if (DRY_RUN) {
-          this.recordGateOutcome(candidate.id, 'dry_run_pushable', 'live-push canary would pass');
-          console.log(`[DRY_RUN] Would push live canary: ${candidate.id}`);
-          return 1;
-        }
-
-        const sent = await homeAssistant.send(candidate);
-        if (!sent) {
-          this.recordGateOutcome(candidate.id, 'push_failed', 'home assistant send failed');
-          console.warn(`  HA push attempt failed for live canary (${candidate.matched_asset_name})`);
-          continue;
-        }
-
-        this.recordGateOutcome(candidate.id, 'pushed', 'all gates passed');
-        if (this.onSignalsPushed) {
-          this.onSignalsPushed([candidate.id], market);
-        }
-        this.pushCountToday += 1;
-        console.log(`  Pushed live canary HA alert (${candidate.matched_asset_name} ${candidate.confidence}%)`);
-        return 1;
-      }
-
       const leverage = candidate.suggested_instruments[0]?.leverage ?? 3;
       const execution = estimateExecutionCost(candidate.matched_asset_id, leverage || 3);
       candidate.reasoning += ` [execution: ${execution.note}]`;
