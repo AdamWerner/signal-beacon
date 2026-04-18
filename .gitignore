@@ -47,3 +47,6 @@ data/policy-optimizer-log.txt
 .tmp/
 temp/
 packages/scanner/src/tweets/strategic-seed.json
+
+# Analysis working documents (ephemeral, never commit)
+data/analysis/
