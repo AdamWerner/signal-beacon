@@ -50,3 +50,4 @@ packages/scanner/src/tweets/strategic-seed.json
 
 # Analysis working documents (ephemeral, never commit)
 data/analysis/
+scripts/audit-queries.js
