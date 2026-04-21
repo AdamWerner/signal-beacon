@@ -12,6 +12,9 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const DB_PATH = process.env.POLYSIGNAL_DB_PATH || path.join(ROOT_DIR, 'data', 'polysignal.db');
 const HEARTBEAT_PATH = process.env.POLYSIGNAL_HEARTBEAT_PATH || path.join(ROOT_DIR, 'data', 'scanner-heartbeat.txt');
 const SCAN_LOG_PATH = process.env.POLYSIGNAL_SCAN_LOG_PATH || path.join(ROOT_DIR, 'data', 'scan-log.txt');
+const ANALYSIS_DIR = process.env.POLYSIGNAL_ANALYSIS_DIR || path.join(ROOT_DIR, 'data', 'analysis');
+const DECISION_ARTIFACT_PATH = path.join(ANALYSIS_DIR, 'SHADOW_DECISION_DAY14.md');
+const DECISION_TEMPLATE_PATH = path.join(ANALYSIS_DIR, 'SHADOW_DECISION_TEMPLATE.md');
 
 function formatNumber(value, digits = 2) {
   if (value == null || Number.isNaN(Number(value))) return 'n/a';
@@ -231,6 +234,92 @@ function printDecisionOnly(report) {
   }
 }
 
+function getDecisionVerdict(slices) {
+  if (slices.some(row => row.decision === 'RE_ENABLE')) return 'RE_ENABLE';
+  if (slices.some(row => row.decision === 'PARTIAL')) return 'PARTIAL';
+  return 'FAIL';
+}
+
+function getWinningSlice(slices) {
+  if (slices.length === 0) return null;
+  return [...slices].sort((a, b) => {
+    const aScore = (a.wilson_95_lb || 0) * Math.log(Math.max(2, a.n));
+    const bScore = (b.wilson_95_lb || 0) * Math.log(Math.max(2, b.n));
+    return bScore - aScore;
+  })[0];
+}
+
+function ensureDecisionTemplate() {
+  fs.mkdirSync(ANALYSIS_DIR, { recursive: true });
+  if (fs.existsSync(DECISION_TEMPLATE_PATH)) return;
+  const template = `# Shadow Decision Day 14 Template
+
+VERDICT: <RE_ENABLE | PARTIAL | FAIL>
+
+## Slice Table
+| origin | band | n | tp_count | tp_rate | wilson_95_lb | mean_mfe | mean_mae | mean_net_mfe | decision |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
+
+## Env Diff
+- RE_ENABLE: PUSH_SHADOW_MODE=false
+- PARTIAL: extend shadow window by 14 more trading days
+- FAIL: write data/analysis/PIVOT_FAILED.md and keep live pushes disabled
+`;
+  fs.writeFileSync(DECISION_TEMPLATE_PATH, template);
+}
+
+function writeDecisionArtifact(report) {
+  ensureDecisionTemplate();
+  const verdict = getDecisionVerdict(report.slices);
+  const winningSlice = getWinningSlice(report.slices);
+  const tableLines = report.slices.length === 0
+    ? ['| (none) | - | 0 | 0 | 0.0% | 0.0% | n/a | n/a | n/a | FAIL |']
+    : report.slices.map(row => {
+      const highlight = verdict === 'RE_ENABLE' &&
+        winningSlice &&
+        row.signal_origin === winningSlice.signal_origin &&
+        row.band === winningSlice.band
+        ? ' <- winning slice'
+        : '';
+      return `| ${row.signal_origin} | ${row.band} | ${row.n} | ${row.tp_count} | ${formatPct(row.tp_rate, 1)} | ${formatPct(row.wilson_95_lb, 1)} | ${formatNumber(row.mean_mfe, 2)} | ${formatNumber(row.mean_mae, 2)} | ${formatNumber(row.mean_net_mfe, 2)} | ${row.decision} |${highlight}`;
+    });
+
+  let envDiff = '';
+  if (verdict === 'RE_ENABLE') {
+    const whitelist = winningSlice ? `${winningSlice.signal_origin}:${winningSlice.band}` : '<origin>:<band>';
+    envDiff = [
+      'PUSH_SHADOW_MODE=false',
+      `# TODO: implement LIVE_PUSH_WHITELIST=${whitelist} before narrowing live re-enable`
+    ].join('\n');
+  } else if (verdict === 'PARTIAL') {
+    envDiff = '# extend shadow window by 14 more trading days';
+  } else {
+    envDiff = [
+      '# keep PUSH_SHADOW_MODE=true',
+      '# write data/analysis/PIVOT_FAILED.md before changing the live path'
+    ].join('\n');
+  }
+
+  const markdown = [
+    `VERDICT: ${verdict}`,
+    '',
+    '## Slice Table',
+    '| origin | band | n | tp_count | tp_rate | wilson_95_lb | mean_mfe | mean_mae | mean_net_mfe | decision |',
+    '|---|---|---:|---:|---:|---:|---:|---:|---:|---|',
+    ...tableLines,
+    '',
+    '## Env Diff',
+    '```bash',
+    envDiff,
+    '```',
+    ''
+  ].join('\n');
+
+  fs.writeFileSync(DECISION_ARTIFACT_PATH, markdown);
+  return { verdict, path: DECISION_ARTIFACT_PATH };
+}
+
 function printFullReport(report) {
   const heartbeat = getHeartbeatAge();
   const logStats = getScanLogStats();
@@ -295,6 +384,10 @@ function main() {
     const report = loadReport(db);
     if (decisionOnly) {
       printDecisionOnly(report);
+      const artifact = writeDecisionArtifact(report);
+      console.log('');
+      console.log(`decision_artifact: ${artifact.path}`);
+      console.log(`decision_verdict: ${artifact.verdict}`);
     } else {
       printFullReport(report);
     }
