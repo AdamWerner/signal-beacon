@@ -569,6 +569,7 @@ Rules:
       FROM push_outcomes
       WHERE asset_id IN (${placeholders})
         AND push_timestamp >= datetime('now', '-3 days')
+        AND COALESCE(is_shadow, 0) = 0
       ORDER BY push_timestamp DESC
     `).all(...assetList) as Array<Record<string, any>>;
 

@@ -55,6 +55,18 @@ const STOCKHOLM_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   day: '2-digit'
 });
 
+const STOCKHOLM_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Stockholm',
+  weekday: 'short',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23'
+});
+
 const WEEKDAY_TO_INDEX: Record<string, number> = {
   Sun: 0,
   Mon: 1,
@@ -84,6 +96,60 @@ export function getStockholmDateStringAt(now = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+function getStockholmDateTimePartsAt(now = new Date()): {
+  year: number;
+  month: number;
+  dayOfMonth: number;
+  hour: number;
+  minute: number;
+  second: number;
+  weekday: number;
+} {
+  const parts = STOCKHOLM_DATE_TIME_FORMATTER.formatToParts(now);
+  const weekday = parts.find(part => part.type === 'weekday')?.value ?? 'Mon';
+  return {
+    year: parseInt(parts.find(part => part.type === 'year')?.value ?? '1970', 10),
+    month: parseInt(parts.find(part => part.type === 'month')?.value ?? '1', 10),
+    dayOfMonth: parseInt(parts.find(part => part.type === 'day')?.value ?? '1', 10),
+    hour: parseInt(parts.find(part => part.type === 'hour')?.value ?? '0', 10),
+    minute: parseInt(parts.find(part => part.type === 'minute')?.value ?? '0', 10),
+    second: parseInt(parts.find(part => part.type === 'second')?.value ?? '0', 10),
+    weekday: WEEKDAY_TO_INDEX[weekday] ?? 1
+  };
+}
+
+function getStockholmOffsetMsAt(now = new Date()): number {
+  const parts = getStockholmDateTimePartsAt(now);
+  const stockholmAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.dayOfMonth,
+    parts.hour,
+    parts.minute,
+    parts.second
+  );
+  return stockholmAsUtc - now.getTime();
+}
+
+function buildStockholmDateTime(year: number, month: number, dayOfMonth: number, hour: number, minute: number): Date {
+  const naiveUtcMs = Date.UTC(year, month - 1, dayOfMonth, hour, minute, 0);
+  const offsetMs = getStockholmOffsetMsAt(new Date(naiveUtcMs));
+  return new Date(naiveUtcMs - offsetMs);
+}
+
+function addUtcDays(year: number, month: number, dayOfMonth: number, days: number): {
+  year: number;
+  month: number;
+  dayOfMonth: number;
+} {
+  const date = new Date(Date.UTC(year, month - 1, dayOfMonth + days, 12, 0, 0));
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    dayOfMonth: date.getUTCDate()
+  };
+}
+
 export function isMarketOpenAt(market: 'swedish' | 'us', now: Date): boolean {
   const { minutes, day } = getStockholmClockPartsAt(now);
   if (day === 0 || day === 6) return false;
@@ -95,6 +161,38 @@ export function isMarketOpenAt(market: 'swedish' | 'us', now: Date): boolean {
 
 export function isMarketOpen(market: 'swedish' | 'us'): boolean {
   return isMarketOpenAt(market, new Date());
+}
+
+export function getNextMarketOpenAt(market: 'swedish' | 'us', now: Date): Date {
+  const parts = getStockholmDateTimePartsAt(now);
+  const cfg = TRADING_HOURS[market];
+  const openMinutes = cfg.open.hour * 60 + cfg.open.minute;
+  const nowMinutes = parts.hour * 60 + parts.minute;
+
+  let offsetDays = 0;
+  if (parts.weekday === 0) {
+    offsetDays = 1;
+  } else if (parts.weekday === 6) {
+    offsetDays = 2;
+  } else if (nowMinutes >= openMinutes) {
+    offsetDays = 1;
+  }
+
+  while (true) {
+    const nextDate = addUtcDays(parts.year, parts.month, parts.dayOfMonth, offsetDays);
+    const candidate = buildStockholmDateTime(
+      nextDate.year,
+      nextDate.month,
+      nextDate.dayOfMonth,
+      cfg.open.hour,
+      cfg.open.minute
+    );
+    const candidateWeekday = getStockholmClockPartsAt(candidate).day;
+    if (candidateWeekday !== 0 && candidateWeekday !== 6) {
+      return candidate;
+    }
+    offsetDays += 1;
+  }
 }
 
 export function isPreMarketWindowAt(market: 'swedish' | 'us', now: Date): boolean {

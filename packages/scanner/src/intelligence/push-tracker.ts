@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { YahooPriceClient, PricePoint } from '../backtest/price-client.js';
 import { estimateExecutionCost } from './execution-feasibility.js';
 import { getAssetTicker } from '../utils/ticker-map.js';
+import { getAssetMarket, getNextMarketOpenAt, isMarketOpenAt } from './trading-hours.js';
 
 const TP_THRESHOLD_PCT = parseFloat(process.env.PUSH_TP_UNDERLYING_PCT || '1.5');
 const SL_THRESHOLD_PCT = parseFloat(process.env.PUSH_SL_UNDERLYING_PCT || '1.0');
@@ -12,6 +13,8 @@ export interface PushOutcome {
   ticker: string;
   direction: 'bull' | 'bear';
   pushTimestamp: string;
+  entryAnchor: 'immediate' | 'next_open';
+  entryAnchorTs: string;
   priceAtPush: number | null;
   priceAt10m: number | null;
   priceAt30m: number | null;
@@ -31,6 +34,7 @@ export interface PushOutcome {
   confidence: number;
   sourceCount: number;
   estimatedRoundTripCostPct: number;
+  evaluationNotes: string | null;
 }
 
 interface PendingPushSignal {
@@ -42,6 +46,20 @@ interface PendingPushSignal {
   confidence: number;
   reasoning: string | null;
   source_count_override: number | null;
+}
+
+interface PendingOutcomeCandidate {
+  signal_id: string;
+  asset_id: string;
+  ticker: string | null;
+  direction: 'bull' | 'bear';
+  push_timestamp: string;
+  shadow_push_at: string | null;
+  signal_origin: string | null;
+  confidence: number | null;
+  source_count: number | null;
+  estimated_round_trip_cost_pct: number | null;
+  is_shadow: number | null;
 }
 
 export function calculateNetMaxFavorable(maxFavorablePct: number, roundTripCostPct: number | null | undefined): number {
@@ -62,6 +80,35 @@ function pickPoint(points: PricePoint[], targetMs: number): PricePoint | null {
     }
   }
   return points[points.length - 1] || null;
+}
+
+function parseStoredTimestamp(raw: string | null | undefined): Date | null {
+  if (!raw) return null;
+  const normalized = raw.includes('T') ? raw : `${raw.replace(' ', 'T')}Z`;
+  const parsed = new Date(normalized);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+export function resolveEntryAnchor(
+  assetId: string,
+  pushTimestamp: string
+): { entryAnchor: 'immediate' | 'next_open'; entryAnchorTs: string } | null {
+  const pushDate = parseStoredTimestamp(pushTimestamp);
+  if (!pushDate) return null;
+
+  const market = getAssetMarket(assetId);
+  if (isMarketOpenAt(market, pushDate)) {
+    return {
+      entryAnchor: 'immediate',
+      entryAnchorTs: pushDate.toISOString()
+    };
+  }
+
+  const nextOpen = getNextMarketOpenAt(market, pushDate);
+  return {
+    entryAnchor: 'next_open',
+    entryAnchorTs: nextOpen.toISOString()
+  };
 }
 
 export class PushOutcomeTracker {
@@ -142,10 +189,12 @@ export class PushOutcomeTracker {
         po.ticker,
         po.direction,
         po.push_timestamp,
+        po.shadow_push_at,
         po.signal_origin,
         po.confidence,
         po.source_count,
-        po.estimated_round_trip_cost_pct
+        po.estimated_round_trip_cost_pct,
+        COALESCE(po.is_shadow, 0) AS is_shadow
       FROM push_outcomes po
       LEFT JOIN signals s
         ON s.id = po.signal_id
@@ -153,24 +202,14 @@ export class PushOutcomeTracker {
         AND COALESCE(po.signal_origin, 'polymarket') <> 'canary'
         AND COALESCE(s.signal_origin, 'polymarket') <> 'canary'
         AND COALESCE(s.status, 'active') <> 'dismissed'
-        AND po.push_timestamp <= datetime('now', '-240 minutes')
-      ORDER BY po.push_timestamp DESC
+      ORDER BY COALESCE(po.shadow_push_at, po.push_timestamp) DESC
       LIMIT ?
-    `).all(limit) as Array<{
-      signal_id: string;
-      asset_id: string;
-      ticker: string | null;
-      direction: 'bull' | 'bear';
-      push_timestamp: string;
-      signal_origin: string | null;
-      confidence: number | null;
-      source_count: number | null;
-      estimated_round_trip_cost_pct: number | null;
-    }>;
+    `).all(limit) as PendingOutcomeCandidate[];
 
     let evaluated = 0;
+    const readyCandidates = candidates.filter(candidate => this.isCandidateReady(candidate));
 
-    for (const candidate of candidates) {
+    for (const candidate of readyCandidates) {
       const outcome = await this.evaluateSingle(candidate);
       if (!outcome) continue;
       this.persistEvaluatedOutcome(outcome);
@@ -180,33 +219,34 @@ export class PushOutcomeTracker {
     return { created, evaluated };
   }
 
-  private async evaluateSingle(candidate: {
-    signal_id: string;
-    asset_id: string;
-    ticker: string | null;
-    direction: 'bull' | 'bear';
-    push_timestamp: string;
-    signal_origin: string | null;
-    confidence: number | null;
-    source_count: number | null;
-    estimated_round_trip_cost_pct: number | null;
-  }): Promise<PushOutcome | null> {
+  private async evaluateSingle(candidate: PendingOutcomeCandidate): Promise<PushOutcome | null> {
     const ticker = candidate.ticker || getAssetTicker(candidate.asset_id);
     if (!ticker) return null;
 
-    const pushMs = new Date(candidate.push_timestamp.replace(' ', 'T') + 'Z').getTime();
-    if (!Number.isFinite(pushMs)) return null;
+    const pushedAt = candidate.is_shadow ? (candidate.shadow_push_at || candidate.push_timestamp) : candidate.push_timestamp;
+    const anchor = resolveEntryAnchor(candidate.asset_id, pushedAt);
+    if (!anchor) return null;
 
-    const endMs = pushMs + (240 * 60 * 1000);
-    const points = await this.priceClient.getSeries(ticker, pushMs, endMs);
-    if (points.length < 3) return null;
+    const pushDate = parseStoredTimestamp(candidate.push_timestamp);
+    const anchorDate = parseStoredTimestamp(anchor.entryAnchorTs);
+    if (!pushDate || !anchorDate) return null;
+    const pushMs = pushDate.getTime();
+    const anchorMs = anchorDate.getTime();
 
-    const entryPoint = pickPoint(points, pushMs);
-    if (!entryPoint || entryPoint.close <= 0) return null;
+    const endMs = anchorMs + (240 * 60 * 1000);
+    const points = await this.priceClient.getSeries(ticker, anchorMs, endMs);
+    if (points.length < 3) {
+      return this.buildNoBarsOutcome(candidate, ticker, pushMs, anchor);
+    }
+
+    const entryPoint = pickPoint(points, anchorMs);
+    if (!entryPoint || entryPoint.close <= 0) {
+      return this.buildNoBarsOutcome(candidate, ticker, pushMs, anchor);
+    }
 
     const direction = candidate.direction;
     const directionalPoints = points
-      .filter(point => point.timestampMs >= pushMs && point.close > 0)
+      .filter(point => point.timestampMs >= anchorMs && point.close > 0)
       .map(point => ({
         ...point,
         movePct: directionalMovePct(entryPoint.close, point.close, direction)
@@ -226,7 +266,7 @@ export class PushOutcomeTracker {
     for (const point of directionalPoints) {
       if (point.movePct > maxFavorable) {
         maxFavorable = point.movePct;
-        timeToPeakMinutes = (point.timestampMs - pushMs) / 60000;
+        timeToPeakMinutes = (point.timestampMs - anchorMs) / 60000;
       }
       if (point.movePct < maxAdverse) {
         maxAdverse = point.movePct;
@@ -246,7 +286,7 @@ export class PushOutcomeTracker {
     }
 
     // Directional accuracy: price moved in the right direction within 60 minutes
-    const price60m = this.getPriceAt(points, pushMs, 60);
+    const price60m = this.getPriceAt(points, anchorMs, 60);
     const directionallyAccurate = price60m !== null && entryPoint.close > 0
       ? direction === 'bull'
         ? price60m > entryPoint.close
@@ -261,13 +301,15 @@ export class PushOutcomeTracker {
       ticker,
       direction,
       pushTimestamp: new Date(pushMs).toISOString(),
+      entryAnchor: anchor.entryAnchor,
+      entryAnchorTs: anchor.entryAnchorTs,
       priceAtPush: entryPoint.close,
-      priceAt10m: this.getPriceAt(points, pushMs, 10),
-      priceAt30m: this.getPriceAt(points, pushMs, 30),
+      priceAt10m: this.getPriceAt(points, anchorMs, 10),
+      priceAt30m: this.getPriceAt(points, anchorMs, 30),
       priceAt60m: price60m,
-      priceAt120m: this.getPriceAt(points, pushMs, 120),
-      priceAt180m: this.getPriceAt(points, pushMs, 180),
-      priceAt240m: this.getPriceAt(points, pushMs, 240),
+      priceAt120m: this.getPriceAt(points, anchorMs, 120),
+      priceAt180m: this.getPriceAt(points, anchorMs, 180),
+      priceAt240m: this.getPriceAt(points, anchorMs, 240),
       hitTp,
       hitSl,
       tpFirst,
@@ -279,7 +321,47 @@ export class PushOutcomeTracker {
       signalOrigin: candidate.signal_origin || 'polymarket',
       confidence: candidate.confidence || 0,
       sourceCount: candidate.source_count || 1,
-      estimatedRoundTripCostPct
+      estimatedRoundTripCostPct,
+      evaluationNotes: null
+    };
+  }
+
+  private buildNoBarsOutcome(
+    candidate: PendingOutcomeCandidate,
+    ticker: string,
+    pushMs: number,
+    anchor: { entryAnchor: 'immediate' | 'next_open'; entryAnchorTs: string }
+  ): PushOutcome {
+    const estimatedRoundTripCostPct =
+      candidate.estimated_round_trip_cost_pct ?? estimateExecutionCost(candidate.asset_id, 3).roundTripCostPct;
+    return {
+      signalId: candidate.signal_id,
+      assetId: candidate.asset_id,
+      ticker,
+      direction: candidate.direction,
+      pushTimestamp: new Date(pushMs).toISOString(),
+      entryAnchor: anchor.entryAnchor,
+      entryAnchorTs: anchor.entryAnchorTs,
+      priceAtPush: null,
+      priceAt10m: null,
+      priceAt30m: null,
+      priceAt60m: null,
+      priceAt120m: null,
+      priceAt180m: null,
+      priceAt240m: null,
+      hitTp: false,
+      hitSl: false,
+      tpFirst: false,
+      maxFavorable: 0,
+      netMaxFavorable: 0,
+      maxAdverse: 0,
+      timeToPeakMinutes: 0,
+      directionallyAccurate: false,
+      signalOrigin: candidate.signal_origin || 'polymarket',
+      confidence: candidate.confidence || 0,
+      sourceCount: candidate.source_count || 1,
+      estimatedRoundTripCostPct,
+      evaluationNotes: 'no_bars'
     };
   }
 
@@ -291,6 +373,8 @@ export class PushOutcomeTracker {
           signal_origin = ?,
           confidence = ?,
           source_count = ?,
+          entry_anchor = ?,
+          entry_anchor_ts = ?,
           price_at_push = ?,
           price_at_10m = ?,
           price_at_30m = ?,
@@ -307,6 +391,7 @@ export class PushOutcomeTracker {
           time_to_peak_minutes = ?,
           directionally_accurate = ?,
           estimated_round_trip_cost_pct = ?,
+          evaluation_notes = ?,
           evaluated_at = datetime('now')
       WHERE signal_id = ?
     `).run(
@@ -315,6 +400,8 @@ export class PushOutcomeTracker {
       outcome.signalOrigin,
       outcome.confidence,
       outcome.sourceCount,
+      outcome.entryAnchor,
+      outcome.entryAnchorTs.replace('T', ' ').replace('Z', ''),
       outcome.priceAtPush,
       outcome.priceAt10m,
       outcome.priceAt30m,
@@ -331,6 +418,7 @@ export class PushOutcomeTracker {
       outcome.timeToPeakMinutes,
       outcome.directionallyAccurate ? 1 : 0,
       outcome.estimatedRoundTripCostPct,
+      outcome.evaluationNotes,
       outcome.signalId
     );
   }
@@ -350,5 +438,14 @@ export class PushOutcomeTracker {
     }
     if (signalOrigin === 'hybrid') return 2;
     return signalOrigin === 'catalyst_convergence' ? 2 : 1;
+  }
+
+  private isCandidateReady(candidate: PendingOutcomeCandidate): boolean {
+    const pushedAt = candidate.is_shadow ? (candidate.shadow_push_at || candidate.push_timestamp) : candidate.push_timestamp;
+    const anchor = resolveEntryAnchor(candidate.asset_id, pushedAt);
+    if (!anchor) return false;
+    const anchorDate = parseStoredTimestamp(anchor.entryAnchorTs);
+    if (!anchorDate) return false;
+    return anchorDate.getTime() + (240 * 60 * 1000) <= Date.now();
   }
 }

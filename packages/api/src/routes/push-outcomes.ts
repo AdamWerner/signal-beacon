@@ -45,6 +45,7 @@ router.get('/', (req, res) => {
       LEFT JOIN signals s
         ON s.id = po.signal_id
       WHERE push_timestamp >= datetime('now', '-' || ? || ' days')
+        AND COALESCE(po.is_shadow, 0) = 0
       ORDER BY push_timestamp DESC
     `).all(days) as OutcomeRow[];
 

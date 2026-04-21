@@ -226,6 +226,12 @@ function runMigrations(db: Database.Database): void {
     `ALTER TABLE push_outcomes ADD COLUMN directionally_accurate INTEGER DEFAULT 0`,
     `ALTER TABLE push_outcomes ADD COLUMN net_max_favorable_pct REAL`,
     `ALTER TABLE push_outcomes ADD COLUMN estimated_round_trip_cost_pct REAL`,
+    `ALTER TABLE push_outcomes ADD COLUMN is_shadow INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE push_outcomes ADD COLUMN shadow_push_at TEXT`,
+    `ALTER TABLE push_outcomes ADD COLUMN shadow_bypassed_gates TEXT`,
+    `ALTER TABLE push_outcomes ADD COLUMN entry_anchor TEXT`,
+    `ALTER TABLE push_outcomes ADD COLUMN entry_anchor_ts TEXT`,
+    `ALTER TABLE push_outcomes ADD COLUMN evaluation_notes TEXT`,
     `ALTER TABLE signals ADD COLUMN confirming_source_families TEXT`,
     `ALTER TABLE signals ADD COLUMN source_count_override INTEGER`,
   ]) {
@@ -1123,6 +1129,12 @@ function createTables(db: Database.Database): void {
       time_to_peak_minutes REAL,
       directionally_accurate INTEGER DEFAULT 0,
       estimated_round_trip_cost_pct REAL,
+      is_shadow INTEGER NOT NULL DEFAULT 0,
+      shadow_push_at TEXT,
+      shadow_bypassed_gates TEXT,
+      entry_anchor TEXT,
+      entry_anchor_ts TEXT,
+      evaluation_notes TEXT,
       evaluated_at TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
@@ -1431,6 +1443,9 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_push_outcomes_asset
     ON push_outcomes(asset_id, push_timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_po_shadow
+    ON push_outcomes(is_shadow, evaluated_at);
 
     CREATE INDEX IF NOT EXISTS idx_push_perf_gate
     ON asset_push_performance(gate, reliability_score DESC, samples DESC);
