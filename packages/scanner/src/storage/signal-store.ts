@@ -84,6 +84,8 @@ export interface InsertSignal {
 }
 
 export class SignalStore {
+  private warnedMissingShadowPushColumns = false;
+
   constructor(private db: Database.Database) {}
 
   insert(signal: InsertSignal): void {
@@ -443,6 +445,58 @@ export class SignalStore {
     });
 
     tx(signalIds);
+  }
+
+  recordShadowPush(
+    signalId: string,
+    meta: { shadowBypassedGates: string[]; pushGateOutcome: string }
+  ): void {
+    this.updatePushGateOutcome(signalId, meta.pushGateOutcome);
+
+    const signal = this.findById(signalId);
+    if (!signal) return;
+    if (String(signal.signal_origin || '') === 'canary' || signal.status === 'dismissed') return;
+
+    const executionCost = estimateExecutionCost(signal.matched_asset_id, 3);
+
+    try {
+      this.db.prepare(`
+        INSERT OR IGNORE INTO push_outcomes (
+          signal_id,
+          asset_id,
+          ticker,
+          direction,
+          push_timestamp,
+          signal_origin,
+          confidence,
+          source_count,
+          estimated_round_trip_cost_pct,
+          is_shadow,
+          shadow_push_at,
+          shadow_bypassed_gates
+        )
+        VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, 1, datetime('now'), ?)
+      `).run(
+        signal.id,
+        signal.matched_asset_id,
+        getAssetTicker(signal.matched_asset_id),
+        signal.suggested_action.toLowerCase().includes('bull') ? 'bull' : 'bear',
+        signal.signal_origin || 'polymarket',
+        signal.confidence ?? 0,
+        this.estimateSourceCount(signal),
+        executionCost.roundTripCostPct,
+        JSON.stringify(meta.shadowBypassedGates || [])
+      );
+    } catch (error) {
+      if (!this.warnedMissingShadowPushColumns) {
+        this.warnedMissingShadowPushColumns = true;
+        console.warn(
+          '[shadow] push_outcomes shadow columns unavailable yet; ' +
+          'recorded push_gate_outcome only until Section 2 migration runs.',
+          error
+        );
+      }
+    }
   }
 
   updatePushGateOutcome(signalId: string, outcome: string): void {

@@ -8,6 +8,48 @@ import { estimateExecutionCost } from '../intelligence/execution-feasibility.js'
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 import { shouldDoDeepVerify } from '../utils/ai-budget.js';
 
+const DEFAULT_SHADOW_BYPASS_GATES = 'market_closed,volume_cap,quiet_day,evidence_score';
+
+function isShadowMode(): boolean {
+  return process.env.PUSH_SHADOW_MODE === 'true';
+}
+
+function hasShadowCanaryOverride(): boolean {
+  return process.env.SHADOW_CANARY_OVERRIDE === 'true';
+}
+
+function getShadowBypassGates(): Set<string> {
+  // Phase 1 audit: market_closed was the dominant gate outcome, and widening
+  // shadow mode through operational gates is required to reach n>=20 per slice.
+  const raw = process.env.SHADOW_BYPASS_GATES || DEFAULT_SHADOW_BYPASS_GATES;
+  return new Set(
+    raw
+      .split(',')
+      .map(value => value.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function normalizeShadowGateName(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  if (normalized === 'volume_capped') return 'volume_cap';
+  if (normalized === 'evidence') return 'evidence_score';
+  return normalized;
+}
+
+function recordShadowBypassedGate(
+  signal: GeneratedSignal & { shadow_bypassed_gates?: string[] },
+  gate: string
+): void {
+  const canonicalGate = normalizeShadowGateName(gate);
+  if (!signal.shadow_bypassed_gates) {
+    signal.shadow_bypassed_gates = [];
+  }
+  if (!signal.shadow_bypassed_gates.includes(canonicalGate)) {
+    signal.shadow_bypassed_gates.push(canonicalGate);
+  }
+}
+
 /** Exported for unit-testing. Returns the set of source families on a signal. */
 export function extractCatalystSourceFamilies(signal: Pick<GeneratedSignal, 'confirming_source_families'>): Set<string> {
   const families = signal.confirming_source_families;
@@ -92,7 +134,8 @@ export class AlertDispatcher {
       skippedEvidence: 0,
       skippedDeepVerify: 0,
       pushed: 0,
-      brewedClosed: 0
+      brewedClosed: 0,
+      shadowWouldPush: 0
     };
 
     for (const signal of signals) {
@@ -147,7 +190,8 @@ export class AlertDispatcher {
       `verify=${diagnostics.skippedVerification}, thresholds=${diagnostics.skippedThresholds}, ` +
       `execution=${diagnostics.skippedExecution}, quality=${diagnostics.skippedQuality}, replay=${diagnostics.skippedReplay}, ` +
       `whipsaw=${diagnostics.skippedWhipsaw}, policy=${diagnostics.skippedPolicy}, ` +
-      `evidence=${diagnostics.skippedEvidence}, deep=${diagnostics.skippedDeepVerify}]`
+      `evidence=${diagnostics.skippedEvidence}, deep=${diagnostics.skippedDeepVerify}, ` +
+      `wouldPush=${diagnostics.shadowWouldPush}]`
     );
 
     return { pushedSwedish, pushedUs, brewed };
@@ -170,6 +214,7 @@ export class AlertDispatcher {
       skippedEvidence: number;
       skippedDeepVerify: number;
       brewedClosed: number;
+      shadowWouldPush: number;
     }
   ): Promise<number> {
     const homeAssistant = this.homeAssistant;
@@ -177,6 +222,8 @@ export class AlertDispatcher {
     if (signals.length === 0) return 0;
 
     const forceMarketOpen = process.env.FORCE_MARKET_OPEN === 'true';
+    const shadowSuppressHa = isShadowMode() && !hasShadowCanaryOverride();
+    const shadowBypassGates = getShadowBypassGates();
     const liveCanary = signals.find(signal => this.isLivePushCanary(signal));
     if (liveCanary) {
       const DRY_RUN = process.env.DRY_RUN === 'true';
@@ -184,6 +231,12 @@ export class AlertDispatcher {
         this.recordGateOutcome(liveCanary.id, 'dry_run_pushable', 'live-push canary would pass');
         console.log(`[DRY_RUN] Would push live canary: ${liveCanary.id}`);
         return 1;
+      }
+
+      if (shadowSuppressHa) {
+        this.recordGateOutcome(liveCanary.id, 'shadow_suppressed', 'canary requires SHADOW_CANARY_OVERRIDE=true');
+        console.warn('  Shadow mode suppressed live canary without SHADOW_CANARY_OVERRIDE=true');
+        return 0;
       }
 
       const sent = await homeAssistant.send(liveCanary);
@@ -203,12 +256,18 @@ export class AlertDispatcher {
     }
 
     if (!forceMarketOpen && !isMarketOpen(market)) {
-      for (const signal of signals) {
-        console.log(`  Brewing signal ${signal.id} (${signal.matched_asset_name} ${signal.confidence}%) - ${market} market closed`);
-        this.recordGateOutcome(signal.id, 'market_closed', `${market} market closed`);
+      if (shadowSuppressHa && shadowBypassGates.has('market_closed')) {
+        for (const signal of signals) {
+          recordShadowBypassedGate(signal as GeneratedSignal & { shadow_bypassed_gates?: string[] }, 'market_closed');
+        }
+      } else {
+        for (const signal of signals) {
+          console.log(`  Brewing signal ${signal.id} (${signal.matched_asset_name} ${signal.confidence}%) - ${market} market closed`);
+          this.recordGateOutcome(signal.id, 'market_closed', `${market} market closed`);
+        }
+        diagnostics.brewedClosed += signals.length;
+        return 0;
       }
-      diagnostics.brewedClosed += signals.length;
-      return 0;
     }
 
     const policy = this.signalStore?.getPushPolicyConfig(market);
@@ -363,10 +422,14 @@ export class AlertDispatcher {
         policyMinEvidenceScore
       );
       if (!evidenceGate.allowed) {
-        diagnostics.skippedEvidence += 1;
-        this.recordGateOutcome(candidate.id, 'evidence', evidenceGate.reason);
-        console.log(`  Skip push ${candidate.id} evidence gate: ${evidenceGate.reason}`);
-        continue;
+        if (shadowSuppressHa && shadowBypassGates.has('evidence_score')) {
+          recordShadowBypassedGate(candidate as GeneratedSignal & { shadow_bypassed_gates?: string[] }, 'evidence_score');
+        } else {
+          diagnostics.skippedEvidence += 1;
+          this.recordGateOutcome(candidate.id, 'evidence', evidenceGate.reason);
+          console.log(`  Skip push ${candidate.id} evidence gate: ${evidenceGate.reason}`);
+          continue;
+        }
       }
 
       // Final deep verification — one Claude call with full context, only fires when about to push
@@ -388,9 +451,23 @@ export class AlertDispatcher {
 
       const DRY_RUN = process.env.DRY_RUN === 'true';
       if (this.getPushCountToday() >= 5) {
-        this.recordGateOutcome(candidate.id, 'volume_capped', `${this.getPushCountToday()} already pushed today`);
-        console.log(`  [volume-cap] Already pushed ${this.getPushCountToday()} today, skipping ${candidate.id}`);
-        continue;
+        if (shadowSuppressHa && shadowBypassGates.has('volume_cap')) {
+          recordShadowBypassedGate(candidate as GeneratedSignal & { shadow_bypassed_gates?: string[] }, 'volume_cap');
+        } else {
+          this.recordGateOutcome(candidate.id, 'volume_capped', `${this.getPushCountToday()} already pushed today`);
+          console.log(`  [volume-cap] Already pushed ${this.getPushCountToday()} today, skipping ${candidate.id}`);
+          continue;
+        }
+      }
+
+      if (shadowSuppressHa) {
+        this.signalStore?.recordShadowPush(candidate.id, {
+          shadowBypassedGates: (candidate as GeneratedSignal & { shadow_bypassed_gates?: string[] }).shadow_bypassed_gates || [],
+          pushGateOutcome: 'shadow_push: all gates passed, HA suppressed'
+        });
+        diagnostics.shadowWouldPush += 1;
+        console.log(`  [shadow] Would push ${candidate.id} (${candidate.matched_asset_name}) but HA is suppressed`);
+        return 0;
       }
 
       if (DRY_RUN) {

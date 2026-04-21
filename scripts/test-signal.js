@@ -117,6 +117,8 @@ if (process.env.DRY_RUN === 'true') {
 }
 
 process.env.AI_BUDGET_MODE_OVERRIDE = process.env.AI_BUDGET_MODE_OVERRIDE || 'dormant';
+process.env.SHADOW_CANARY_OVERRIDE = 'true';
+console.log('[canary] SHADOW_CANARY_OVERRIDE=true — live HA send expected');
 
 const { scanner } = await import('@polysignal/scanner');
 const services = scanner.getServices();
