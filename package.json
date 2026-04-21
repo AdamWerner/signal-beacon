@@ -28,7 +28,9 @@
     "self-improve": "node scripts/self-improve.js",
     "system-test": "node scripts/system-test.js",
     "smoke:push": "node scripts/smoke-push.js",
-    "canary:push": "node scripts/test-signal.js"
+    "canary:push": "node scripts/test-signal.js",
+    "shadow:report": "node scripts/shadow-report.js",
+    "shadow:decision": "node scripts/shadow-report.js --decision"
   },
   "devDependencies": {
     "tsx": "^4.19.2",
