@@ -242,6 +242,15 @@ function runMigrations(db: Database.Database): void {
     }
   }
 
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_po_shadow
+      ON push_outcomes(is_shadow, evaluated_at)
+    `);
+  } catch {
+    // push_outcomes or shadow columns may not exist on very old schema revisions yet
+  }
+
   // Cap historical signals at 92 (retroactive one-time correction)
   try {
     db.exec(`UPDATE signals SET confidence = 92 WHERE confidence > 92`);
@@ -1443,9 +1452,6 @@ function createTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_push_outcomes_asset
     ON push_outcomes(asset_id, push_timestamp DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_po_shadow
-    ON push_outcomes(is_shadow, evaluated_at);
 
     CREATE INDEX IF NOT EXISTS idx_push_perf_gate
     ON asset_push_performance(gate, reliability_score DESC, samples DESC);
