@@ -32,6 +32,22 @@ describe('local AI CLI provider selection', () => {
     expect(getLocalAiCandidates().length).toBeGreaterThan(0);
   });
 
+  it('uses Windows-safe Claude candidates on win32', () => {
+    delete process.env.LOCAL_AI_PROVIDER;
+    delete process.env.LOCAL_AI_BINARY;
+
+    if (process.platform !== 'win32') {
+      expect(getLocalAiCandidates()).not.toContain('claude.cmd');
+      return;
+    }
+
+    const candidates = getLocalAiCandidates();
+    expect(candidates).toContain('claude.cmd');
+    expect(candidates).toContain('C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd');
+    expect(candidates).not.toContain('claude');
+    expect(candidates).not.toContain('C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude');
+  });
+
   it('refuses openai mode without an explicit headless binary', () => {
     process.env.LOCAL_AI_PROVIDER = 'openai';
     delete process.env.LOCAL_AI_BINARY;

@@ -19,16 +19,21 @@ export interface LocalAiPromptResult {
   disabledReason?: string;
 }
 
-const CLAUDE_CANDIDATES = [
-  'claude',
-  'claude.cmd',
-  'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude',
+const WINDOWS_CLAUDE_CANDIDATES = [
   'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.cmd',
+  'claude.cmd',
+  'C:\\Users\\Adam\\AppData\\Roaming\\npm\\claude.exe',
+  'claude.exe'
+];
+
+const POSIX_CLAUDE_CANDIDATES = [
+  'claude',
   '/usr/local/bin/claude',
   '/usr/bin/claude'
 ];
 
 const providerCooldowns = new Map<LocalAiProvider, { until: number; reason: string }>();
+const loggedWorkingBinaries = new Set<string>();
 
 function getProviderFromEnv(): LocalAiProvider {
   return (process.env.LOCAL_AI_PROVIDER || 'claude').toLowerCase() === 'openai'
@@ -60,9 +65,9 @@ export function getLocalAiCandidates(provider = getProviderFromEnv()): string[] 
 
   if (provider === 'claude') {
     if (process.platform === 'win32') {
-      return CLAUDE_CANDIDATES.filter(candidate => !candidate.startsWith('/'));
+      return WINDOWS_CLAUDE_CANDIDATES;
     }
-    return CLAUDE_CANDIDATES.filter(candidate => !candidate.includes(':\\'));
+    return POSIX_CLAUDE_CANDIDATES;
   }
 
   // OpenAI local mode is intentionally opt-in via LOCAL_AI_BINARY so we never
@@ -277,6 +282,10 @@ export async function runLocalAiPrompt(
   for (const binary of candidates) {
     try {
       const { stdout } = await runBinary(binary, prompt, timeoutMs, maxBufferBytes);
+      if (!loggedWorkingBinaries.has(`${provider}:${binary}`)) {
+        loggedWorkingBinaries.add(`${provider}:${binary}`);
+        console.info(`[ai-cli:${provider}] using binary: ${binary}`);
+      }
       return {
         ok: true,
         provider,
