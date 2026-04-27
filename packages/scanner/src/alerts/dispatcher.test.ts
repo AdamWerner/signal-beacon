@@ -233,6 +233,31 @@ describe('AlertDispatcher shadow mode', () => {
     expect(sendMock).not.toHaveBeenCalled();
   });
 
+  it('bypasses execution_feasibility in shadow mode and records the canonical bypass name', async () => {
+    process.env.PUSH_SHADOW_MODE = 'true';
+    const { dispatcher, signalStore } = createDispatcher();
+    estimateExecutionCostMock.mockReturnValue({
+      feasible: false,
+      note: 'Spread ~1.0%, round-trip ~2.0% - EXPENSIVE, consider skipping',
+      roundTripCostPct: 0.02
+    });
+
+    await dispatcher.dispatchBatch([buildSignal()]);
+
+    expect(signalStore.recordShadowPush).toHaveBeenCalledTimes(1);
+    expect(signalStore.recordShadowPush).toHaveBeenCalledWith(
+      'signal-1',
+      expect.objectContaining({
+        shadowBypassedGates: ['execution_feasibility']
+      })
+    );
+    expect(signalStore.updatePushGateOutcome).not.toHaveBeenCalledWith(
+      'signal-1',
+      expect.stringContaining('execution:')
+    );
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
   it('still rejects low-confidence signals in shadow mode', async () => {
     process.env.PUSH_SHADOW_MODE = 'true';
     const { dispatcher, signalStore } = createDispatcher({ market: 'us' });
@@ -249,6 +274,27 @@ describe('AlertDispatcher shadow mode', () => {
     expect(signalStore.updatePushGateOutcome).toHaveBeenCalledWith(
       'signal-low',
       expect.stringContaining('thresholds:')
+    );
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('still rejects deep-verify failures in shadow mode', async () => {
+    process.env.PUSH_SHADOW_MODE = 'true';
+    const { dispatcher, signalStore } = createDispatcher();
+    (dispatcher as any).deepVerify = vi.fn(async () => ({
+      verdict: 'reject',
+      confidence_adjustment: 0,
+      reason: 'stale thesis',
+      flags: []
+    }));
+
+    const result = await dispatcher.dispatchBatch([buildSignal()]);
+
+    expect(result).toEqual({ pushedSwedish: 0, pushedUs: 0, brewed: 0 });
+    expect(signalStore.recordShadowPush).not.toHaveBeenCalled();
+    expect(signalStore.updatePushGateOutcome).toHaveBeenCalledWith(
+      'signal-1',
+      'deep_verify_reject: stale thesis'
     );
     expect(sendMock).not.toHaveBeenCalled();
   });

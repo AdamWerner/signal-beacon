@@ -8,7 +8,7 @@ import { estimateExecutionCost } from '../intelligence/execution-feasibility.js'
 import { runLocalAiPrompt } from '../utils/local-ai-cli.js';
 import { shouldDoDeepVerify } from '../utils/ai-budget.js';
 
-const DEFAULT_SHADOW_BYPASS_GATES = 'market_closed,volume_cap,quiet_day,evidence_score';
+const DEFAULT_SHADOW_BYPASS_GATES = 'market_closed,volume_cap,quiet_day,evidence_score,execution_feasibility';
 
 function isShadowMode(): boolean {
   return process.env.PUSH_SHADOW_MODE === 'true';
@@ -19,8 +19,11 @@ function hasShadowCanaryOverride(): boolean {
 }
 
 function getShadowBypassGates(): Set<string> {
-  // Phase 1 audit: market_closed was the dominant gate outcome, and widening
-  // shadow mode through operational gates is required to reach n>=20 per slice.
+  // Shadow-mode bypass list. execution_feasibility added 2026-04-24 after
+  // diagnostic query showed it killing ~48 high-confidence signals (incl.
+  // conf=92 NVIDIA) on day 1, preventing any shadow rows from accumulating.
+  // Cost is still computed and stored; net_max_favorable_pct applies cost at
+  // evaluation time. Live-mode gating unchanged.
   const raw = process.env.SHADOW_BYPASS_GATES || DEFAULT_SHADOW_BYPASS_GATES;
   return new Set(
     raw
@@ -34,6 +37,7 @@ function normalizeShadowGateName(name: string): string {
   const normalized = name.trim().toLowerCase();
   if (normalized === 'volume_capped') return 'volume_cap';
   if (normalized === 'evidence') return 'evidence_score';
+  if (normalized === 'execution') return 'execution_feasibility';
   return normalized;
 }
 
@@ -376,6 +380,8 @@ export class AlertDispatcher {
       if (!execution.feasible) {
         if (this.isCatalystExecutionOverrideEligible(candidate, execution.roundTripCostPct, maxCatalystExecutionPct)) {
           candidate.reasoning += ` [execution:catalyst_override ${(execution.roundTripCostPct * 100).toFixed(1)}%<=${(maxCatalystExecutionPct * 100).toFixed(1)}%]`;
+        } else if (shadowSuppressHa && shadowBypassGates.has('execution_feasibility')) {
+          recordShadowBypassedGate(candidate as GeneratedSignal & { shadow_bypassed_gates?: string[] }, 'execution');
         } else {
           diagnostics.skippedExecution += 1;
           this.recordGateOutcome(candidate.id, 'execution', execution.note);
